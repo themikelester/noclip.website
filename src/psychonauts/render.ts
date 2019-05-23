@@ -80,8 +80,8 @@ export class PsychonautsTextureHolder extends TextureHolder<PPAK_Texture> {
     }
 }
 
-// @ts-ignore
-import { readFileSync } from 'fs';
+//@ts-ignore
+import program_glsl from 'raw-loader!./program.glsl';
 
 class PsychonautsProgram extends DeviceProgram {
     public static a_Position = 0;
@@ -91,7 +91,7 @@ class PsychonautsProgram extends DeviceProgram {
     public static ub_SceneParams = 0;
     public static ub_MeshFragParams = 1;
 
-    private static program = readFileSync('src/psychonauts/program.glsl', { encoding: 'utf8' });
+    private static program = program_glsl;
     public static programReflection: DeviceProgramReflection = DeviceProgram.parseReflectionDefinitions(PsychonautsProgram.program);
     public both = PsychonautsProgram.program;
 }

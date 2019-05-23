@@ -3,10 +3,8 @@ import * as BinTex from './bin_tex';
 import * as UI from '../ui';
 import * as Viewer from '../viewer';
 
-// @ts-ignore
-import { readFileSync } from 'fs';
 import { BasicRenderTarget, depthClearRenderPassDescriptor, transparentBlackFullClearRenderPassDescriptor } from '../gfx/helpers/RenderTargetHelpers';
-import { DeviceProgram, DeviceProgramReflection, ProgramCache } from "../Program";
+import { DeviceProgram, DeviceProgramReflection } from "../Program";
 import { fillMatrix4x3, fillMatrix4x4 } from '../gfx/helpers/UniformBufferHelpers';
 import { GfxBindingLayoutDescriptor, GfxBlendFactor, GfxBlendMode, GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxCompareMode, GfxCullMode, GfxDevice, GfxFormat, GfxHostAccessPass, GfxInputLayout, GfxInputState, GfxMipFilterMode, GfxRenderPass, GfxSampler, GfxTexFilterMode, GfxTexture, GfxTextureDimension, GfxVertexAttributeDescriptor, GfxVertexAttributeFrequency, GfxWrapMode } from '../gfx/platform/GfxPlatform';
 import { GfxRenderInst, GfxRenderInstBuilder, GfxRenderInstViewRenderer } from '../gfx/render/GfxRenderer';
@@ -34,6 +32,9 @@ export function textureToCanvas(texture: BinTex.Texture): Viewer.Texture {
     return { name: name, surfaces, extraInfo };
 }
 
+//@ts-ignore
+import program_glsl from 'raw-loader!./program.glsl';
+
 class KingdomHeartsProgram extends DeviceProgram {
     public static a_Position = 0;
     public static a_Color = 1;
@@ -46,7 +47,7 @@ class KingdomHeartsProgram extends DeviceProgram {
     public static ub_SceneParams = 0;
     public static ub_DrawParams = 1;
 
-    private static program = readFileSync('src/kh/program.glsl', { encoding: 'utf8' });
+    private static program = program_glsl;
     public static programReflection: DeviceProgramReflection = DeviceProgram.parseReflectionDefinitions(KingdomHeartsProgram.program);
     public both = KingdomHeartsProgram.program;
 }

@@ -19,7 +19,7 @@ import { AABB } from "../Geometry";
 import { getFormatString } from "../bk/f3dex";
 
 //@ts-ignore
-import { readFileSync } from 'fs';
+import program_glsl from 'raw-loader!./program.glsl';
 
 class PaperMario64Program extends DeviceProgram {
     public static a_Position = 0;
@@ -29,7 +29,7 @@ class PaperMario64Program extends DeviceProgram {
     public static ub_SceneParams = 0;
     public static ub_DrawParams = 1;
 
-    private static program = readFileSync('src/pm64/program.glsl', { encoding: 'utf8' });
+    private static program = program_glsl;
     public static programReflection: DeviceProgramReflection = DeviceProgram.parseReflectionDefinitions(PaperMario64Program.program);
     public both = PaperMario64Program.program;
 }

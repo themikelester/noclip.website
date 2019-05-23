@@ -1,6 +1,4 @@
 
-// @ts-ignore
-import { readFileSync } from 'fs';
 import * as Viewer from '../viewer';
 import { DeviceProgram, DeviceProgramReflection } from "../Program";
 import { Texture, getFormatString, RSPOutput, Vertex, DrawCall, GeometryMode } from "./f3dex";
@@ -30,6 +28,9 @@ export function textureToCanvas(texture: Texture): Viewer.Texture {
     return { name: texture.name, surfaces, extraInfo };
 }
 
+//@ts-ignore
+import program_glsl from 'raw-loader!./program.glsl';
+
 class F3DEX_Program extends DeviceProgram {
     public static a_Position = 0;
     public static a_Color = 1;
@@ -38,7 +39,7 @@ class F3DEX_Program extends DeviceProgram {
     public static ub_SceneParams = 0;
     public static ub_DrawParams = 1;
 
-    private static program = readFileSync('src/bk/program.glsl', { encoding: 'utf8' });
+    private static program = program_glsl;
     public static programReflection: DeviceProgramReflection = DeviceProgram.parseReflectionDefinitions(F3DEX_Program.program);
     public both = F3DEX_Program.program;
 }

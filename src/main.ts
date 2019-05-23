@@ -1,16 +1,6 @@
 
 /* @preserve The source code to this website is under the MIT license and can be found at https://github.com/magcius/noclip.website */
 
-// Parcel HMR workaround.
-// https://github.com/parcel-bundler/parcel/issues/289
-declare var module: any;
-if (module.hot) {
-    module.hot.dispose(() => {
-        window.location.reload();
-        throw new Error();
-    });
-}
-
 import { SceneDesc, SceneGroup, Viewer, SceneGfx, getSceneDescs, InitErrorCode, initializeViewer, makeErrorUI } from './viewer';
 
 import ArrayBufferSlice from './ArrayBufferSlice';

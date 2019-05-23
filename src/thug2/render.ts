@@ -1,6 +1,4 @@
 
-// @ts-ignore
-import { readFileSync } from 'fs';
 import { GfxDevice, GfxInputLayout, GfxInputState, GfxBuffer, GfxBufferUsage, GfxFormat, GfxVertexAttributeDescriptor, GfxVertexAttributeFrequency, GfxVertexBufferDescriptor, GfxHostAccessPass, GfxBufferFrequencyHint, GfxBindingLayoutDescriptor } from "../gfx/platform/GfxPlatform";
 import { MeshLodLevel, Mesh, SCN, Sector, SectorFlag, Material, MatFlag } from "./scn";
 import { makeStaticDataBuffer, makeStaticDataBufferFromSlice } from "../gfx/helpers/BufferHelpers";
@@ -17,6 +15,9 @@ import { nArray } from "../util";
 import { TEXTextureHolder } from "./tex";
 import { TextureMapping } from "../TextureHolder";
 
+//@ts-ignore
+import program_glsl from 'raw-loader!./program.glsl';
+
 class THUG2Program extends DeviceProgram {
     public static a_Position = 0;
     public static a_Color = 1;
@@ -26,7 +27,7 @@ class THUG2Program extends DeviceProgram {
     public static ub_MaterialParams = 1;
     public static ub_MeshParams = 2;
 
-    private static program = readFileSync('src/thug2/program.glsl', { encoding: 'utf8' });
+    private static program = program_glsl;
     public static programReflection: DeviceProgramReflection = DeviceProgram.parseReflectionDefinitions(THUG2Program.program);
     public both = THUG2Program.program;
 }

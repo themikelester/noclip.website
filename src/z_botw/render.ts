@@ -10,8 +10,6 @@ import { GfxRenderBuffer } from "../gfx/render/GfxRenderBuffer";
 import * as Viewer from "../viewer";
 import { BasicRendererHelper } from "../oot3d/render";
 import { fillMatrix4x4, fillVec4 } from "../gfx/helpers/UniformBufferHelpers";
-// @ts-ignore -- this feature is provided by Parcel.
-import { readFileSync } from 'fs';
 import { GX2TextureHolder } from "../fres/render";
 import { TextureMapping } from "../TextureHolder";
 import { TerrainManager } from "./tera";
@@ -25,6 +23,9 @@ export interface Area {
     zMax: number;
 }
 
+//@ts-ignore
+import TerrainProgram_glsl from 'raw-loader!./TerrainProgram.glsl';
+
 class TerrainProgram extends DeviceProgram {
     public static ub_SceneParams = 0;
 
@@ -34,7 +35,7 @@ class TerrainProgram extends DeviceProgram {
     public static a_AreaLocalPosition = 3;
     public static a_GridAttributes = 4;
 
-    public both = readFileSync('src/z_botw/TerrainProgram.glsl', { encoding: 'utf8' });
+    public both = TerrainProgram_glsl;
 }
 
 function buildGridMeshIndexBuffer(indexData: Uint16Array, i: number, x1: number, x2: number, y1: number, y2: number, stride: number): number {

@@ -134,8 +134,8 @@ export class FLVERData {
     }
 }
 
-// @ts-ignore
-import { readFileSync } from 'fs';
+//@ts-ignore
+import program_glsl from 'raw-loader!./program.glsl';
 
 class DKSProgram extends DeviceProgram {
     public static a_Position = 0;
@@ -145,7 +145,7 @@ class DKSProgram extends DeviceProgram {
     public static ub_SceneParams = 0;
     public static ub_MeshFragParams = 1;
 
-    private static program = readFileSync('src/dks/program.glsl', { encoding: 'utf8' });
+    private static program: string = program_glsl;
     public static programReflection: DeviceProgramReflection = DeviceProgram.parseReflectionDefinitions(DKSProgram.program);
     public both = DKSProgram.program;
 }
