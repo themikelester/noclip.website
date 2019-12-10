@@ -667,6 +667,15 @@ class SimpleEffectSystem {
     }
 }
 
+const enum TimeOfDay {
+    DAWN,
+    MORNING,
+    DAY,
+    AFTERNOON,
+    DUSK,
+    NIGHT,
+}
+
 const enum WindWakerPass {
     MAIN,
     SKYBOX,
@@ -882,7 +891,11 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
         this.renderTarget.setParameters(device, viewerInput.backbufferWidth, viewerInput.backbufferHeight);
         this.opaqueSceneTexture.setParameters(device, viewerInput.backbufferWidth, viewerInput.backbufferHeight);
 
-        this.setTimeOfDay(getTimeFrames(viewerInput) / 5000);
+        const kStartTime = TimeOfDay.DAY;
+        const kProgressTimeOfDay = false;
+        const kDayLengthInSeconds = 60.0;
+        const kTimeFactor = kProgressTimeOfDay ? 6 / (kDayLengthInSeconds * 1000.0) : 0.0;
+        this.setTimeOfDay(kStartTime + viewerInput.time * kTimeFactor);
 
         // First, render the skybox.
         const skyboxPassRenderer = this.renderTarget.createRenderPass(device, viewerInput.viewport, standardFullClearRenderPassDescriptor);
