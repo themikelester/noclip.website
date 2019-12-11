@@ -36,6 +36,7 @@ import { TextureMapping } from '../../TextureHolder';
 import { EFB_WIDTH, EFB_HEIGHT } from '../../gx/gx_material';
 import { getTimeFrames } from '../../SuperMarioGalaxy/Main';
 import { BTIData, BTI } from '../../Common/JSYSTEM/JUTTexture';
+import { getTextDecoder } from '../../util';
 
 function gain(v: number, k: number): number {
     const a = 0.5 * Math.pow(2*((v < 0.5) ? v : 1.0 - v), k);
@@ -1204,6 +1205,26 @@ class SceneDesc {
         }
     }
 
+    private createObjectNameTable(symbolMap: SymbolMap) {
+        const entry = assertExists(symbolMap.SymbolData.find((e) => e.Filename === 'd_stage.o' && e.SymbolName === 'l_objectName'));
+        const data = entry.Data;
+        const bytes = data.createTypedArray(Uint8Array);
+        const textDecoder = getTextDecoder('utf8') as TextDecoder;
+
+        // The object table consists of null-terminated ASCII strings of length 12.
+        // @NOTE: None are longer than 7 characters
+        const kNameLength = 12;
+        const objectCount = data.byteLength / kNameLength;
+        const objectNames = [];
+        for (let i = 0; i < objectCount; i++) {
+            const offset = i * kNameLength;
+            const end = bytes.indexOf(0, offset); 
+            objectNames[i] = textDecoder.decode(bytes.subarray(offset, end));
+        }
+
+        return objectNames;
+    }
+
     private async spawnObjectsForActor(device: GfxDevice, renderer: WindWakerRenderer, roomRenderer: WindWakerRoomRenderer, name: string, parameters: number, layer: number, localModelMatrix: mat4, worldModelMatrix: mat4): Promise<void> {
         // TODO(jstpierre): Better actor implementations
 
@@ -1226,6 +1247,9 @@ class SceneDesc {
 
             return _extraSymbols;
         }
+
+        const symbolMap = await fetchExtraSymbols();
+        const objectNameTable = this.createObjectNameTable(symbolMap);
 
         function buildChildModel(rarc: RARC.RARC, modelPath: string): BMDObjectRenderer {
             const model = modelCache.getModel(device, cache, rarc, modelPath);

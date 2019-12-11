@@ -83,6 +83,9 @@ function main() {
     extractSymbol(datas, framework, `d_flower.o`, `l_matDL`);
     extractSymbol(datas, framework, `d_flower.o`, `l_matDL2`);
 
+    // d_stage.o
+    extractSymbol(datas, framework, `d_stage.o`, `l_objectName`);
+
     const crg1 = {
         SymbolData: datas,
     };
