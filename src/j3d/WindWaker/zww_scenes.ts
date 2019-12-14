@@ -1128,6 +1128,41 @@ class ModelCache {
 
 const pathBase = `j3d/ww`;
 
+class SymbolMap {
+    entries: Array<{
+        size: number;
+        vaddr: number;
+        symbolName: string;
+        filename: string;
+    }> = [];
+
+    constructor (public filename: string, private modelCache: ModelCache) {
+        const textDecoder = getTextDecoder('utf8') as TextDecoder;
+    
+        const mapFile = modelCache.getFileData(filename);
+        const lines = textDecoder.decode(mapFile.arrayBuffer).split('\n');
+    
+        for (let i = 4; i < lines.length; i++) {
+            const line = lines[i].trim();
+            const [unkStr, sizeStr, vaddrStr, unk2Str, symbolName, filename] = line.split(/\s+/);
+            if (unk2Str === undefined || unk2Str.startsWith('...'))
+                continue;
+    
+            const size = parseInt(sizeStr, 16);
+            const vaddr = parseInt(vaddrStr, 16);
+            this.entries.push({ size, vaddr, symbolName, filename });
+        }
+    }
+
+    async extractSymbol(symFile: string, symName: string, dolFilename: string = `${pathBase}/main.dol`, dolBase: number = 0x3000) {
+        const entry = assertExists(this.entries.find((e) => e.filename === symFile && e.symbolName === symName));
+        const offset = ((entry.vaddr) & 0x00FFFFFF) - dolBase;
+
+        const file = await this.modelCache.fetchFileData(dolFilename);
+        return file.subarray(offset, entry.size);
+    }
+}
+
 const scratchVec3a = vec3.create();
 const scratchVec3b = vec3.create();
 class SceneDesc {
@@ -1217,7 +1252,9 @@ class SceneDesc {
             const roomIdx = Math.abs(this.rooms[i]);
             modelCache.fetchArchive(`${pathBase}/Stage/${this.stageDir}/Room${roomIdx}.arc`);
         }
-
+        
+        modelCache.fetchFileData(`${pathBase}/framework.map`);
+        
         return modelCache.waitForLoad().then(() => {
             const systemArc = modelCache.getArchive(`${pathBase}/Object/System.arc`);
 
