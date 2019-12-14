@@ -1,0 +1,110 @@
+// Here are the original offset positions for all directly from the top of the daGrass_create() function in d_a_grass.rel
+// They are split into 7 different spawn patterns, which is selected by the lowest byte of the grass actor params.
+// These are of type csXyz, which is a struct of three shorts encoding an X, Y, Z position. See decoding below.
+
+(0,0,0);
+(3,0,-0x32);
+(-2,0,0x32);
+(0x32,0,0x1b);
+(0x34,0,-0x19);
+(-0x32,0,0x16);
+(-0x32,0,-0x1d);
+
+(-0x12,0,0x4c);
+(-0xf,0,0x1a);
+(0x85,0,0);
+(0x50,0,0x17);
+(0x56,0,-0x53);
+(0x21,0,-0x38);
+(0x53,0,-0x1b);
+(-0x78,0,-0x1a);
+(-0x12,0,-0x4a);
+(-0x14,0,-0x15);
+(-0x49,0,1);
+(-0x43,0,-0x66);
+(-0x15,0,0x7e);
+(-0x78,0,-0x4e);
+(-0x46,0,-0x31);
+(0x20,0,0x67);
+(0x22,0,0x33);
+(-0x48,0,0x62);
+(-0x44,0,0x2f);
+(0x21,0,-5);
+(0x87,0,-0x35);
+
+(-0x4b,0,-0x32);
+(0x4b,0,-0x19);
+(0xe,0,0x6a);
+
+(-0x18,0,-0x1c);
+(0x1b,0,-0x1c);
+(-0x15,0,0x21);
+(-0x12,0,-0x22);
+(0x2c,0,-4);
+(0x29,0,10);
+(0x18,0,0x27);
+
+(-0x37,0,-0x16);
+(-0x1c,0,-0x32);
+(-0x4d,0,0xb);
+(0x37,0,-0x2c);
+(0x53,0,-0x47);
+(0xb,0,-0x30);
+(0x61,0,-0x22);
+(-0x4a,0,-0x39);
+(0x1f,0,0x3a);
+(0x3b,0,0x1e);
+(0xd,0,0x17);
+(-0xc,0,0x36);
+(0x37,0,0x61);
+(10,0,0x5c);
+(0x21,0,-10);
+(-99,0,-0x1b);
+(0x28,0,-0x57);
+
+(0,0,3);
+(-0x1a,0,-0x1d);
+(7,0,-0x19);
+(0x1f,0,-5);
+(-7,0,0x28);
+(-0x23,0,0xf);
+(0x17,0,0x20);
+
+(-0x28,0,0);
+(0,0,0);
+(0x50,0,0);
+(-0x50,0,0);
+(0x28,0,0);
+
+
+// Here is a C function I hacked up to decode them. This is based on the decoding instructions from daGrass_create
+// Here are the original instructions:
+//      8041f570 a8 1c 00 00     lha        r0,0x0(r28) // (Load half) load the short into the upper nibble of a word at r0
+//      8041f574 6c 00 80 00     xoris      r0,r0,0x8000 // (XOR with shift) the word with the value 0x80000000 (0x8000 shifted to the top nibble)
+//      8041f578 90 01 02 64     stw        r0,local_60+0x4(r1) // Store the word into the MSW (GameCube is little endian) of a double in memory
+//      8041f57c 93 61 02 60     stw        r27,local_60(r1) // Store 0x43300000 (hardcoded and stored in r27) into the LSW of the double
+//      8041f580 c8 01 02 60     lfd        f0,local_60(r1) // Copy the double from memory into the register f0
+//      8041f584 ec 00 e8 28     fsubs      f0,f0,f29 // Subtract 4503601774854144.0 (hardcoded and stored in f29) from our double
+
+int main()
+{
+    double f; 
+    uint32_t* p = (uint32_t*)&f;
+    
+    // The original short value
+    int16_t s = -0x32;
+    
+    // Swap the bytes for the little-endian gamecube
+    p[0] = ((int32_t)s << 2) ^ 0x80000000;
+    p[1] = 0x43300000;
+    
+    f -= 4503601774854144.00000000;
+    
+    printf("Result: %f", f);
+
+    return 0;
+}
+
+// Oh! It turns out, this is just building a double that represents the exact same value as the short, then casting it to a float
+// E.g. -0x32 (-50 as a short) becomes -50.0f
+// The GameCube harware must not be able to cast directly, so it is emulated with these 6 instructions

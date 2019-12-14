@@ -1,0 +1,10 @@
+Install Ghidra, the NSA's open-source reverse engineering tool: https://ghidra-sre.org/InstallationGuide.html#Install
+    - On OSX, this self-contained .app is very useful https://gist.github.com/yifanlu/e9965cdb148b550335e57899f790cad2
+Install useful GameCube extensions:
+    - Gekko and Broadway CPU language definitions. The GameCube uses a specialized PowerPC CPU. These definitions contain human-readable names for assembly commands. https://github.com/aldelaro5/ghidra-gekko-broadway-lang
+    - The Ghidra GameCube Loader allows parsing of .dol and .rel files (GameCube's binary executable formats). Also includes support for loading .map symbols; Perfect, because Wind Waker ships with them! https://github.com/Cuyler36/Ghidra-GameCube-Loader
+Extra the .dol and .map from the Wind Waker ISO using Dolphin. 
+    - Add the ISO to Dolphin's game list
+    - Right-click it, Properties, Filesystem:
+    - Right-click Disc at the top of the tree, Extract System Data..., and copy the resulting main.dol file.
+Load Jasper's Ghydra binary with symbols: https://noclip.website/priv/WindWaker/main.dol.gzf
