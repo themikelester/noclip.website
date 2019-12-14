@@ -1,0 +1,31 @@
+Extracting data referred to by specific symbols in the .map files
+    - E.g. the vertices of flowers or grass, which are built at runtime instead of being loaded as a .bmd/.bdl
+    - Jasper's zww_extractor tool
+        - ISO data needs to be in Dolphin's "Extract all files" format (maps/ and main.dol in root)
+        - Navigate to src/j3d/WindWaker/tools and run `tsc` to compile
+        - Navigate back up to `src/j3d/WindWaker`. Zww_extractor has relative paths, it must be run from here.
+        - Run `node tools/build/j3d/WindWaker/tools/zww_extractor.js`
+        - The file 'data/j3d/ww/extra.crg1_arc' has been generated
+
+ObjectName table
+    - There is a global table (d_stage::l_objectName in the dol) which maps all actor 825 names to a .rel file and a subtype
+    - See https://github.com/LagoLunatic/WW-Hacking-Docs/blob/master/Extracted%20Data/Actor%20Info.txt for the complete dataset
+    - This table is referenced by dStage_searchName and dStage_getName
+    - Each entry in the table is 12 bytes
+        - 8 bytes: null terminated name string
+        - 2 bytes: type (this maps directly to the name of the .rel)
+        - 1 byte : subtype
+    - When doing a name lookup, the first entry to match both type and subtype is returned (searched backwards)
+    
+
+Flower/Grass/Tree spawn patterns
+    - Defined at the top of daGrass_create() in the code section of the .rel, not in the data section
+    - Encoded as csXyz (short XYZ). The shorts are cast directly to floats. E.g. -0x32 means -50.0
+    - There are 8 different spawn patterns
+    - The lowest nibble of the actor params (params & 0x0F) is the spawnPatternIndex
+    - 'spawnPatternIndex' indexes into a data-section array whose elements are an 8 byte structure. 
+        - 1 byte: Count
+        - 3 bytes: Padding
+        - 4 bytes: Pointer to the csXyz offsets
+    - The offset pointer always points to the beginning of one of the offset groups
+    - The number of offsets defined in a group is sometimes more than the count in the spawnPatternTable
