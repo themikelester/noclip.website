@@ -174,6 +174,7 @@ export class SmallTreeData {
     public textureMapping = new TextureMapping();
     public textureData: BTIData;
     public shapeHelperMain: GXShapeHelperGfx;
+    public shapeHelperLeafs: GXShapeHelperGfx;
     public gxMaterial: GX_Material.GXMaterial;
     public bufferCoalescer: GfxBufferCoalescerCombo;
 
@@ -277,8 +278,9 @@ export class SmallTreeData {
             alphaChannel: { lightingEnabled: false, matColorSource: GX.ColorSrc.VTX, ambColorSource: GX.ColorSrc.REG, litMask: 0, attenuationFunction: GX.AttenuationFunction.NONE, diffuseFunction: GX.DiffuseFunction.NONE },
         });
 
-        this.bufferCoalescer = loadedDataCoalescerComboGfx(device, [ vtx_l_Oba_swood_a_mikiDL ]);
+        this.bufferCoalescer = loadedDataCoalescerComboGfx(device, [ vtx_l_Oba_swood_a_mikiDL, vtx_l_Oba_swood_a_hapaDL ]);
         this.shapeHelperMain = new GXShapeHelperGfx(device, cache, this.bufferCoalescer.coalescedBuffers[0], vtxLoader.loadedVertexLayout, vtx_l_Oba_swood_a_mikiDL);
+        this.shapeHelperLeafs = new GXShapeHelperGfx(device, cache, this.bufferCoalescer.coalescedBuffers[1], vtxLoader.loadedVertexLayout, vtx_l_Oba_swood_a_hapaDL);
     }
 
     public destroy(device: GfxDevice): void {
@@ -630,8 +632,8 @@ export class TreeObjectRenderer implements ObjectRenderer {
     private c0 = colorNewCopy(White);
     private k0 = colorNewCopy(White);
 
-    constructor(private flowerData: FlowerData) {
-        this.materialHelper = new GXMaterialHelperGfx(this.flowerData.gxMaterial);
+    constructor(private treeData: SmallTreeData) {
+        this.materialHelper = new GXMaterialHelperGfx(this.treeData.gxMaterial);
     }
 
     public setVertexColorsEnabled(v: boolean): void {
@@ -655,24 +657,30 @@ export class TreeObjectRenderer implements ObjectRenderer {
         if (distSq >= maxDistSq)
             return;
 
-        materialParams.m_TextureMapping[0].copy(this.flowerData.textureMapping);
+        materialParams.m_TextureMapping[0].copy(this.treeData.textureMapping);
         colorCopy(materialParams.u_Color[ColorKind.C0], this.c0);
         colorCopy(materialParams.u_Color[ColorKind.C1], this.k0);
 
         // Set the tree alpha. This fades after the tree is cut. This is multiplied with the texture alpha at the end of TEV stage 1.
         colorFromRGBA(materialParams.u_Color[ColorKind.C2], 0, 0, 0, 1);
 
-        const renderInst = this.flowerData.shapeHelperMain.pushRenderInst(renderInstManager);
-
-        const materialParamsOffs = renderInst.allocateUniformBuffer(ub_MaterialParams, this.materialHelper.materialParamsBufferSize);
-        this.materialHelper.fillMaterialParamsDataOnInst(renderInst, materialParamsOffs, materialParams);
-        this.materialHelper.setOnRenderInst(device, renderInstManager.gfxRenderCache, renderInst);
-        renderInst.setSamplerBindingsFromTextureMappings(materialParams.m_TextureMapping);
-
         const m = packetParams.u_PosMtx[0];
         computeViewMatrix(m, viewerInput.camera);
         mat4.mul(m, m, this.modelMatrix);
-        this.flowerData.shapeHelperMain.fillPacketParams(packetParams, renderInst);
+
+        const trunkRenderInst = this.treeData.shapeHelperMain.pushRenderInst(renderInstManager);
+        const materialParamsOffs = trunkRenderInst.allocateUniformBuffer(ub_MaterialParams, this.materialHelper.materialParamsBufferSize);
+        this.materialHelper.fillMaterialParamsDataOnInst(trunkRenderInst, materialParamsOffs, materialParams);
+        this.materialHelper.setOnRenderInst(device, renderInstManager.gfxRenderCache, trunkRenderInst);
+        trunkRenderInst.setSamplerBindingsFromTextureMappings(materialParams.m_TextureMapping);
+        this.treeData.shapeHelperLeafs.fillPacketParams(packetParams, trunkRenderInst);
+
+        const leafsRenderInst = this.treeData.shapeHelperLeafs.pushRenderInst(renderInstManager);
+        const leafsMaterialParamsOffs = leafsRenderInst.allocateUniformBuffer(ub_MaterialParams, this.materialHelper.materialParamsBufferSize);
+        this.materialHelper.fillMaterialParamsDataOnInst(leafsRenderInst, leafsMaterialParamsOffs, materialParams);
+        this.materialHelper.setOnRenderInst(device, renderInstManager.gfxRenderCache, leafsRenderInst);
+        leafsRenderInst.setSamplerBindingsFromTextureMappings(materialParams.m_TextureMapping);
+        this.treeData.shapeHelperLeafs.fillPacketParams(packetParams, leafsRenderInst);
     }
 
     public setKyankoColors(colors: KyankoColors): void {
