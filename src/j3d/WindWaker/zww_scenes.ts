@@ -28,7 +28,7 @@ import { fillMatrix4x4, fillMatrix4x3, fillColor } from '../../gfx/helpers/Unifo
 import { makeTriangleIndexBuffer, GfxTopology } from '../../gfx/helpers/TopologyHelpers';
 import AnimationController from '../../AnimationController';
 import { GfxRenderCache } from '../../gfx/render/GfxRenderCache';
-import { ObjectRenderer, BMDObjectRenderer, SymbolMap, WhiteFlowerData, FlowerObjectRenderer, PinkFlowerData, BessouFlowerData, FlowerData, settingTevStruct, LightTevColorType } from './Actors';
+import { ObjectRenderer, BMDObjectRenderer, SymbolMap, WhiteFlowerData, FlowerObjectRenderer, TreeObjectRenderer, PinkFlowerData, BessouFlowerData, FlowerData, settingTevStruct, LightTevColorType, SmallTreeData } from './Actors';
 import { SceneContext } from '../../SceneBase';
 import { reverseDepthForCompareMode } from '../../gfx/helpers/ReversedDepthHelpers';
 import { computeModelMatrixSRT, range } from '../../MathHelpers';
@@ -1456,6 +1456,17 @@ class SceneDesc {
             return objectRenderer;
         }
 
+        function buildSmallTreeModel(symbolMap: SymbolMap): TreeObjectRenderer {
+            let treeData: FlowerData = modelCache.extraCache.get('SmallTree') as SmallTreeData;
+            if (treeData === undefined) {
+                treeData = new SmallTreeData(device, symbolMap, cache);
+                modelCache.extraCache.set('SmallTree', treeData);
+            }
+
+            const objectRenderer = new TreeObjectRenderer(treeData);
+            return objectRenderer;
+        }
+
         function buildWhiteFlowerModel(symbolMap: SymbolMap): FlowerObjectRenderer {
             let flowerData: FlowerData = modelCache.extraCache.get('Ohana') as FlowerData;
             if (flowerData === undefined) {
@@ -2613,7 +2624,7 @@ class SceneDesc {
 
                 case FoliageType.Tree:
                     for (let j = 0; j < count; j++) {
-                        const objectRenderer = buildWhiteFlowerModel(symbolMap);
+                        const objectRenderer = buildSmallTreeModel(symbolMap);
     
                         const x = offsets[j][0];
                         const y = offsets[j][1];

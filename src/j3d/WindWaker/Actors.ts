@@ -23,6 +23,7 @@ import { colorFromRGBA, White, colorNewCopy, colorCopy } from '../../Color';
 import { GfxRenderCache } from '../../gfx/render/GfxRenderCache';
 import { GfxRenderInstManager } from '../../gfx/render/GfxRenderer';
 import { BTIData, BTI_Texture } from '../../Common/JSYSTEM/JUTTexture';
+import { Endianness } from '../../endian';
 
 // Special-case actors
 
@@ -167,6 +168,124 @@ export type SymbolMap = { SymbolData: SymbolData[] };
 function findSymbol(symbolMap: SymbolMap, filename: string, symbolName: string): ArrayBufferSlice {
     const entry = assertExists(symbolMap.SymbolData.find((e) => e.Filename === filename && e.SymbolName === symbolName));
     return entry.Data;
+}
+
+export class SmallTreeData {
+    public textureMapping = new TextureMapping();
+    public textureData: BTIData;
+    public shapeHelperMain: GXShapeHelperGfx;
+    public gxMaterial: GX_Material.GXMaterial;
+    public bufferCoalescer: GfxBufferCoalescerCombo;
+
+    constructor(device: GfxDevice, symbolMap: SymbolMap, cache: GfxRenderCache) {
+        const l_matDL = findSymbol(symbolMap, `d_tree.o`, `l_matDL`);
+        const l_pos = findSymbol(symbolMap, `d_tree.o`, `l_pos`);
+        const l_color = findSymbol(symbolMap, `d_tree.o`, `l_color`);
+        const l_texCoord = findSymbol(symbolMap, `d_tree.o`, `l_texCoord`);
+        const l_vtxAttrFmtList = findSymbol(symbolMap, 'd_tree.o', 'l_vtxAttrFmtList$4670');
+        const l_vtxDescList = findSymbol(symbolMap, 'd_tree.o', 'l_vtxDescList$4669');
+
+        const l_Oba_swood_noneDL = findSymbol(symbolMap, 'd_tree.o', 'l_Oba_swood_noneDL');
+        const l_Oba_swood_a_cuttDL = findSymbol(symbolMap, 'd_tree.o', 'l_Oba_swood_a_cuttDL');
+        const l_Oba_swood_a_cutuDL = findSymbol(symbolMap, 'd_tree.o', 'l_Oba_swood_a_cutuDL');
+        const l_Oba_swood_a_hapaDL = findSymbol(symbolMap, 'd_tree.o', 'l_Oba_swood_a_hapaDL');
+        const l_Oba_swood_a_mikiDL = findSymbol(symbolMap, 'd_tree.o', 'l_Oba_swood_a_mikiDL');
+
+        const l_Txa_kage_32TEX = findSymbol(symbolMap, 'd_tree.o', 'l_Txa_kage_32TEX');
+        const l_Txa_swood_aTEX = findSymbol(symbolMap, 'd_tree.o', 'l_Txa_swood_aTEX');
+
+        const matRegisters = new DisplayListRegisters();
+        displayListRegistersInitGX(matRegisters);
+        displayListRegistersRun(matRegisters, l_matDL);
+
+        const genMode = matRegisters.bp[GX.BPRegister.GEN_MODE_ID];
+        const numTexGens = (genMode >>> 0) & 0x0F;
+        const numTevs = ((genMode >>> 10) & 0x0F) + 1;
+        const numInds = ((genMode >>> 16) & 0x07);
+
+        const hw2cm: GX.CullMode[] = [ GX.CullMode.NONE, GX.CullMode.BACK, GX.CullMode.FRONT, GX.CullMode.ALL ];
+        const cullMode = hw2cm[((genMode >>> 14)) & 0x03];
+
+        this.gxMaterial = parseMaterialEntry(matRegisters, 0, 'l_matDL', numTexGens, numTevs, numInds);
+        this.gxMaterial.cullMode = cullMode;
+
+        const image0 = matRegisters.bp[GX.BPRegister.TX_SETIMAGE0_I0_ID];
+        const width  = ((image0 >>>  0) & 0x3FF) + 1;
+        const height = ((image0 >>> 10) & 0x3FF) + 1;
+        const format: GX.TexFormat = (image0 >>> 20) & 0x0F;
+        const mode0 = matRegisters.bp[GX.BPRegister.TX_SETMODE0_I0_ID];
+        const wrapS: GX.WrapMode = (mode0 >>> 0) & 0x03;
+        const wrapT: GX.WrapMode = (mode0 >>> 2) & 0x03;
+
+        const texture: BTI_Texture = {
+            name: 'l_Txa_swood_aTEX',
+            width, height, format,
+            data: l_Txa_swood_aTEX,
+            // TODO(jstpierre): do we have mips?
+            mipCount: 1,
+            paletteFormat: GX.TexPalette.RGB565,
+            paletteData: null,
+            wrapS, wrapT,
+            minFilter: GX.TexFilter.LINEAR, magFilter: GX.TexFilter.LINEAR,
+            minLOD: 1, maxLOD: 1, lodBias: 0,
+        };
+        this.textureData = new BTIData(device, cache, texture);
+        this.textureData.fillTextureMapping(this.textureMapping);
+
+        function parseGxVtxAttrFmtV(buffer: ArrayBufferSlice) {
+            const attrFmts = buffer.createTypedArray(Uint32Array, 0, buffer.byteLength / 4, Endianness.BIG_ENDIAN);
+            const result: GX_VtxAttrFmt[] = [];
+            for (let i = 0; attrFmts[i + 0] !== 255; i += 2) {
+                const attr = attrFmts[i + 0];
+                const cnt  = attrFmts[i + 1];
+                const type = attrFmts[i + 2];
+                const frac = attrFmts[i + 3];
+                result[attr] = { compCnt: cnt, compShift: frac, compType: type };
+            }
+            return result;
+        }
+
+        function parseGxVtxDescList(buffer: ArrayBufferSlice) {
+            const attrTypePairs = buffer.createTypedArray(Uint32Array, 0, buffer.byteLength / 4, Endianness.BIG_ENDIAN);
+            const vtxDesc: GX_VtxDesc[] = [];
+            for (let i = 0; attrTypePairs[i + 0] !== 255; i += 2) {
+                const attr = attrTypePairs[i + 0];
+                const type = attrTypePairs[i + 1];
+                vtxDesc[attr] = { type };
+            }
+            return vtxDesc;
+        }
+
+        const vatFormat = parseGxVtxAttrFmtV(l_vtxAttrFmtList);
+        const vcd = parseGxVtxDescList(l_vtxDescList);
+        const vtxLoader = compileVtxLoader(vatFormat, vcd);
+        
+        const vtxArrays: GX_Array[] = [];
+        vtxArrays[GX.Attr.POS]  = { buffer: l_pos, offs: 0, stride: getAttributeByteSize(vatFormat, GX.Attr.POS) };
+        vtxArrays[GX.Attr.CLR0] = { buffer: l_color, offs: 0, stride: getAttributeByteSize(vatFormat, GX.Attr.CLR0) };
+        vtxArrays[GX.Attr.TEX0] = { buffer: l_texCoord, offs: 0, stride: getAttributeByteSize(vatFormat, GX.Attr.TEX0) };
+        
+        // // const vtx_l_Oba_swood_noneDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_noneDL);
+        const vtx_l_Oba_swood_a_hapaDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_hapaDL);
+        const vtx_l_Oba_swood_a_mikiDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_mikiDL);
+        // // const vtx_l_Oba_swood_a_cuttDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_cuttDL);
+        // // const vtx_l_Oba_swood_a_cutuDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_cutuDL);
+
+        // TODO(mikelester): light channels
+        this.gxMaterial.lightChannels.push({
+            colorChannel: { lightingEnabled: false, matColorSource: GX.ColorSrc.VTX, ambColorSource: GX.ColorSrc.REG, litMask: 0, attenuationFunction: GX.AttenuationFunction.NONE, diffuseFunction: GX.DiffuseFunction.NONE },
+            alphaChannel: { lightingEnabled: false, matColorSource: GX.ColorSrc.VTX, ambColorSource: GX.ColorSrc.REG, litMask: 0, attenuationFunction: GX.AttenuationFunction.NONE, diffuseFunction: GX.DiffuseFunction.NONE },
+        });
+
+        this.bufferCoalescer = loadedDataCoalescerComboGfx(device, [ vtx_l_Oba_swood_a_mikiDL ]);
+        this.shapeHelperMain = new GXShapeHelperGfx(device, cache, this.bufferCoalescer.coalescedBuffers[0], vtxLoader.loadedVertexLayout, vtx_l_Oba_swood_a_mikiDL);
+    }
+
+    public destroy(device: GfxDevice): void {
+        this.bufferCoalescer.destroy(device);
+        this.shapeHelperMain.destroy(device);
+        this.textureData.destroy(device);
+    }
 }
 
 export interface FlowerData {
@@ -476,6 +595,72 @@ export class FlowerObjectRenderer implements ObjectRenderer {
         materialParams.m_TextureMapping[0].copy(this.flowerData.textureMapping);
         colorCopy(materialParams.u_Color[ColorKind.C0], this.c0);
         colorCopy(materialParams.u_Color[ColorKind.C1], this.k0);
+
+        const renderInst = this.flowerData.shapeHelperMain.pushRenderInst(renderInstManager);
+
+        const materialParamsOffs = renderInst.allocateUniformBuffer(ub_MaterialParams, this.materialHelper.materialParamsBufferSize);
+        this.materialHelper.fillMaterialParamsDataOnInst(renderInst, materialParamsOffs, materialParams);
+        this.materialHelper.setOnRenderInst(device, renderInstManager.gfxRenderCache, renderInst);
+        renderInst.setSamplerBindingsFromTextureMappings(materialParams.m_TextureMapping);
+
+        const m = packetParams.u_PosMtx[0];
+        computeViewMatrix(m, viewerInput.camera);
+        mat4.mul(m, m, this.modelMatrix);
+        this.flowerData.shapeHelperMain.fillPacketParams(packetParams, renderInst);
+    }
+
+    public setKyankoColors(colors: KyankoColors): void {
+        colorCopy(this.c0, colors.actorC0);
+        colorCopy(this.k0, colors.actorK0);
+    }
+
+    public setExtraTextures(extraTextures: ZWWExtraTextures): void {
+    }
+
+    public destroy(device: GfxDevice): void {
+    }
+}
+
+export class TreeObjectRenderer implements ObjectRenderer {
+    public modelMatrix = mat4.create();
+    public visible = true;
+    public layer: number;
+
+    private materialHelper: GXMaterialHelperGfx;
+    private c0 = colorNewCopy(White);
+    private k0 = colorNewCopy(White);
+
+    constructor(private flowerData: FlowerData) {
+        this.materialHelper = new GXMaterialHelperGfx(this.flowerData.gxMaterial);
+    }
+
+    public setVertexColorsEnabled(v: boolean): void {
+    }
+
+    public setTexturesEnabled(v: boolean): void {
+    }
+
+    public prepareToRender(device: GfxDevice, renderInstManager: GfxRenderInstManager, viewerInput: Viewer.ViewerRenderInput): void {
+        if (!this.visible)
+            return;
+
+        // Do some basic distance culling.
+        mat4.getTranslation(scratchVec3a, viewerInput.camera.worldMatrix);
+        mat4.getTranslation(scratchVec3b, this.modelMatrix);
+
+        // If we're too far, just kill us entirely.
+        const distSq = vec3.squaredDistance(scratchVec3a, scratchVec3b);
+        const maxDist = 5000;
+        const maxDistSq = maxDist*maxDist;
+        if (distSq >= maxDistSq)
+            return;
+
+        materialParams.m_TextureMapping[0].copy(this.flowerData.textureMapping);
+        colorCopy(materialParams.u_Color[ColorKind.C0], this.c0);
+        colorCopy(materialParams.u_Color[ColorKind.C1], this.k0);
+
+        // Set the tree alpha. This fades after the tree is cut. This is multiplied with the texture alpha at the end of TEV stage 1.
+        colorFromRGBA(materialParams.u_Color[ColorKind.C2], 0, 0, 0, 1);
 
         const renderInst = this.flowerData.shapeHelperMain.pushRenderInst(renderInstManager);
 
