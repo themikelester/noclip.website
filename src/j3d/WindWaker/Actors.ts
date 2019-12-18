@@ -574,6 +574,7 @@ export class FlowerObjectRenderer implements ObjectRenderer {
     }
 
     public setVertexColorsEnabled(v: boolean): void {
+        this.materialHelper = new GXMaterialHelperGfx(this.flowerData.gxMaterial);
     }
 
     public setTexturesEnabled(v: boolean): void {
@@ -637,6 +638,7 @@ export class TreeObjectRenderer implements ObjectRenderer {
     }
 
     public setVertexColorsEnabled(v: boolean): void {
+        this.materialHelper.setMaterialHacks({ disableVertexColors: !v });
     }
 
     public setTexturesEnabled(v: boolean): void {
