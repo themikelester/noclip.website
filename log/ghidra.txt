@@ -7,4 +7,13 @@ Extra the .dol and .map from the Wind Waker ISO using Dolphin.
     - Add the ISO to Dolphin's game list
     - Right-click it, Properties, Filesystem:
     - Right-click Disc at the top of the tree, Extract System Data..., and copy the resulting main.dol file.
+Add main.dol and all the .rels to the ghidra project
+    - Needs instructions
 Load Jasper's Ghydra binary with symbols: https://noclip.website/priv/WindWaker/main.dol.gzf
+
+Mark all _savegpr_*, _savefpr_*, _restgpr_*, and _restfpr_* functions as inline
+    - Search for '_save' in the Symbol Tree window
+    - Right click on each function and select 'Edit Function'
+    - Check the 'In Line' attribute in the Function Attributes section of the Edit Function window
+    - If this is not done, most functions will have a call to save_gpr_* at the top and will fail to correctly
+        determine parameter types. This makes it harder to find references to member variables
