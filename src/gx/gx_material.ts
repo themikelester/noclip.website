@@ -3,7 +3,7 @@
 
 import * as GX from './gx_enum';
 
-import { colorCopy, colorFromRGBA, TransparentBlack, colorNewCopy } from '../Color';
+import { Color, colorCopy, colorFromRGBA, TransparentBlack, colorNewCopy } from '../Color';
 import { GfxFormat } from '../gfx/platform/GfxPlatformFormat';
 import { GfxCompareMode, GfxFrontFaceMode, GfxBlendMode, GfxBlendFactor, GfxCullMode, GfxMegaStateDescriptor, GfxProgramDescriptorSimple, GfxDevice } from '../gfx/platform/GfxPlatform';
 import { vec3, vec4, mat4 } from 'gl-matrix';
@@ -45,6 +45,33 @@ export interface GXMaterial {
     useTexMtxIdx?: boolean[];
     hasPostTexMtxBlock?: boolean;
     hasLightsBlock?: boolean;
+}
+
+export interface GXMaterialInstance {
+    material: GXMaterial;
+
+    // @TODO:
+    colorMatRegs: Color[];
+    colorAmbRegs: Color[];
+
+    textures: GXMaterialTexture[];
+}
+
+export interface GXMaterialTexture {
+    width: number,
+    height: number,
+    format: GX.TexFormat,
+    wrapS: GX.WrapMode,
+    wrapT: GX.WrapMode,
+    minLOD: number,
+    maxLOD: number,
+    minFilter: GX.TexFilter,
+    magFilter: GX.TexFilter,
+    lodBias: number,
+    lodClamp: boolean,
+    diagonalLOD: boolean,
+    maxAniso: number,
+    dataAddr?: number
 }
 
 export class Light {
@@ -1679,6 +1706,75 @@ export function parseMaterial(r: DisplayListRegisters, name: string): GXMaterial
     };
 
     return gxMaterial;
+}
+
+export function parseTextures(r: DisplayListRegisters, numTexGens: number): GXMaterialTexture[] {
+    const minFilterTable = [
+        GX.TexFilter.NEAR,
+        GX.TexFilter.NEAR_MIP_NEAR,
+        GX.TexFilter.NEAR_MIP_LIN,
+        GX.TexFilter.NEAR,
+        GX.TexFilter.LINEAR,
+        GX.TexFilter.LIN_MIP_NEAR,
+        GX.TexFilter.LIN_MIP_LIN,
+    ];
+
+    const textures: GXMaterialTexture[] = [];
+
+    for (let i = 0; i < numTexGens; i++) {
+        const image0 = r.bp[(i <= 4 ? GX.BPRegister.TX_SETIMAGE0_I0_ID : GX.BPRegister.TX_SETIMAGE0_I4_ID) + (i % 4)];
+        const image1 = r.bp[(i <= 4 ? GX.BPRegister.TX_SETIMAGE1_I0_ID : GX.BPRegister.TX_SETIMAGE1_I4_ID) + (i % 4)];
+        const image2 = r.bp[(i <= 4 ? GX.BPRegister.TX_SETIMAGE2_I0_ID : GX.BPRegister.TX_SETIMAGE2_I4_ID) + (i % 4)];
+        const image3 = r.bp[(i <= 4 ? GX.BPRegister.TX_SETIMAGE3_I0_ID : GX.BPRegister.TX_SETIMAGE3_I4_ID) + (i % 4)];
+        const mode0  = r.bp[(i <= 4 ? GX.BPRegister.TX_SETMODE0_I0_ID : GX.BPRegister.TX_SETMODE0_I4_ID) + (i % 4)];
+        const mode1  = r.bp[(i <= 4 ? GX.BPRegister.TX_SETMODE1_I0_ID : GX.BPRegister.TX_SETMODE0_I4_ID) + (i % 4)];
+        const tlut = r.bp[(i <= 4 ? GX.BPRegister.TX_SETTLUT_I0_ID : GX.BPRegister.TX_SETTLUT_I4_ID) + (i % 4)];
+        const ssize = r.bp[GX.BPRegister.SU_SSIZE_I0_ID];
+        const tsize = r.bp[GX.BPRegister.SU_TSIZE_I0_ID];
+
+        const width  = ((image0 >>>  0) & 0x3FF) + 1;
+        const height = ((image0 >>> 10) & 0x3FF) + 1;
+        const format: GX.TexFormat = (image0 >>> 20) & 0x0F;
+    
+        const wrapS: GX.WrapMode = (mode0 >>> 0) & 0x03;
+        const wrapT: GX.WrapMode = (mode0 >>> 2) & 0x03;
+        const magFilter: GX.TexFilter = (mode0 >>> 4) & 0x01;
+        const minFilter: GX.TexFilter = minFilterTable[(mode0 >>> 5) & 0x07];
+        const diagonalLOD = !!((mode0 >>> 8) & 0x01);
+        const lodBias = (mode0 >>> 9) & 0x1F;
+        const maxAniso = 1 << ((mode0 >>> 19) & 0x03);
+        const lodClamp = !!((mode0 >>> 21) & 0x04);
+        
+        const minLOD = (mode1 >>> 0) & 0xF;
+        const maxLOD = (mode1 >>> 8) & 0xF;
+
+        const dataAddr = (image3 & 0xFFFFFF) << 5;
+    
+        if (maxAniso > 1) console.warn('Texture wants anisotropic filtering, but it is not implemented')
+        console.assert(lodBias === 0, 'LOD Bias is untested, and almost certainly formatted incorrectly');
+    
+        const tex: GXMaterialTexture = {
+            width, height,
+            format, wrapS, wrapT,
+            minLOD, maxLOD, minFilter, magFilter,
+            lodBias, lodClamp, diagonalLOD, maxAniso,
+            dataAddr
+        };
+        
+        textures.push(tex);
+    }
+
+    return textures;
+}
+
+export function parseMaterialInstance(r: DisplayListRegisters, name: string): GXMaterialInstance {
+    const material = parseMaterial(r, name);
+    const textures = parseTextures(r, material.texGens.length);
+
+    return {
+        material,
+        textures,
+    } as GXMaterialInstance;
 }
 // #endregion
 
