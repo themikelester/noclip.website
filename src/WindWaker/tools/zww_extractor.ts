@@ -271,6 +271,17 @@ function extractExtra() {
     extractSymbol(datas, dolHeader, framework, 'd_grass.o', 'l_vtxAttrFmtList$4529');
     extractSymbol(datas, dolHeader, framework, 'd_grass.o', 'l_vtxDescList$4528');
 
+    // d_wood.o
+    extractSymbol(datas, dolHeader, framework, 'd_wood.o', 'l_vtxDescList$5156');
+    extractSymbol(datas, dolHeader, framework, 'd_wood.o', 'l_vtxAttrFmtList$5157');
+    extractSymbol(datas, dolHeader, framework, 'd_wood.o', 'l_pos__Q25dWood20@unnamed@d_wood_cpp@');
+    extractSymbol(datas, dolHeader, framework, 'd_wood.o', 'l_color__Q25dWood20@unnamed@d_wood_cpp@');
+    extractSymbol(datas, dolHeader, framework, 'd_wood.o', 'l_texCoord__Q25dWood20@unnamed@d_wood_cpp@');
+    extractSymbol(datas, dolHeader, framework, 'd_wood.o', 'l_matDL__Q25dWood20@unnamed@d_wood_cpp@');
+    extractSymbol(datas, dolHeader, framework, 'd_wood.o', 'l_Oba_swood_bDL__Q25dWood20@unnamed@d_wood_cpp@');
+    extractSymbol(datas, dolHeader, framework, 'd_wood.o', 'l_Oba_swood_b_cutDL__Q25dWood20@unnamed@d_wood_cpp@');
+    extractSymbol(datas, dolHeader, framework, 'd_wood.o', 'l_Txa_swood_bTEX__Q25dWood20@unnamed@d_wood_cpp@');
+
     // d_stage.o
     extractSymbol(datas, dolHeader, framework, `d_stage.o`, `l_objectName`); // Maps actor names to ID and Subtype
 

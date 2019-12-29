@@ -223,6 +223,20 @@ class d_a_grass extends fopAc_ac_c {
     }
 }
 
+// -------------------------------------------------------
+// Bushes
+// -------------------------------------------------------
+class d_a_obj_wood extends fopAc_ac_c {
+    public static PROCESS_NAME = fpc__ProcessName.d_a_obj_wood;
+
+    public subload(globals: dGlobals): cPhs__Status {
+
+        globals.scnPlay.bushPacket.newData(this.pos, this.roomNo);
+
+        return cPhs__Status.Next;
+    }
+}
+
 // TODO(jstpierre): Bad hack
 export function createEmitter(globals: dGlobals, resourceId: number): JPABaseEmitter {
     const renderer = globals.renderer;
@@ -1155,6 +1169,7 @@ export function d_a__RegisterConstructors(globals: fGlobals): void {
     }
 
     R(d_a_grass);
+    R(d_a_obj_wood);
     R(d_a_ep);
     R(d_a_bg);
     R(d_a_vrbox);

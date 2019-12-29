@@ -12,6 +12,7 @@ export const enum fpc__ProcessName {
     d_envse             = 0x0017,
     d_a_sea             = 0x0028,
     d_a_obj_lpalm       = 0x004B,
+    d_a_obj_wood        = 0x010C,
     d_a_obj_Ygush00     = 0x0099,
     d_a_ep              = 0x00BA,
     d_a_tbox            = 0x0126,

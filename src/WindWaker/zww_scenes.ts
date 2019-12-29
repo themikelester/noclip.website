@@ -25,7 +25,7 @@ import { range, getMatrixAxisZ } from '../MathHelpers';
 import { TextureMapping } from '../TextureHolder';
 import { EFB_WIDTH, EFB_HEIGHT } from '../gx/gx_material';
 import { BTIData } from '../Common/JSYSTEM/JUTTexture';
-import { FlowerPacket, TreePacket, GrassPacket } from './Grass';
+import { FlowerPacket, TreePacket, GrassPacket, BushPacket } from './Grass';
 import { dRes_control_c, ResType } from './d_resorce';
 import { dStage_stageDt_c, dStage_dt_c_stageLoader, dStage_dt_c_stageInitLoader, dStage_roomStatus_c, dStage_dt_c_roomLoader, dStage_dt_c_roomReLoader } from './d_stage';
 import { dScnKy_env_light_c, dKy_tevstr_init, dKy_setLight, dKy__RegisterConstructors, dKankyo_create } from './d_kankyo';
@@ -766,6 +766,7 @@ class d_s_play extends fopScn {
     public flowerPacket: FlowerPacket;
     public treePacket: TreePacket;
     public grassPacket: GrassPacket;
+    public bushPacket: BushPacket;
 
     public vrboxLoaded: boolean = false;
 
@@ -775,6 +776,7 @@ class d_s_play extends fopScn {
         this.treePacket = new TreePacket(globals);
         this.flowerPacket = new FlowerPacket(globals);
         this.grassPacket = new GrassPacket(globals);
+        this.bushPacket = new BushPacket(globals);
 
         globals.scnPlay = this;
 
@@ -790,16 +792,19 @@ class d_s_play extends fopScn {
         this.flowerPacket.calc(frameCount);
         this.treePacket.calc(frameCount);
         this.grassPacket.calc(frameCount);
+        this.bushPacket.calc(frameCount);
 
         this.flowerPacket.update(globals);
         this.treePacket.update(globals);
         this.grassPacket.update(globals);
+        this.bushPacket.update(globals);
 
         fopDw_Draw(globals.frameworkGlobals, globals, renderInstManager, viewerInput);
 
         this.flowerPacket.draw(globals, renderInstManager, viewerInput);
         this.treePacket.draw(globals, renderInstManager, viewerInput);
         this.grassPacket.draw(globals, renderInstManager, viewerInput);
+        this.bushPacket.draw(globals, renderInstManager, viewerInput);
     }
 
     public delete(globals: dGlobals): void {
@@ -809,6 +814,7 @@ class d_s_play extends fopScn {
         this.flowerPacket.destroy(device);
         this.treePacket.destroy(device);
         this.grassPacket.destroy(device);
+        this.bushPacket.destroy(device);
     }
 }
 

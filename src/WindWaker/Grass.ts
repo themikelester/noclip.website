@@ -1176,3 +1176,391 @@ export class GrassPacket {
         this.model.destroy(device);
     }
 }
+
+
+// ---------------------------------------------
+// Bush Packet
+// ---------------------------------------------
+enum BushFlags {
+    isFrustumCulled = 1 << 0,
+    needsGroundCheck = 1 << 1,
+}
+
+enum BushStatus {
+    UNCUT,
+}
+
+interface BushData {
+    roomIdx: number;
+    flags: number;
+    status: BushStatus;
+    animIdx: number;
+    trunkAlpha: number;
+    pos: vec3;
+
+    unkMatrix: mat4;
+
+    topModelMtx: mat4;
+    trunkModelMtx: mat4;
+    shadowModelMtx: mat4;
+}
+
+interface BushAnim {
+    active: boolean;
+    initialRotationShort: number;
+    topRotationY: number;
+    topRotationX: number;
+    trunkRotationX: number;
+    trunkFallYaw: number;
+    offset: vec3;
+    topMtx: mat4;
+    trunkMtx: mat4;
+}
+
+const kMaxBushDatas = 1500;
+
+class BushModel {
+    public shadowTextureMapping = new TextureMapping();
+    public shadowTextureData: BTIData;
+    public shadowMaterial: GXMaterialHelperGfx;
+
+    public bushTextureMapping = new TextureMapping();
+    public bushTextureData: BTIData;
+    public bushMaterial: GXMaterialHelperGfx;
+
+    public shapeMain: GXShapeHelperGfx;
+    public shapeShadow: GXShapeHelperGfx;
+
+    public bufferCoalescer: GfxBufferCoalescerCombo;
+
+    constructor(globals: dGlobals) {
+        const device = globals.modelCache.device, cache = globals.renderer.renderCache;
+
+        const l_shadowVtxDescList = globals.findExtraSymbolData('d_tree.o', 'l_shadowVtxDescList$4654');
+        const l_shadowVtxAttrFmtList = globals.findExtraSymbolData('d_tree.o', 'l_shadowVtxAttrFmtList$4655');
+        const l_shadowPos = globals.findExtraSymbolData('d_tree.o', 'g_dTree_shadowPos');
+        const l_shadowMatDL = globals.findExtraSymbolData('d_tree.o', 'g_dTree_shadowMatDL');
+        const g_dTree_Oba_kage_32DL = globals.findExtraSymbolData('d_tree.o', 'g_dTree_Oba_kage_32DL');
+        const l_Txa_kage_32TEX = globals.findExtraSymbolData('d_tree.o', 'l_Txa_kage_32TEX');
+
+        // @HACK: The tex coord array is being read as all zero. Hardcode it.
+        const l_shadowTexCoord = new ArrayBufferSlice(new Uint8Array([0, 0, 1, 0, 1, 1, 0, 1]).buffer);
+
+        const matRegisters = new DisplayListRegisters();
+
+        // Shadow material
+        displayListRegistersInitGX(matRegisters);
+        displayListRegistersRun(matRegisters, l_shadowMatDL);
+        const shadowMat = parseMaterial(matRegisters, 'd_tree::l_shadowMatDL');
+
+        this.shadowMaterial = new GXMaterialHelperGfx(shadowMat);
+        const shadowTexture = createTexture(matRegisters, l_Txa_kage_32TEX, 'l_Txa_kage_32TEX');
+        this.shadowTextureData = new BTIData(device, cache, shadowTexture);
+        this.shadowTextureData.fillTextureMapping(this.shadowTextureMapping);
+
+        // Shadow vert format
+        const shadowVatFormat = parseGxVtxAttrFmtV(l_shadowVtxAttrFmtList);
+        const shadowVcd = parseGxVtxDescList(l_shadowVtxDescList);
+        const shadowVtxLoader = compileVtxLoader(shadowVatFormat, shadowVcd);
+
+        // Shadow verts
+        const shadowVtxArrays: GX_Array[] = [];
+        shadowVtxArrays[GX.Attr.POS]  = { buffer: l_shadowPos, offs: 0, stride: getAttributeByteSize(shadowVatFormat, GX.Attr.POS) };
+        shadowVtxArrays[GX.Attr.TEX0] = { buffer: l_shadowTexCoord, offs: 0, stride: getAttributeByteSize(shadowVatFormat, GX.Attr.TEX0) };
+        const vtx_l_shadowDL = shadowVtxLoader.runVertices(shadowVtxArrays, g_dTree_Oba_kage_32DL);
+
+
+        const l_vtxDescList = globals.findExtraSymbolData(`d_wood.o`, `l_vtxDescList$5156`);
+        const l_vtxAttrFmtList = globals.findExtraSymbolData(`d_wood.o`, `l_vtxAttrFmtList$5157`);
+        const l_pos = globals.findExtraSymbolData(`d_wood.o`, `l_pos__Q25dWood20@unnamed@d_wood_cpp@`);
+        const l_color = globals.findExtraSymbolData(`d_wood.o`, `l_color__Q25dWood20@unnamed@d_wood_cpp@`);
+        const l_texCoord = globals.findExtraSymbolData(`d_wood.o`, `l_texCoord__Q25dWood20@unnamed@d_wood_cpp@`);
+        const l_matDL = globals.findExtraSymbolData('d_wood.o', 'l_matDL__Q25dWood20@unnamed@d_wood_cpp@');
+        const l_Oba_swood_bDL = globals.findExtraSymbolData('d_wood.o', 'l_Oba_swood_bDL__Q25dWood20@unnamed@d_wood_cpp@');
+        const l_Oba_swood_b_cutDL = globals.findExtraSymbolData('d_wood.o', 'l_Oba_swood_b_cutDL__Q25dWood20@unnamed@d_wood_cpp@');
+        const l_Txa_swood_bTEX = globals.findExtraSymbolData('d_wood.o', 'l_Txa_swood_bTEX__Q25dWood20@unnamed@d_wood_cpp@');
+
+        // Bush material
+        displayListRegistersInitGX(matRegisters);
+        displayListRegistersRun(matRegisters, l_matDL);
+        this.bushMaterial = new GXMaterialHelperGfx(parseMaterial(matRegisters, 'd_tree::l_matDL'));
+        const bushTexture = createTexture(matRegisters, l_Txa_swood_bTEX, 'l_Txa_swood_bTEX');
+        this.bushTextureData = new BTIData(device, cache, bushTexture);
+        this.bushTextureData.fillTextureMapping(this.bushTextureMapping);
+
+        // Bush Vert Format
+        const vatFormat = parseGxVtxAttrFmtV(l_vtxAttrFmtList);
+        const vcd = parseGxVtxDescList(l_vtxDescList);
+        const vtxLoader = compileVtxLoader(vatFormat, vcd);
+
+        // Tree Verts
+        const vtxArrays: GX_Array[] = [];
+        vtxArrays[GX.Attr.POS]  = { buffer: l_pos, offs: 0, stride: getAttributeByteSize(vatFormat, GX.Attr.POS) };
+        vtxArrays[GX.Attr.CLR0] = { buffer: l_color, offs: 0, stride: getAttributeByteSize(vatFormat, GX.Attr.CLR0) };
+        vtxArrays[GX.Attr.TEX0] = { buffer: l_texCoord, offs: 0, stride: getAttributeByteSize(vatFormat, GX.Attr.TEX0) };
+
+        const vtx_l_Oba_swood_bDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_bDL);
+        const vtx_l_Oba_swood_b_cutDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_b_cutDL);
+
+        // Coalesce all VBs and IBs into single buffers and upload to the GPU
+        this.bufferCoalescer = loadedDataCoalescerComboGfx(device, [ vtx_l_Oba_swood_bDL, vtx_l_shadowDL ]);
+
+        // Build an input layout and input state from the vertex layout and data
+        this.shapeMain = new GXShapeHelperGfx(device, cache, this.bufferCoalescer.coalescedBuffers[0], vtxLoader.loadedVertexLayout, vtx_l_Oba_swood_bDL);
+        this.shapeShadow = new GXShapeHelperGfx(device, cache, this.bufferCoalescer.coalescedBuffers[1], shadowVtxLoader.loadedVertexLayout, vtx_l_shadowDL);
+    }
+
+    public destroy(device: GfxDevice): void {
+        this.bufferCoalescer.destroy(device);
+        this.shapeMain.destroy(device);
+        this.shapeShadow.destroy(device);
+
+        this.bushTextureData.destroy(device);
+        this.shadowTextureData.destroy(device);
+    }
+}
+
+export class BushPacket {
+    private rooms: TreeData[][] = nArray(64, () => []);
+    private anims: BushAnim[] = new Array(8 + kDynamicAnimCount);
+
+    private model: BushModel;
+    
+    constructor(globals: dGlobals) {
+        this.model = new BushModel(globals);
+
+        // Random starting rotation for each idle anim
+        const dr = 2.0 * Math.PI / 8.0;
+        for (let i = 0; i < 8; i++) {
+            this.anims[i] = {
+                active: true,
+                initialRotationShort: 0x2000 * i,
+                topRotationY: i * dr,
+                topRotationX: 0,
+                trunkRotationX: 0,
+                trunkFallYaw: 0,
+                offset: vec3.create(),
+                topMtx: mat4.create(),
+                trunkMtx: mat4.create(),
+            }
+        }
+    }
+    
+    private checkGroundY(globals: dGlobals, roomIdx: number, data: BushData): number {
+        // @TODO: This is using the last loaded room. It needs to use the room that this data is in.
+        // const dzb = globals.renderer.getRoomDZB(data.roomIdx);
+
+        // const down = vec3.set(scratchVec3b, 0, -1, 0);
+        // const hit = DZB.raycast(scratchVec3b, dzb, data.pos, down, scratchVec3a);
+
+        // const normal = hit ? scratchVec3a : vec3.set(scratchVec3a, 0, 1, 0);
+
+        // const right = vec3.set(scratchVec3c, 1, 0, 0);
+        // const forward = vec3.cross(scratchVec3d, normal, right);
+        // vec3.cross(right, normal, forward);
+
+        chk.Reset();
+        vec3.copy(chk.pos, data.pos);
+        chk.pos[1] += 50;
+    
+        const y = globals.scnPlay.bgS.GroundCross(chk);
+        if (y > -Infinity) {
+            data.pos[1] = y;
+            globals.scnPlay.bgS.GetTriPla(chk.polyInfo.bgIdx, chk.polyInfo.triIdx).getNormal(scratchVec3a);
+        } else {
+            data.pos[1] = y;
+            vec3.set(scratchVec3a, 0, 1, 0);
+        }
+
+        const normal = scratchVec3a;
+        const right = vec3.set(scratchVec3c, 1, 0, 0);
+        const forward = vec3.cross(scratchVec3d, normal, right);
+        vec3.cross(right, normal, forward);
+
+        // Get the normal from the raycast, rotate shadow to match surface
+        data.shadowModelMtx[0] = right[0];
+        data.shadowModelMtx[1] = right[1];
+        data.shadowModelMtx[2] = right[2];
+        data.shadowModelMtx[3] = data.pos[0];
+
+        data.shadowModelMtx[4] = normal[0];
+        data.shadowModelMtx[5] = normal[1];
+        data.shadowModelMtx[6] = normal[2];
+        data.shadowModelMtx[7] = 1.0 + y;
+
+        data.shadowModelMtx[8]  = forward[0];
+        data.shadowModelMtx[9]  = forward[1];
+        data.shadowModelMtx[10] = forward[2];
+        data.shadowModelMtx[11] = data.pos[2];
+
+        mat4.transpose(data.shadowModelMtx, data.shadowModelMtx);
+
+        return y;
+    }
+
+    public newData(pos: vec3, roomIdx: number): BushData {
+        const animIdx = Math.floor(Math.random() * 8);
+        const status = 0;
+
+        const data: BushData = {
+            roomIdx,
+            flags: TreeFlags.needsGroundCheck,
+            animIdx,
+            status,
+            trunkAlpha: 0xFF,
+            pos: vec3.clone(pos),
+
+            unkMatrix: mat4.create(),
+            topModelMtx: mat4.create(),
+            trunkModelMtx: mat4.create(),
+            shadowModelMtx: mat4.create(),
+        };
+
+        this.rooms[roomIdx].push(data);
+
+        return data;
+    }
+
+    public calc(frameCount: number): void {
+        // Idle animation updates
+        for (let i = 0; i < 8; i++) {
+            let theta = Math.cos(uShortTo2PI(4000.0 * (frameCount + 0xfa * i)));
+            this.anims[i].topRotationY = uShortTo2PI(100.0 + this.anims[i].initialRotationShort + 100.0 * theta);
+
+            theta = Math.cos(uShortTo2PI(1000.0 * (frameCount + 0xfa * i)));
+            this.anims[i].topRotationX = uShortTo2PI(100 + 100 * theta);
+        }
+
+        // @TODO: Hit checks
+    }
+
+    private updateRoom(globals: dGlobals, roomIdx: number, groundChecksThisFrame: number): number {
+        const room = this.rooms[roomIdx];
+        for (let i = 0; i < room.length; i++) {
+            const data = room[i];
+
+            if (groundChecksThisFrame >= kMaxGroundChecksPerFrame)
+                break;
+
+            // Perform ground checks for some limited number of data
+            if ((data.flags & TreeFlags.needsGroundCheck) && groundChecksThisFrame < kMaxGroundChecksPerFrame) {
+                data.pos[1] = this.checkGroundY(globals, roomIdx, data);
+                data.flags &= ~TreeFlags.needsGroundCheck;
+                ++groundChecksThisFrame;
+            }
+
+            // @TODO: Frustum culling
+
+            if (!(data.flags & TreeFlags.isFrustumCulled)) {
+                // Update model matrix for all non-culled objects
+                const anim = this.anims[data.animIdx];
+                mat4.mul(data.trunkModelMtx, mat4.fromTranslation(scratchMat4a, data.pos), anim.trunkMtx);
+            }
+        }
+
+        return groundChecksThisFrame;
+    }
+
+    public update(globals: dGlobals): void {
+        // Update all animation matrices
+        for (let i = 0; i < 8 + kDynamicAnimCount; i++) {
+            const anim = this.anims[i];
+
+            mat4.fromYRotation(anim.trunkMtx, anim.trunkFallYaw);
+            mat4.rotateX(anim.trunkMtx, anim.trunkMtx, anim.trunkRotationX);
+            mat4.rotateY(anim.trunkMtx, anim.trunkMtx, uShortTo2PI(anim.initialRotationShort) - anim.trunkFallYaw);
+        }
+
+        // Update grass packets
+        let groundChecksThisFrame = 0;
+
+        // Start with current room. Then prioritize others.
+        groundChecksThisFrame = this.updateRoom(globals, globals.mStayNo, groundChecksThisFrame);
+
+        for (let roomIdx = 0; roomIdx < this.rooms.length; roomIdx++) {
+            if (groundChecksThisFrame > kMaxGroundChecksPerFrame)
+                break;
+            if (roomIdx === globals.mStayNo)
+                continue;
+            groundChecksThisFrame = this.updateRoom(globals, roomIdx, groundChecksThisFrame);
+        }
+    }
+
+    private drawRoom(globals: dGlobals, roomIdx: number, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput, device: GfxDevice) {
+        const room = this.rooms[roomIdx];
+
+        if (room.length === 0)
+            return;
+
+        let template;
+
+        const worldToView = viewerInput.camera.viewMatrix;
+        const worldCamPos = mat4.getTranslation(scratchVec3b, viewerInput.camera.worldMatrix);
+
+        // Draw shadows
+        template = renderInstManager.pushTemplateRenderInst();
+        {
+            // Set transparent
+            template.sortKey = makeSortKey(GfxRendererLayer.TRANSLUCENT);
+
+            // Set the shadow color. Pulled from d_tree::l_shadowColor$4656
+            colorFromRGBA(materialParams.u_Color[ColorKind.C0], 0, 0, 0, 0x64/0xFF);
+
+            template.setSamplerBindingsFromTextureMappings([this.model.shadowTextureMapping]);
+            const materialParamsOffs = this.model.bushMaterial.allocateMaterialParams(template);
+            this.model.shadowMaterial.fillMaterialParamsDataOnInst(template, materialParamsOffs, materialParams);
+            this.model.shadowMaterial.setOnRenderInst(device, renderInstManager.gfxRenderCache, template);
+            
+            for (let i = 0; i < room.length; i++) {
+                const data = room[i];
+                if (distanceCull(worldCamPos, data.pos))
+                    continue;
+
+                const shadowRenderInst = renderInstManager.newRenderInst();
+                this.model.shapeShadow.setOnRenderInst(shadowRenderInst);
+                mat4.mul(packetParams.u_PosMtx[0], worldToView, data.shadowModelMtx);
+                this.model.shapeShadow.fillPacketParams(packetParams, shadowRenderInst);
+                renderInstManager.submitRenderInst(shadowRenderInst);
+            }
+        }
+        renderInstManager.popTemplateRenderInst();
+
+        // Draw bushes
+        template = renderInstManager.pushTemplateRenderInst();
+        {
+            template.setSamplerBindingsFromTextureMappings([this.model.bushTextureMapping]);
+            const materialParamsOffs = this.model.bushMaterial.allocateMaterialParams(template);
+            this.model.bushMaterial.fillMaterialParamsDataOnInst(template, materialParamsOffs, materialParams);
+            this.model.bushMaterial.setOnRenderInst(device, renderInstManager.gfxRenderCache, template);
+            
+            colorFromRGBA(materialParams.u_Color[ColorKind.C2], 1, 1, 1, 1);
+            setColorFromRoomNo(globals, materialParams, roomIdx);
+
+            for (let i = 0; i < room.length; i++) {
+                const data = room[i];
+
+                if (data.flags & TreeFlags.isFrustumCulled)
+                    continue;
+                if (distanceCull(worldCamPos, data.pos))
+                    continue;
+
+                const renderInst = renderInstManager.newRenderInst();
+                this.model.shapeMain.setOnRenderInst(renderInst);
+                mat4.mul(packetParams.u_PosMtx[0], worldToView, data.trunkModelMtx);
+                this.model.shapeMain.fillPacketParams(packetParams, renderInst);
+                renderInstManager.submitRenderInst(renderInst);
+            }
+        }
+        renderInstManager.popTemplateRenderInst();
+    }
+
+    public draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
+        const device = globals.modelCache.device;
+        for (let i = 0; i < this.rooms.length; i++)
+            this.drawRoom(globals, i, renderInstManager, viewerInput, device);
+    }
+
+    public destroy(device: GfxDevice): void {
+        this.model.destroy(device);
+    }
+}
