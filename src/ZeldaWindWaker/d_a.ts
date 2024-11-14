@@ -4732,6 +4732,7 @@ function dNpc_setAnmIDRes(globals: dGlobals, pMorf: mDoExt_McaMorf, loopMode: nu
     return false;
 }
 
+// Aryll (Little Sister)
 class d_a_npc_ls1 extends fopNpc_npc_c {
     public static PROCESS_NAME = fpc__ProcessName.d_a_npc_ls1;
     private type: number;
@@ -4958,6 +4959,25 @@ class d_a_npc_ls1 extends fopNpc_npc_c {
     }
 }
 
+// Demo-only actors. Created on demo start by dDemo_System_c.JSGFindObject()
+class d_a_demo00 extends fopAc_ac_c {
+    public static PROCESS_NAME = fpc__ProcessName.d_a_demo00;
+
+    public override load(globals: dGlobals, prm: fopAcM_prm_class | null): cPhs__Status {
+        return cPhs__Status.Complete;
+    }
+
+    public override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        
+    }
+
+    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
+        
+    }
+}
+
+
+
 interface constructor extends fpc_bs__Constructor {
     PROCESS_NAME: fpc__ProcessName;
 }
@@ -4990,4 +5010,5 @@ export function d_a__RegisterConstructors(globals: fGlobals): void {
     R(d_a_obj_flame);
     R(d_a_ff);
     R(d_a_npc_ls1);
+    R(d_a_demo00);
 }
