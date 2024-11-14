@@ -54,7 +54,7 @@ export class fGlobals {
     // fpcDt
     public dtQueue: base_process_class[] = [];
     // fpcCt
-    public ctQueue: standard_create_request_class<any>[] = [];
+    public ctQueue: (create_request)[] = [];
     // fpcLy
     public lyNextID: number = 1;
     public lyRoot = new layer_class(0);
@@ -154,22 +154,37 @@ function fpcDt_Delete(globals: fGlobals, pc: base_process_class): void {
 
 //#endregion
 
-//#region cPhs, fpcCt, fpcSCtRq
+//#region cPhs, fpcCt, fpcSCtRq, fpFCtRq
 
 export interface fpc_bs__Constructor {
     new(globalUserData: fGlobals, pcName: number, pcId: number, profile: DataView): base_process_class;
 }
 
-class standard_create_request_class<T = any> {
+abstract class create_request {
+    public pcId: number;
+    public process: base_process_class;
+    public layer: layer_class
+
+    public abstract Handle(globals: fGlobals, globalUserData: GlobalUserData): cPhs__Status;
+
+    // fpcCtRq_Create
+    constructor(globals: fGlobals, layer: layer_class ) {
+        this.layer = layer;
+        this.pcId = fpcBs_MakeOfId(globals);
+        fpcCtRq_ToCreateQ(globals, this);
+    }
+};
+
+class standard_create_request_class<T = any> extends create_request {
     public phase = new request_of_phase_process_class<this>([
         // this.Load,
         this.CreateProcess,
         this.SubCreateProcess,
         this.ChildrenLoading,
     ]);
-    public process: base_process_class | null = null;
 
-    constructor(public layer: layer_class, public pcName: number, public pcId: number, public konstructor: fpc_bs__Constructor, public profileBinary: ArrayBufferSlice, public userData: T) {
+    constructor(globals: fGlobals, layer: layer_class, public pcName: number, public userData: T) {
+        super(globals, layer);
     }
 
     // fpcSCtRq_Handler
@@ -183,7 +198,12 @@ class standard_create_request_class<T = any> {
 
     private CreateProcess(globals: fGlobals, globalUserData: GlobalUserData, userData: this): cPhs__Status {
         const self = userData;
-        self.process = new self.konstructor(globals, self.pcName, self.pcId, self.profileBinary.createDataView());
+        
+        const pc = fpcBs_Create(globals, self.pcName, self.pcId);
+        if( !pc )
+            return cPhs__Status.Error;
+
+        self.process = pc;
         return cPhs__Status.Next;
     }
 
@@ -203,6 +223,15 @@ class standard_create_request_class<T = any> {
             return cPhs__Status.Next;
     }
 }
+
+class fast_create_request_class<T = any> extends create_request {
+    // fpcSCtRq_Handler
+    public Handle(globals: fGlobals, globalUserData: GlobalUserData): cPhs__Status {
+        return cPhs__Status.Complete;
+    }
+}
+
+
 
 export function fpcCt_Handler(globals: fGlobals, globalUserData: GlobalUserData): boolean {
     // fpcCtRq_Handler
@@ -232,7 +261,7 @@ export function fpcCt_Handler(globals: fGlobals, globalUserData: GlobalUserData)
     return hadAnyLoading;
 }
 
-function fpcCtRq_ToCreateQ(globals: fGlobals, rq: standard_create_request_class): void {
+function fpcCtRq_ToCreateQ(globals: fGlobals, rq: create_request): void {
     // fpcLy_CreatingMesg
     rq.layer.creatingCount++;
     // fpcCtTg_ToCreateQ
@@ -244,18 +273,36 @@ function fpcBs_MakeOfId(globals: fGlobals): number {
 }
 
 export function fpcSCtRq_Request<G>(globals: fGlobals, ly: layer_class | null, pcName: fpc__ProcessName, userData: G): number | null {
-    const constructor = fpcPf_Get__Constructor(globals, pcName);
-    if (constructor === null)
-        return null;
+    if (ly === null)
+        ly = fpcLy_CurrentLayer(globals);
+
+    const rq = new standard_create_request_class(globals, ly, pcName, userData);
+    return rq.pcId;
+}
+
+export function fpcFCtRq_Request<G>(globalUserData: GlobalUserData, ly: layer_class | null, pcName: fpc__ProcessName, userData: G): base_process_class | null {
+    const globals = globalUserData.frameworkGlobals;
 
     if (ly === null)
         ly = fpcLy_CurrentLayer(globals);
 
-    const binary = fpcPf_Get__ProfileBinary(globals, pcName);
-    const pcId = fpcBs_MakeOfId(globals);
-    const rq = new standard_create_request_class(ly, pcName, pcId, constructor, binary, userData);
-    fpcCtRq_ToCreateQ(globals, rq);
-    return pcId;
+    // fpcCtRq_Create
+    const pc = fpcBs_Create(globals, pcName, fpcBs_MakeOfId(globals));
+    if( pc ) {
+        const rq = new fast_create_request_class(globals, ly);
+        rq.process = pc;
+        rq.pcId = pc.processId;
+        const loadStatus = pc.load(globalUserData, userData)
+        if (loadStatus == cPhs__Status.Next) {
+            assert(false, 'Fast loading does not yet support i_createFunc()')
+            // request->mpFastCreateFunc = i_createFunc;
+            // request->mpFastCreateData = i_createData;
+        } else if (loadStatus == cPhs__Status.Complete) {
+            return pc;
+        }
+    }
+
+    return null;
 }
 
 //#endregion
@@ -362,6 +409,15 @@ export class base_process_class {
 
     public delete(globals: GlobalUserData): void {
     }
+}
+
+function fpcBs_Create(globals: fGlobals, pcName: fpc__ProcessName, pcId: number): base_process_class | null {
+    const constructor = fpcPf_Get__Constructor(globals, pcName);
+    if (constructor === null)
+        return null;
+
+    const binary = fpcPf_Get__ProfileBinary(globals, pcName);
+    return new constructor(globals, pcName, pcId, binary.createDataView());
 }
 
 function fpcPf_Get__ProfileBinary(globals: fGlobals, pcName: fpc__ProcessName): ArrayBufferSlice {
@@ -643,6 +699,23 @@ export function fopAcM_create(globals: fGlobals, pcName: fpc__ProcessName, param
     };
 
     return fpcSCtRq_Request(globals, null, pcName, prm);
+}
+
+export function fopAcM_fastCreate(globals: GlobalUserData, pcName: fpc__ProcessName, parameters: number, pos: ReadonlyVec3 | null = null, roomNo: number = -1, rot: ReadonlyVec3 | null = null, scale: ReadonlyVec3 | null = null, subtype: number = -1, parentPcId: number = -1): fopAc_ac_c | null {
+    // Create on current layer.
+    const prm: fopAcM_prm_class = {
+        parameters, pos, roomNo, rot, scale, subtype, parentPcId,
+        enemyNo: -1, gbaName: 0x00, layer: -1,
+    };
+
+    return fpcFCtRq_Request(globals, null, pcName, prm) as fopAc_ac_c;
+}
+
+export function fopAcM_fastCreateByName(globals: dGlobals, procName: string, parameters: number, pos: ReadonlyVec3 | null = null, roomNo: number = -1, rot: ReadonlyVec3 | null = null, scale: ReadonlyVec3 | null = null, subtype: number = -1, parentPcId: number = -1): fopAc_ac_c | null {
+    const obj = globals.dStage_searchName(procName);
+    if (!obj) { return null; }
+
+    return fopAcM_fastCreate(globals, obj.pcName, parameters, pos, roomNo, rot, scale, subtype, parentPcId);
 }
 
 export function fopAcIt_JudgeByID<T extends base_process_class>(globals: fGlobals, pcId: number | null): T | null {
