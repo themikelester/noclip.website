@@ -3,7 +3,7 @@ import ArrayBufferSlice from "../ArrayBufferSlice";
 import { TParse, JStage, TSystem, TControl, TCamera, TActor } from "../Common/JSYSTEM/JStudio.js";
 import { getMatrixAxisY, MathConstants } from "../MathHelpers.js";
 import { dGlobals } from "./Main";
-import { fopAc_ac_c, fopAcM_searchFromName } from "./framework.js";
+import { fopAc_ac_c, fopAcM_create, fopAcM_fastCreate, fopAcM_fastCreateByName, fopAcM_searchFromName } from "./framework.js";
 import { J3DModelInstance } from "../Common/JSYSTEM/J3D/J3DGraphBase";
 import { mDoExt_McaMorf } from "./m_do_ext";
 import { assert } from "../util.js";
@@ -309,9 +309,10 @@ class dDemo_system_c implements TSystem {
             case JStage.EObject.PreExistingActor:
                 let actor = fopAcM_searchFromName(this.globals, objName, 0, 0);
                 if (!actor) {
-                    if (objType == JStage.EObject.Actor && objName == "d_act") {
-                        debugger; // Untested. Unimplemented
-                        actor = {} as fopAc_ac_c;
+                    if (objType == JStage.EObject.Actor && objName.startsWith("d_act")) {
+                        actor = fopAcM_fastCreateByName(this.globals, objName, 0);
+                        if (actor) { console.log('Created demo-only actor:', objName); }
+                        else { return undefined; }
                     } else {
                         console.warn('Demo failed to find actor', objName);
                         return undefined;
