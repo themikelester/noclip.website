@@ -295,12 +295,12 @@ export function fpcFCtRq_Request<G>(globalUserData: GlobalUserData, ly: layer_cl
         rq.pcId = pc.processId;
         const loadStatus = pc.load(globalUserData, userData)
         if (loadStatus == cPhs__Status.Next) {
-            assert(false, 'Fast loading does not yet support i_createFunc()')
+            // @TODO:
             // request->mpFastCreateFunc = i_createFunc;
             // request->mpFastCreateData = i_createData;
-        } else if (loadStatus == cPhs__Status.Complete) {
             return pc;
-        }
+        } 
+        // TODO: fpcCtRq_Cancel
     }
 
     return null;
