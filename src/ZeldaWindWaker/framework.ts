@@ -692,6 +692,10 @@ export interface fopAcM_prm_class {
     layer: number;
 }
 
+export function fopAcM_delete(globals: fGlobals, actor: fopAc_ac_c) {
+    fpcDt_Delete(globals, actor);
+}
+
 export function fopAcM_create(globals: fGlobals, pcName: fpc__ProcessName, parameters: number, pos: ReadonlyVec3 | null, roomNo: number, rot: ReadonlyVec3 | null, scale: ReadonlyVec3 | null, subtype: number, parentPcId: number): number | null {
     // Create on current layer.
     const prm: fopAcM_prm_class = {
