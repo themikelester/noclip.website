@@ -28,12 +28,12 @@ import { ThunderMode, dKyr_get_vectle_calc, dKyw_get_AllWind_vecpow, dKyw_get_wi
 import { dPa_splashEcallBack, dPa_trackEcallBack, dPa_waveEcallBack } from "./d_particle.js";
 import { ResType, dComIfG_resLoad } from "./d_resorce.js";
 import { dPath, dPath_GetRoomPath, dPath__Point, dStage_Multi_c, dStage_stagInfo_GetSTType } from "./d_stage.js";
-import { cPhs__Status, fGlobals, fopAcIt_JudgeByID, fopAcM_create, fopAcM_prm_class, fopAc_ac_c, fpcPf__Register, fpcSCtRq_Request, fpc__ProcessName, fpc_bs__Constructor } from "./framework.js";
+import { cPhs__Status, fGlobals, fopAcIt_JudgeByID, fopAcM_create, fopAcM_delete, fopAcM_prm_class, fopAc_ac_c, fpcPf__Register, fpcSCtRq_Request, fpc__ProcessName, fpc_bs__Constructor } from "./framework.js";
 import { mDoExt_McaMorf, mDoExt_bckAnm, mDoExt_brkAnm, mDoExt_btkAnm, mDoExt_btpAnm, mDoExt_modelEntryDL, mDoExt_modelUpdateDL, mDoLib_project } from "./m_do_ext.js";
 import { MtxPosition, MtxTrans, calc_mtx, mDoMtx_XYZrotM, mDoMtx_XrotM, mDoMtx_YrotM, mDoMtx_YrotS, mDoMtx_ZXYrotM, mDoMtx_ZrotM, mDoMtx_ZrotS, quatM } from "./m_do_mtx.js";
 import { dGlobals } from "./Main.js";
 import { dDlst_alphaModel__Type } from "./d_drawlist.js";
-import { dDemo_setDemoData } from "./d_demo.js";
+import { dDemo_setDemoData, dDemo_actor_c, EDemoActorFlags } from "./d_demo.js";
 
 // Framework'd actors
 
@@ -4959,20 +4959,116 @@ class d_a_npc_ls1 extends fopNpc_npc_c {
     }
 }
 
-// Demo-only actors. Created on demo start by dDemo_System_c.JSGFindObject()
+class ResourceIDBundle {
+    bmdResID: number = -1;
+    demoBckID: number = -1;
+    btpResID: number = -1;
+    btkResID: number = -1;
+    brkResID: number = -1;
+    plightResID: number = -1;
+    shadowID: number = -1;
+};
+
+class daDemo00_model_c {
+    resID = new ResourceIDBundle();
+    morf?: mDoExt_McaMorf;
+    model?: J3DModelInstance;
+    // invisibleModel: mDoExt_invisibleModel;
+    btpAnm?: mDoExt_btpAnm;
+    btkAnm?: mDoExt_btkAnm;
+    brkAnm?: mDoExt_brkAnm;
+}
+
+// Demo-only actors. Created on demo start by dDemo_System_c.JSGFindObject(). Uses assets from the room's demo arc.
 class d_a_demo00 extends fopAc_ac_c {
     public static PROCESS_NAME = fpc__ProcessName.d_a_demo00;
+    private resIDs = new ResourceIDBundle();
+    private model = new daDemo00_model_c();
+    private actionFunc: (globals: dGlobals, demoActor: dDemo_actor_c) => void;
 
-    public override load(globals: dGlobals, prm: fopAcM_prm_class | null): cPhs__Status {
-        return cPhs__Status.Complete;
+    public override subload(globals: dGlobals): cPhs__Status {
+        dKy_tevstr_init(this.tevStr, globals.mStayNo, 0xff);
+        this.actionFunc = this.actStandby;
+        return cPhs__Status.Next;
     }
 
     public override execute(globals: dGlobals, deltaTimeFrames: number): void {
-        
+        const demoActor = globals.scnPlay.demo.getSystem().getActor(this.demoActorID);
+        if (demoActor) {
+            if (demoActor.mFlags & EDemoActorFlags.HasShape) { this.resIDs.bmdResID = demoActor.mShapeId; }
+            if (demoActor.mFlags & EDemoActorFlags.HasAnim) { this.resIDs.demoBckID = demoActor.mBckId; }
+            if (demoActor.mFlags & EDemoActorFlags.HasData) {
+                // @TODO:
+            }
+            this.actionFunc(globals, demoActor);
+        } else {
+            fopAcM_delete(globals.frameworkGlobals, this);
+        }
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        
+        if( this.model.model ) {
+            settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
+            setLightTevColorType(globals, this.model.model, this.tevStr, viewerInput.camera);
+            
+            // TODO:
+        }
+    }
+
+    private createHeap(globals: dGlobals) {
+        const resIds = this.model.resID;
+
+        if (resIds.bmdResID != -1) {
+            const modelData = globals.resCtrl.getObjectIDRes(ResType.Model, globals.roomCtrl.demoArcName!, resIds.bmdResID );
+            assert(!!modelData);
+
+            if (this.model.resID.demoBckID == -1) {
+                this.model.morf = undefined;
+                this.model.model = new J3DModelInstance(modelData); // @TODO: This passes some funky dlist selector flags
+            } else {
+                // TODO:
+            }
+        }
+    }
+
+    private actStandby(globals: dGlobals, demoActor: dDemo_actor_c): void {
+        if (((this.resIDs).bmdResID == -1) && ((this.resIDs).plightResID == -1)) {
+            return;
+        }
+      
+        (this.model).resID.bmdResID = (this.resIDs).bmdResID;
+        (this.model).resID.demoBckID = (this.resIDs).demoBckID;
+        (this.model).resID.btpResID = (this.resIDs).btpResID;
+        (this.model).resID.btkResID = (this.resIDs).btkResID;
+        (this.model).resID.brkResID = (this.resIDs).brkResID;
+        (this.model).resID.plightResID = (this.resIDs).plightResID;
+        (this.model).resID.shadowID = (this.resIDs).shadowID;
+    
+        this.createHeap(globals);
+
+        if (this.model.model) {
+            this.setBaseMtx();
+            this.cullMtx = this.model.model.modelMatrix;
+            demoActor.mModel = (this.model).model;
+            if (this.model.morf) {
+                demoActor.mAnimationFrameMax = this.model.morf.frameCtrl.endFrame;
+            }
+        }
+        this.actionFunc = this.actPerformance;
+    }
+
+    private actPerformance(globals: dGlobals, demoActor: dDemo_actor_c) {
+        // TODO:
+    }
+
+    private setBaseMtx() {
+        MtxTrans(this.pos, false, calc_mtx);
+        mDoMtx_XYZrotM(calc_mtx, this.rot);
+        mat4.copy(this.model.model!.modelMatrix, calc_mtx);
+
+        vec3.copy(this.model.model!.baseScale, this.scale);
+
+        this.model.model!.calcAnim();
     }
 }
 
