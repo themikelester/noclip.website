@@ -229,6 +229,12 @@ export class mDoExt_McaMorf implements JointMatrixCalc {
         this.model.jointMatrixCalc = this;
     }
 
+    public updateDL(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput, drawListSet: dDlst_list_Set | null = null) {
+        if (this.model) {
+            mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput, drawListSet);
+        }
+    }
+
     public entryDL(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput, drawListSet: dDlst_list_Set | null = null): void {
         mDoExt_modelEntryDL(globals, this.model, renderInstManager, viewerInput);
     }
