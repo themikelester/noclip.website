@@ -457,21 +457,26 @@ abstract class STBObject {
 
         switch (cmd) {
             case ESequenceCmd.End:
+                this.mAdaptor.log(`End`);
                 break;
 
             case ESequenceCmd.SetFlag:
+                this.mAdaptor.log(`SetFlag: ${param}`);
                 debugger; // Untested. Remove after confirmed working.
                 break;
 
             case ESequenceCmd.Wait:
+                this.mAdaptor.log(`Wait: ${param}`);
                 this.mWait = param;
                 break;
 
             case ESequenceCmd.Skip:
+                this.mAdaptor.log(`Skip: ${param}`);
                 debugger; // Untested. Remove after confirmed working.
                 break;
 
             case ESequenceCmd.Suspend:
+                this.mAdaptor.log(`Suspend: ${param}`);
                 this.mSuspendFrames += param;
                 break;
 
@@ -510,6 +515,7 @@ abstract class STBObject {
                 const contentOffset = dataOffset + 4 + align(idSize, 4);
                 const contentSize = dataSize - (contentOffset - dataOffset);
                 const content = file.buffer.createDataView(contentOffset, contentSize);
+                this.mAdaptor.log(`SetData: ${id}`);
                 this.do_data(id, content);
                 break;
 
@@ -1868,7 +1874,6 @@ export class TControl {
     }
 
     public forward(frameCount: number): boolean {
-        ;
         let andStatus = 0xFF;
         let orStatus = 0;
 
