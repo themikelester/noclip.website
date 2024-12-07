@@ -977,9 +977,9 @@ class DemoDesc extends SceneDesc implements Viewer.SceneDesc {
         public layer: number,
         public offsetPos?:vec3, 
         public rotY: number = 0,
-        public startCode?: number,
-        public eventFlags?: number,
-        public startFrame?: number, // noclip modification for easier debugging
+        public startCode: number = 0,
+        public eventFlags: number = 0,
+        public startFrame: number = 0, // noclip modification for easier debugging
     ) {
         super(stageDir, name, roomList);
         assert(this.roomList.length === 1);
@@ -1034,7 +1034,10 @@ class DemoDesc extends SceneDesc implements Viewer.SceneDesc {
         if (!demoData)
             demoData = globals.modelCache.resCtrl.getStageResByName(ResType.Stb, "Stage", this.stbFilename);
         
-        if( demoData ) { globals.scnPlay.demo.create(demoData, this.offsetPos, this.rotY / 180.0 * Math.PI, this.startFrame); }
+        if (demoData) { 
+            globals.scnPlay.demo.setFrame(this.startFrame + globals.context.viewerInput.time / 1000.0 * 30.0);
+            globals.scnPlay.demo.create(demoData, this.offsetPos, this.rotY / 180.0 * Math.PI); 
+        }
         else { console.warn('Failed to load demo data:', this.stbFilename); }
 
         return this.globals.renderer;
