@@ -321,6 +321,7 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
     private mainColorDesc = new GfxrRenderTargetDescription(GfxFormat.U8_RGBA_RT);
     private mainDepthDesc = new GfxrRenderTargetDescription(GfxFormat.D32F);
     private opaqueSceneTextureMapping = new TextureMapping();
+    private isPaused: boolean;
 
     public renderHelper: GXRenderHelperGfx;
 
@@ -491,6 +492,12 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
             this.globals.context.inputManager.isMouseEnabled = false;
         } else {
             this.globals.context.inputManager.isMouseEnabled = true;
+        }
+
+        // Save the camera/time state when play/pause is toggled
+        if( isPaused != this.isPaused ) {
+            this.isPaused = isPaused;
+            this.onstatechanged();
         }
 
         if (!this.cameraFrozen) {
