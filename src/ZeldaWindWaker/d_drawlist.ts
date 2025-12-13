@@ -3,23 +3,23 @@ import { mat4 } from "gl-matrix";
 import { White, colorCopy, colorNewCopy } from "../Color.js";
 import { projectionMatrixForCuboid } from '../MathHelpers.js';
 import { TSDraw } from "../SuperMarioGalaxy/DDraw.js";
-import { GfxBufferCoalescerCombo } from "../gfx/helpers/BufferHelpers.js";
+import { createBufferFromData } from "../gfx/helpers/BufferHelpers.js";
 import { setAttachmentStateSimple } from '../gfx/helpers/GfxMegaStateDescriptorHelpers.js';
 import { projectionMatrixConvertClipSpaceNearZ } from '../gfx/helpers/ProjectionHelpers.js';
-import { GfxChannelWriteMask, GfxClipSpaceNearZ, GfxDevice } from "../gfx/platform/GfxPlatform.js";
+import { GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxChannelWriteMask, GfxClipSpaceNearZ, GfxDevice, GfxInputLayout } from "../gfx/platform/GfxPlatform.js";
 import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
-import { GfxRenderInstExecutionOrder, GfxRenderInstList, GfxRenderInstManager, gfxRenderInstCompareNone, gfxRenderInstCompareSortKey } from "../gfx/render/GfxRenderInstManager.js";
+import { GfxRenderInst, GfxRenderInstExecutionOrder, GfxRenderInstList, GfxRenderInstManager, gfxRenderInstCompareNone, gfxRenderInstCompareSortKey } from "../gfx/render/GfxRenderInstManager.js";
 import { GXMaterialBuilder } from '../gx/GXMaterialBuilder.js';
-import { DisplayListRegisters, GX_Array, GX_VtxAttrFmt, GX_VtxDesc, compileVtxLoader, displayListRegistersInitGX, displayListRegistersRun } from "../gx/gx_displaylist.js";
+import { DisplayListRegisters, GX_Array, GX_VtxAttrFmt, GX_VtxDesc, LoadedVertexData, LoadedVertexLayout, compileVtxLoader, displayListRegistersInitGX, displayListRegistersRun } from "../gx/gx_displaylist.js";
 import * as GX from '../gx/gx_enum.js';
 import { GX_Program, parseMaterial } from '../gx/gx_material.js';
-import { ColorKind, DrawParams, GXMaterialHelperGfx, GXShapeHelperGfx, MaterialParams, SceneParams, fillSceneParamsData, loadedDataCoalescerComboGfx, ub_SceneParamsBufferSize } from "../gx/gx_render.js";
+import { ColorKind, DrawParams, GXMaterialHelperGfx, MaterialParams, SceneParams, createInputLayout, fillSceneParamsData, ub_SceneParamsBufferSize } from "../gx/gx_render.js";
 import { assert } from '../util.js';
 import { ViewerRenderInput } from '../viewer.js';
 import { SymbolMap, dGlobals } from './Main.js';
 import { PeekZManager } from "./d_dlst_peekZ.js";
 
-export const enum dDlst_alphaModel__Type {
+export enum dDlst_alphaModel__Type {
     Bonbori,
     BonboriTwice,
     BeamCheck,
@@ -33,6 +33,32 @@ class dDlst_alphaModelData_c {
     }
 }
 
+export class dDlst_BasicShape_c {
+    public inputLayout: GfxInputLayout;
+    public vertexBuffer: GfxBuffer;
+    public indexBuffer: GfxBuffer;
+    public indexCount: number;
+
+    constructor(cache: GfxRenderCache, loadedVertexLayout: LoadedVertexLayout, loadedVertexData: LoadedVertexData) {
+        this.inputLayout = createInputLayout(cache, loadedVertexLayout);
+        this.vertexBuffer = createBufferFromData(cache.device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, loadedVertexData.vertexBuffers[0]);
+        this.indexBuffer = createBufferFromData(cache.device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, loadedVertexData.indexData);
+        assert(loadedVertexData.draws.length === 1);
+        assert(loadedVertexData.draws[0].indexOffset === 0);
+        this.indexCount = loadedVertexData.draws[0].indexCount;
+    }
+
+    public setOnRenderInst(renderInst: GfxRenderInst): void {
+        renderInst.setVertexInput(this.inputLayout, [{ buffer: this.vertexBuffer }], { buffer: this.indexBuffer });
+        renderInst.setDrawCount(this.indexCount);
+    }
+
+    public destroy(device: GfxDevice): void {
+        device.destroyBuffer(this.vertexBuffer);
+        device.destroyBuffer(this.indexBuffer);
+    }
+}
+
 const drawParams = new DrawParams();
 const materialParams = new MaterialParams();
 class dDlst_alphaModel_c {
@@ -41,8 +67,7 @@ class dDlst_alphaModel_c {
 
     private materialHelperBackRevZ: GXMaterialHelperGfx;
     private materialHelperFrontZ: GXMaterialHelperGfx;
-    private bonboriCoalescer: GfxBufferCoalescerCombo;
-    private bonboriShape: GXShapeHelperGfx;
+    private bonboriShape: dDlst_BasicShape_c;
 
     private materialHelperDrawAlpha: GXMaterialHelperGfx;
     private orthoSceneParams = new SceneParams();
@@ -61,8 +86,7 @@ class dDlst_alphaModel_c {
         const shadowVtxArrays: GX_Array[] = [];
         shadowVtxArrays[GX.Attr.POS]  = { buffer: bonboriPos, offs: 0, stride: 0x0C };
         const bonboriVertices = bonboriVtxLoader.runVertices(shadowVtxArrays, bonboriDL);
-        this.bonboriCoalescer = loadedDataCoalescerComboGfx(device, [bonboriVertices]);
-        this.bonboriShape = new GXShapeHelperGfx(device, cache, this.bonboriCoalescer.coalescedBuffers[0].vertexBuffers, this.bonboriCoalescer.coalescedBuffers[0].indexBuffer, bonboriVtxLoader.loadedVertexLayout, bonboriVertices);
+        this.bonboriShape = new dDlst_BasicShape_c(cache, bonboriVtxLoader.loadedVertexLayout, bonboriVertices);
 
         const matRegisters = new DisplayListRegisters();
         displayListRegistersInitGX(matRegisters);
@@ -123,7 +147,7 @@ class dDlst_alphaModel_c {
         if (this.datas.length === 0)
             return;
 
-        const device = globals.modelCache.device, cache = globals.modelCache.cache;
+        const cache = globals.modelCache.cache;
 
         for (let i = 0; i < this.datas.length; i++) {
             const data = this.datas[i];
@@ -132,7 +156,7 @@ class dDlst_alphaModel_c {
 
             if (data.type === dDlst_alphaModel__Type.Bonbori) {
                 this.bonboriShape.setOnRenderInst(template);
-                mat4.mul(drawParams.u_PosMtx[0], viewerInput.camera.viewMatrix, data.mtx);
+                mat4.mul(drawParams.u_PosMtx[0], globals.camera.viewFromWorldMatrix, data.mtx);
                 this.materialHelperBackRevZ.allocateDrawParamsDataOnInst(template, drawParams);
 
                 materialParams.u_Color[ColorKind.MAT0].a = data.alpha / 0xFF;
@@ -168,7 +192,6 @@ class dDlst_alphaModel_c {
     }
 
     public destroy(device: GfxDevice): void {
-        this.bonboriCoalescer.destroy(device);
         this.bonboriShape.destroy(device);
         this.orthoQuad.destroy(device);
     }
@@ -198,6 +221,16 @@ export class dDlst_list_c {
         new GfxRenderInstList(gfxRenderInstCompareNone, GfxRenderInstExecutionOrder.Backwards),
         new GfxRenderInstList(gfxRenderInstCompareNone, GfxRenderInstExecutionOrder.Backwards),
     ];
+
+    // These correspond to 2DOpa and 2DXlu
+    public ui2D: dDlst_list_Set = [
+        new GfxRenderInstList(gfxRenderInstCompareNone, GfxRenderInstExecutionOrder.Forwards),
+        new GfxRenderInstList(gfxRenderInstCompareNone, GfxRenderInstExecutionOrder.Forwards)
+    ];
+
+    public particle2DBack = new GfxRenderInstList(gfxRenderInstCompareNone, GfxRenderInstExecutionOrder.Forwards);
+    public particle2DFore = new GfxRenderInstList(gfxRenderInstCompareNone, GfxRenderInstExecutionOrder.Forwards);
+
     public alphaModel = new GfxRenderInstList(gfxRenderInstCompareNone, GfxRenderInstExecutionOrder.Forwards);
     public peekZ = new PeekZManager(128);
     public alphaModel0: dDlst_alphaModel_c;

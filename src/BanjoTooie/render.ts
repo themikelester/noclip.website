@@ -12,7 +12,7 @@ import { computeViewMatrix, computeViewMatrixSkybox } from '../Camera.js';
 import { TextureMapping } from '../TextureHolder.js';
 import { GfxRenderInstManager, setSortKeyDepthKey, setSortKeyDepth } from '../gfx/render/GfxRenderInstManager.js';
 import { VertexAnimationEffect, VertexEffectType, GeoNode, AnimationSetup, TextureAnimationSetup, GeoFlags, isSelector, isSorter, SoftwareLightingEffect } from '../BanjoKazooie/geo.js';
-import { clamp, lerp, MathConstants, Vec3Zero, Vec3UnitY, getMatrixAxisX, getMatrixAxisY, transformVec3Mat4w0, normToLength, transformVec3Mat4w1, randomRange } from '../MathHelpers.js';
+import { clamp, lerp, MathConstants, Vec3Zero, Vec3UnitY, getMatrixAxisX, getMatrixAxisY, transformVec3Mat4w0, normToLength, transformVec3Mat4w1, randomRangeFloat } from '../MathHelpers.js';
 import { setAttachmentStateSimple } from '../gfx/helpers/GfxMegaStateDescriptorHelpers.js';
 import { RenderData, F3DEX_Program, GeometryData, BoneAnimator, AnimationMode, AdjustableAnimationController } from '../BanjoKazooie/render.js';
 import { calcTextureMatrixFromRSPState } from '../Common/N64/RSP.js';
@@ -67,7 +67,7 @@ function updateVertexEffectState(effect: VertexAnimationEffect, timeInSeconds: n
                     effect.yPhase = 0;
                     // choose a random center, then activate nearby vertices
                     const center = effect.baseVertexValues[Math.floor(Math.random() * effect.baseVertexValues.length)];
-                    const radius = vec3.dist(effect.bbMax!, effect.bbMin!) * randomRange(1 / 8, 1 / 4);
+                    const radius = vec3.dist(effect.bbMax!, effect.bbMin!) * randomRangeFloat(1 / 8, 1 / 4);
                     for (let i = 0; i < effect.baseVertexValues.length; i++) {
                         if (Math.hypot(effect.baseVertexValues[i].x - center.x, effect.baseVertexValues[i].y - center.y, effect.baseVertexValues[i].z - center.z) < radius) {
                             const t = Math.random() + .2;
@@ -326,7 +326,7 @@ class DrawCallInstance {
     }
 }
 
-export const enum AnimationTrackType {
+export enum AnimationTrackType {
     RotationX,
     RotationY,
     RotationZ,
@@ -459,7 +459,7 @@ class GeoNodeRenderer {
     }
 }
 
-export const enum LowObjectFlags {
+export enum LowObjectFlags {
     ExtraFinal   = 0x00400000,
     Translucent  = 0x00020000,
     EarlyOpaque  = 0x00000800,
@@ -469,11 +469,11 @@ export const enum LowObjectFlags {
     AltVerts     = 0x00000008,
 }
 
-const enum HighObjectFlags {
+enum HighObjectFlags {
     Final        = 0x00008000,
 }
 
-export const enum BTLayer {
+export enum BTLayer {
     Early,
     Opaque,
     AfterPlayers,
@@ -498,7 +498,7 @@ export function layerFromFlags(low: number, high: number): BTLayer {
     return BTLayer.AfterPlayers;
 }
 
-const enum BlinkState {
+enum BlinkState {
     Open,
     Closing,
     Opening,
@@ -626,12 +626,12 @@ export class GeometryRenderer {
             // make a copy for this renderer
             this.vertexBufferData = new Float32Array(this.geometryData.renderData.vertexBufferData);
             this.vertexBuffer = device.createBuffer(
-                align(this.vertexBufferData.byteLength, 4) / 4,
+                this.vertexBufferData.byteLength,
                 GfxBufferUsage.Vertex,
                 GfxBufferFrequencyHint.Dynamic
             );
 
-            this.vertexBufferDescriptors = [{ buffer: this.vertexBuffer, byteOffset: 0, }];
+            this.vertexBufferDescriptors = [{ buffer: this.vertexBuffer }];
 
             // allow the render data to destroy the copies later
             this.geometryData.renderData.dynamicBufferCopies.push(this.vertexBuffer);

@@ -1,30 +1,28 @@
 
-import * as Viewer from '../viewer.js';
 import * as RARC from '../Common/JSYSTEM/JKRArchive.js';
+import * as Viewer from '../viewer.js';
 
-import { WindWakerRenderer, ZWWExtraTextures, dGlobals } from "./Main.js";
 import { mat4, vec3 } from "gl-matrix";
+import AnimationController from '../AnimationController.js';
 import { J3DModelData } from '../Common/JSYSTEM/J3D/J3DGraphBase.js';
 import { J3DModelInstanceSimple } from '../Common/JSYSTEM/J3D/J3DGraphSimple.js';
-import { GfxRendererLayer } from '../gfx/render/GfxRenderInstManager.js';
-import { LoopMode, ANK1, TTK1, TRK1, TPT1 } from '../Common/JSYSTEM/J3D/J3DLoader.js';
-import { assertExists, hexzero, leftPad } from '../util.js';
-import { ResType, ResEntry, ResAssetType } from './d_resorce.js';
-import AnimationController from '../AnimationController.js';
-import { AABB } from '../Geometry.js';
-import { computeModelMatrixSRT, scaleMatrix } from '../MathHelpers.js';
-import { LightType, dKy_tevstr_init, dKy_tevstr_c, settingTevStruct, setLightTevColorType } from './d_kankyo.js';
+import { ANK1, LoopMode, TPT1, TRK1, TTK1 } from '../Common/JSYSTEM/J3D/J3DLoader.js';
 import { JPABaseEmitter } from '../Common/JSYSTEM/JPA.js';
-import { cPhs__Status, fGlobals, fpcPf__RegisterFallback } from './framework.js';
-import { ScreenSpaceProjection, computeScreenSpaceProjectionFromWorldSpaceAABB } from '../Camera.js';
+import { AABB } from '../Geometry.js';
 import { GfxDevice } from '../gfx/platform/GfxPlatform.js';
-import { GfxRenderInstManager } from '../gfx/render/GfxRenderInstManager.js';
+import { GfxRenderInstManager, GfxRendererLayer } from '../gfx/render/GfxRenderInstManager.js';
+import { computeModelMatrixSRT, scaleMatrix } from '../MathHelpers.js';
+import { assertExists, hexzero, leftPad } from '../util.js';
 import { dBgS_GndChk } from './d_bg.js';
-import { fopAc_ac_c, fopAcM_prm_class } from './f_op_actor.js';
-import { dProcName_e } from './d_procname.js';
-import { mDoExt_McaMorf } from './m_do_ext.js';
 import { dDemo_setDemoData } from './d_demo.js';
-import { calc_mtx, mDoMtx_ZXYrotM, MtxTrans } from './m_do_mtx.js';
+import { LightType, dKy_tevstr_c, dKy_tevstr_init, setLightTevColorType, settingTevStruct } from './d_kankyo.js';
+import { dProcName_e } from './d_procname.js';
+import { ResAssetType, ResEntry, ResType } from './d_resorce.js';
+import { fopAcM_prm_class, fopAc_ac_c } from './f_op_actor.js';
+import { cPhs__Status, fGlobals, fpcPf__RegisterFallback } from './framework.js';
+import { mDoExt_McaMorf, mDoExt_modelEntryDL, mDoExt_modelUpdateDL } from './m_do_ext.js';
+import { MtxTrans, calc_mtx, mDoMtx_ZXYrotM } from './m_do_mtx.js';
+import { WindWakerRenderer, ZWWExtraTextures, dGlobals } from "./Main.js";
 
 const scratchMat4a = mat4.create();
 const scratchVec3a = vec3.create();
@@ -50,33 +48,62 @@ class d_a_noclip_legacy extends fopAc_ac_c {
     private phase = cPhs__Status.Started;
     public morf: mDoExt_McaMorf;
     public objectRenderers: BMDObjectRenderer[] = [];
+    public isDemoActor = false;
 
     public override subload(globals: dGlobals, prm: fopAcM_prm_class): cPhs__Status {
         if (this.phase === cPhs__Status.Started) {
             this.phase = cPhs__Status.Loading;
 
             spawnLegacyActor(globals, this, prm).then(() => {
-                this.phase = cPhs__Status.Next;
+                this.phase = this.finishLoading(globals);
             });
         }
 
         return this.phase;
     }
 
-    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: Viewer.ViewerRenderInput): void {
-        const device = globals.modelCache.device;
-        const dtFrames = Math.min(viewerInput.deltaTime / 1000 * 30, 5);
+    private finishLoading(globals: dGlobals): cPhs__Status {
+        const baseObj = this.objectRenderers[0];
+        if (baseObj === undefined)
+            return cPhs__Status.Stop;
 
-        const isDemoActor = dDemo_setDemoData(globals, dtFrames, this, 0x6A, this.morf);
-        if( isDemoActor ) {
+        this.cullMtx = baseObj.modelMatrix;
+
+        if (this.cullSizeSphere !== null && this.cullSizeSphere[3] === 0.0) {
+            // Convert us to a box.
+            this.cullSizeSphere = null;
+            this.cullSizeBox = new AABB();
+        }
+
+        if (this.cullSizeBox !== null && !Object.isFrozen(this.cullSizeBox)) {
+            // Compute the cull box using only the parent.
+            this.cullSizeBox.copy(baseObj.modelInstance.modelData.bbox);
+        }
+
+        return cPhs__Status.Next;
+    }
+
+    public override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        this.isDemoActor = dDemo_setDemoData(globals, deltaTimeFrames, this, 0x6A, this.morf);
+        if (this.isDemoActor) {
             MtxTrans(this.pos, false);
             mDoMtx_ZXYrotM(calc_mtx, this.rot);
             mat4.copy(this.objectRenderers[0].modelMatrix, calc_mtx);
         }
+    }
+
+    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: Viewer.ViewerRenderInput): void {
+        if (this.objectRenderers.length === 0)
+            return;
+
+        if (!this.cullingCheck(globals.camera))
+            return;
+
+        const device = globals.modelCache.device;
 
         renderInstManager.setCurrentList(globals.dlst.bg[0]);
         for (let i = 0; i < this.objectRenderers.length; i++)
-            this.objectRenderers[i].prepareToRender(globals, isDemoActor ? this.morf : null, device, renderInstManager, viewerInput);
+            this.objectRenderers[i].prepareToRender(globals, this.isDemoActor ? this.morf : null, device, renderInstManager, viewerInput);
     }
 
     public override delete(globals: dGlobals): void {
@@ -342,7 +369,7 @@ function spawnLegacyActor(globals: dGlobals, legacy: d_a_noclip_legacy, actor: f
     else if (actorName === 'Hi1') fetchArchive(`Hi`).then((rarc) => buildModel(rarc, `bdlm/hi.bdl`).bindANK1(parseBCK(rarc, `bcks/hi_wait01.bck`)));
     // Princess Zelda
     else if (actorName === 'p_zelda') fetchArchive(`Pz`).then((rarc) => {
-        const m = buildModel(rarc, `bdlm/pz.bdl`);            
+        const m = buildModel(rarc, `bdlm/pz.bdl`);
         m.setMaterialColorWriteEnabled("m_pz_eyeLdamA", false);
         m.setMaterialColorWriteEnabled("m_pz_eyeLdamB", false);
         m.setMaterialColorWriteEnabled("m_pz_mayuLdamA", false);
@@ -518,19 +545,6 @@ function spawnLegacyActor(globals: dGlobals, legacy: d_a_noclip_legacy, actor: f
         const m = buildModel(rarc, `bdl/yw.bdl`);
         buildChildModel(rarc, `bdlm/ywhead01.bdl`).setParentJoint(m, `head`);
         m.bindANK1(parseBCK(rarc, `bcks/wait01.bck`));
-    });
-    // Tetra
-    else if (actorName === 'Zl1') fetchArchive(`Zl`).then((rarc) => {
-        const m = buildModel(rarc, `bdlm/zl.bdl`);
-        m.setMaterialColorWriteEnabled("eyeLdamA", false);
-        m.setMaterialColorWriteEnabled("eyeLdamB", false);
-        m.setMaterialColorWriteEnabled("mayuLdamA", false);
-        m.setMaterialColorWriteEnabled("mayuLdamB", false);
-        m.setMaterialColorWriteEnabled("eyeRdamA", false);
-        m.setMaterialColorWriteEnabled("eyeRdamB", false);
-        m.setMaterialColorWriteEnabled("mayuRdamA", false);
-        m.setMaterialColorWriteEnabled("mayuRdamB", false);
-        m.bindANK1(parseBCK(rarc, `bcks/wait.bck`));
     });
     // Gonzo
     else if (actorName === 'P1a') fetchArchive(`P1`).then((rarc) => {
@@ -1245,7 +1259,7 @@ function spawnLegacyActor(globals: dGlobals, legacy: d_a_noclip_legacy, actor: f
     else if (actorName === 'Oq') fetchArchive(`Oq`).then((rarc) => buildModel(rarc, `bmdm/oq.bmd`).bindANK1(parseBCK(rarc, `bck/nom_wait.bck`)));
     else if (actorName === 'Oqw') fetchArchive(`Oq`).then((rarc) => buildModel(rarc, `bmdm/red_oq.bmd`).bindANK1(parseBCK(rarc, `bck/umi_new_wait.bck`)));
     else if (actorName === 'Daiocta') fetchArchive(`Daiocta`).then((rarc) => buildModel(rarc, `bdlm/do_main1.bdl`).bindANK1(parseBCK(rarc, `bck/wait1.bck`)));
-    else if (actorName === 'Fmastr1' || actorName === 'Fmastr2') fetchArchive(`fm`).then((rarc) => { 
+    else if (actorName === 'Fmastr1' || actorName === 'Fmastr2') fetchArchive(`fm`).then((rarc) => {
         buildModel(rarc, `bdl/fm.bdl`).bindANK1(parseBCK(rarc, `bcks/wait.bck`));
         const holeModel = buildModel(rarc, `bdlm/ypit00.bdl`);
         holeModel.bindTTK1(parseBTK(rarc, `btk/ypit00.btk`));
@@ -1258,7 +1272,7 @@ function spawnLegacyActor(globals: dGlobals, legacy: d_a_noclip_legacy, actor: f
         const m = buildModel(rarc, `bdlm/bl.bdl`);
 
         const bubbleType = (actor.parameters & 0x000000FF);
-        
+
         if (bubbleType === 0x80) {
             m.bindTTK1(parseBTK(rarc, 'btk/off.btk'));
         } else {
@@ -1274,7 +1288,7 @@ function spawnLegacyActor(globals: dGlobals, legacy: d_a_noclip_legacy, actor: f
     else if (actorName === 'Tn') fetchArchive(`Tn`).then(async (rarc) => {
         const equipmentType = (actor.rot![0] & 0x00E0) >>> 5;
         const armorColor = (actor.parameters & 0x000000F0) >>> 4;
-        
+
         const mainModel = buildModel(rarc, `bmdm/tn_main.bmd`);
         const mainAnim = parseBCK(rarc, `bck/aniou1.bck`);
         mainModel.bindTRK1(parseBRK(rarc, `brk/tn_main.brk`), animFrame(armorColor));
@@ -1283,7 +1297,7 @@ function spawnLegacyActor(globals: dGlobals, legacy: d_a_noclip_legacy, actor: f
         const swordModel = buildChildModel(weaponRarc, `bdlc/tn_ken1.bdl`);
         swordModel.setParentJoint(mainModel, `j_tn_item_r1`);
         mat4.translate(swordModel.modelMatrix, swordModel.modelMatrix, [0, 0, 85]);
-        
+
         const armorModel = buildChildModel(rarc, `bmdm/tn_yoroi1.bmd`);
         armorModel.setParentJoint(mainModel, `j_tn_mune1`);
         armorModel.bindTRK1(parseBRK(rarc, `brk/tn_yoroi1.brk`), animFrame(armorColor));
@@ -1799,9 +1813,7 @@ function spawnLegacyActor(globals: dGlobals, legacy: d_a_noclip_legacy, actor: f
 
 // Special-case actors
 
-const bboxScratch = new AABB();
-const screenProjection = new ScreenSpaceProjection();
-export class BMDObjectRenderer {
+class BMDObjectRenderer {
     public visible = true;
     public modelMatrix: mat4 = mat4.create();
     public lightTevColorType = LightType.Actor;
@@ -1809,7 +1821,7 @@ export class BMDObjectRenderer {
     public tevstr = new dKy_tevstr_c();
 
     private childObjects: BMDObjectRenderer[] = [];
-    private parentJointMatrix: mat4 | null = null;
+    public parentJointMatrix: mat4 | null = null;
 
     constructor(public modelInstance: J3DModelInstanceSimple) {
     }
@@ -1839,13 +1851,6 @@ export class BMDObjectRenderer {
         this.modelInstance.setMaterialColorWriteEnabled(materialName, v);
     }
 
-    private setExtraTextures(extraTextures: ZWWExtraTextures): void {
-        extraTextures.fillExtraTextures(this.modelInstance);
-
-        for (let i = 0; i < this.childObjects.length; i++)
-            this.childObjects[i].setExtraTextures(extraTextures);
-    }
-
     public prepareToRender(globals: dGlobals, morf: mDoExt_McaMorf | null, device: GfxDevice, renderInstManager: GfxRenderInstManager, viewerInput: Viewer.ViewerRenderInput): void {
         if (!this.visible)
             return;
@@ -1859,27 +1864,20 @@ export class BMDObjectRenderer {
             mat4.mul(this.modelInstance.modelMatrix, this.parentJointMatrix, this.modelMatrix);
         } else {
             mat4.copy(this.modelInstance.modelMatrix, this.modelMatrix);
-
-            // Don't compute screen area culling on child meshes (don't want heads to disappear before bodies.)
-            bboxScratch.transform(this.modelInstance.modelData.bbox, this.modelInstance.modelMatrix);
-            computeScreenSpaceProjectionFromWorldSpaceAABB(screenProjection, viewerInput.camera, bboxScratch);
-
-            if (screenProjection.getScreenArea() <= 0.0002)
-                return;
         }
 
         mat4.getTranslation(scratchVec3a, this.modelMatrix);
         settingTevStruct(globals, this.lightTevColorType, scratchVec3a, this.tevstr);
-        setLightTevColorType(globals, this.modelInstance, this.tevstr, viewerInput.camera);
+        setLightTevColorType(globals, this.modelInstance, this.tevstr, globals.camera);
 
-        if( morf ) {
+        if (morf) {
             morf.calc();
-            morf.entryDL(globals, renderInstManager, viewerInput);
+            morf.entryDL(globals, renderInstManager);
         } else {
-            this.setExtraTextures(globals.renderer.extraTextures);
-            this.modelInstance.prepareToRender(device, renderInstManager, viewerInput);
+            this.modelInstance.animationController.setTimeInMilliseconds(viewerInput.time);
+            mDoExt_modelUpdateDL(globals, this.modelInstance, renderInstManager);
         }
-        
+
         for (let i = 0; i < this.childObjects.length; i++)
             this.childObjects[i].prepareToRender(globals, null, device, renderInstManager, viewerInput);
     }

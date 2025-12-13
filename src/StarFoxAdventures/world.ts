@@ -17,7 +17,7 @@ import { ObjectManager, ObjectInstance, ObjectUpdateContext } from './objects.js
 import { EnvfxManager } from './envfx.js';
 import { SFARenderer, SceneRenderContext, SFARenderLists } from './render.js';
 import { MapInstance, loadMap } from './maps.js';
-import { dataSubarray, mat4SetTranslation, readVec3 } from './util.js';
+import { dataSubarray, readVec3 } from './util.js';
 import { ModelRenderContext } from './models.js';
 import { MaterialFactory } from './materials.js';
 import { SFAAnimationController } from './animation.js';
@@ -28,7 +28,7 @@ import { SFATextureFetcher } from './textures.js';
 import { SphereMapManager } from './SphereMaps.js';
 import { computeViewMatrix } from '../Camera.js';
 import { nArray } from '../util.js';
-import { transformVec3Mat4w0, transformVec3Mat4w1 } from '../MathHelpers.js';
+import { setMatrixTranslation, transformVec3Mat4w0, transformVec3Mat4w1, Vec3Zero } from '../MathHelpers.js';
 import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
 
 const scratchVec0 = vec3.create();
@@ -48,7 +48,7 @@ export class World {
     public renderCache: GfxRenderCache;
 
     private constructor(public context: SceneContext, public gameInfo: GameInfo, public subdirs: string[], private materialFactory: MaterialFactory) {
-        this.renderCache = this.materialFactory.cache;
+        this.renderCache = this.materialFactory.renderCache;
     }
 
     private async init(dataFetcher: DataFetcher) {
@@ -131,7 +131,7 @@ export class World {
         computeViewMatrix(worldView, sceneCtx.viewerInput.camera);
         const worldViewSR = scratchMtx1;
         mat4.copy(worldViewSR, worldView);
-        mat4SetTranslation(worldViewSR, 0, 0, 0);
+        setMatrixTranslation(worldViewSR, Vec3Zero);
 
         for (let light of probedLights) {
             if (light.type & typeMask) {

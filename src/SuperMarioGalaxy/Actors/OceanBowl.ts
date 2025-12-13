@@ -8,7 +8,6 @@ import { clamp } from "../../MathHelpers.js";
 import AnimationController from "../../AnimationController.js";
 import { colorFromRGBA8 } from "../../Color.js";
 import { assert } from "../../util.js";
-import { makeStaticDataBuffer } from "../../gfx/helpers/BufferHelpers.js";
 import { getVertexInputLocation } from "../../gx/gx_material.js";
 import * as GX from "../../gx/gx_enum.js";
 import { GXMaterialHelperGfx } from "../../gx/gx_render.js";
@@ -22,6 +21,7 @@ import { BTIData } from "../../Common/JSYSTEM/JUTTexture.js";
 import { initDefaultPos, connectToScene, loadBTIData, loadTexProjectionMtx, setTextureMatrixST, isValidDraw, vecKillElement, calcActorAxis } from "../ActorUtil.js";
 import { VertexAttributeInput } from "../../gx/gx_displaylist.js";
 import { isCameraInWater, WaterAreaHolder, WaterInfo } from "../MiscMap.js";
+import { createBufferFromData } from "../../gfx/helpers/BufferHelpers.js";
 
 function calcHeightStatic(wave1Time: number, wave2Time: number, x: number, z: number): number {
     const wave1 = 40 * Math.sin(wave1Time + 0.003 * z);
@@ -101,7 +101,7 @@ export class OceanBowl extends LiveActor {
         calcActorAxis(this.axisX, this.axisY, this.axisZ, this);
 
         const device = sceneObjHolder.modelCache.device;
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
         this.initPoints(device, cache);
 
         const waterWaveArc = sceneObjHolder.modelCache.getObjectData('WaterWave')!;
@@ -162,9 +162,9 @@ export class OceanBowl extends LiveActor {
         }
 
         const pointCount = this.points.length;
-        this.positionBuffer = device.createBuffer(pointCount * 3, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Dynamic);
         this.positionDataF32 = new Float32Array(pointCount * 3);
         this.positionDataU8 = new Uint8Array(this.positionDataF32.buffer);
+        this.positionBuffer = device.createBuffer(this.positionDataU8.byteLength, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Dynamic);
 
         const colorData = new Uint8Array(pointCount * 4);
         let colorIdx = 0;
@@ -174,7 +174,7 @@ export class OceanBowl extends LiveActor {
             colorData[colorIdx++] = 0xFF;
             colorData[colorIdx++] = this.points[i].heightScale * 0xFF;
         }
-        this.colorBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, colorData.buffer);
+        this.colorBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, colorData.buffer);
 
         // Texture coordinate buffer
         const texCoordData = new Int16Array(this.points.length * 2);
@@ -185,7 +185,7 @@ export class OceanBowl extends LiveActor {
                 texCoordData[texCoordIdx++] = (x / (gridAxisPointCount - 1)) * 0x7FFF;
             }
         }
-        this.texCoord0Buffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, texCoordData.buffer);
+        this.texCoord0Buffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, texCoordData.buffer);
         assert(texCoordIdx === texCoordData.length);
 
         // Create the index buffer. We have (N-1)*(N-1) quads, N being gridAxisPointCount, and we have 6 indices per quad...
@@ -215,7 +215,7 @@ export class OceanBowl extends LiveActor {
         }
         assert(indexIdx === indexBufferCount);
 
-        this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, indexData.buffer);
+        this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, indexData.buffer);
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
             { location: getVertexInputLocation(VertexAttributeInput.POS), format: GfxFormat.F32_RGB, bufferIndex: 0, bufferByteOffset: 0, },
@@ -235,11 +235,11 @@ export class OceanBowl extends LiveActor {
         });
 
         this.vertexBufferDescriptors = [
-            { buffer: this.positionBuffer, byteOffset: 0, },
-            { buffer: this.colorBuffer, byteOffset: 0, },
-            { buffer: this.texCoord0Buffer, byteOffset: 0, },
+            { buffer: this.positionBuffer },
+            { buffer: this.colorBuffer },
+            { buffer: this.texCoord0Buffer },
         ];
-        this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+        this.indexBufferDescriptor = { buffer: this.indexBuffer };
 
         // Material.
         let mb: GXMaterialBuilder;
@@ -335,7 +335,7 @@ export class OceanBowl extends LiveActor {
             return;
 
         const device = sceneObjHolder.modelCache.device;
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
 
         for (let i = 0; i < this.points.length; i++) {
             const p = this.points[i];
@@ -405,7 +405,7 @@ export class OceanBowl extends LiveActor {
 
     public drawBloom(sceneObjHolder: SceneObjHolder, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
         const device = sceneObjHolder.modelCache.device;
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
 
         // Fill in our material params.
         this.water.fillTextureMapping(materialParams.m_TextureMapping[0]);

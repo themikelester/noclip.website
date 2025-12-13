@@ -1,11 +1,10 @@
 
 import { TextureMapping } from "../../TextureHolder.js";
-import { GfxMegaStateDescriptor } from "../../gfx/platform/GfxPlatform.js";
-import { GfxProgram } from "../../gfx/platform/GfxPlatformImpl.js";
+import type { GfxMegaStateDescriptor, GfxProgram } from "../../gfx/platform/GfxPlatform.js";
 import { GfxRendererLayer, makeSortKey, setSortKeyProgramKey, GfxRenderInst } from "../../gfx/render/GfxRenderInstManager.js";
 import { assert } from "../../util.js";
-import { SourceRenderContext } from "../Main.js";
-import { MaterialCache } from "./MaterialCache.js";
+import type { SourceRenderContext } from "../Main.js";
+import type { MaterialCache } from "./MaterialCache.js";
 import { UberShaderInstanceBasic } from "../UberShader.js";
 import { MaterialShaderTemplateBase, BaseMaterial, MaterialUtil, AlphaBlendMode } from "./MaterialBase.js";
 import * as P from "./MaterialParameters.js";
@@ -20,8 +19,8 @@ precision mediump float;
 ${MaterialShaderTemplateBase.Common}
 
 layout(std140) uniform ub_ObjectParams {
-    Mat4x2 u_BaseTransform;
-    Mat4x2 u_IrisTransform;
+    Mat2x4 u_BaseTransform;
+    Mat2x4 u_IrisTransform;
 };
 
 varying vec3 v_PositionWorld;
@@ -34,13 +33,13 @@ uniform sampler2D u_TextureIris;
 
 #if defined VERT
 void mainVS() {
-    Mat4x3 t_WorldFromLocalMatrix = CalcWorldFromLocalMatrix();
-    vec3 t_PositionWorld = Mul(t_WorldFromLocalMatrix, vec4(a_Position, 1.0));
+    mat4x3 t_WorldFromLocalMatrix = CalcWorldFromLocalMatrix();
+    vec3 t_PositionWorld = t_WorldFromLocalMatrix * vec4(a_Position, 1.0);
     v_PositionWorld.xyz = t_PositionWorld;
-    gl_Position = Mul(u_ProjectionView, vec4(t_PositionWorld, 1.0));
+    gl_Position = UnpackMatrix(u_ProjectionView) * vec4(t_PositionWorld, 1.0);
 
-    v_TexCoord0.xy = Mul(u_BaseTransform, vec4(a_TexCoord01.xy, 1.0, 1.0));
-    v_TexCoord0.zw = Mul(u_IrisTransform, vec4(t_PositionWorld, 1.0));
+    v_TexCoord0.xy = UnpackMatrix(u_BaseTransform) * vec4(a_TexCoord01.xy, 1.0, 1.0);
+    v_TexCoord0.zw = UnpackMatrix(u_IrisTransform) * vec4(t_PositionWorld, 1.0);
 
     // XXX(jstpierre): Move lighting into common helpers
     v_Lighting.rgb = vec3(1.0);

@@ -1,6 +1,6 @@
-use deku::{bitvec::{BitSlice, BitVec}, ctx::ByteSize, prelude::*};
+use deku::{ctx::ByteSize, prelude::*};
 use wasm_bindgen::prelude::*;
-use std::ops::{Mul, AddAssign};
+use std::{io::Cursor, ops::{AddAssign, DivAssign, Mul}};
 
 use crate::geometry::AABB;
 
@@ -28,19 +28,19 @@ pub struct Chunk {
 }
 
 pub fn parse_with_byte_size<T>(data: &[u8]) -> Result<T, String>
-    where for<'a> T: DekuRead<'a, ByteSize>
+    where for<'a> T: DekuReader<'a, ByteSize>
 {
     parse_inner(data, ByteSize(data.len()))
 }
 
 pub fn parse<T>(data: &[u8]) -> Result<T, String>
-    where for<'a> T: DekuRead<'a, ()>
+    where for<'a> T: DekuReader<'a, ()>
 {
     parse_inner(data, ())
 }
 
 pub fn parse_array<T>(data: &[u8], size_per_data: usize) -> Result<Vec<T>, String>
-    where for<'a> T: DekuRead<'a, ()>
+    where for<'a> T: DekuReader<'a, ()>
 {
     if data.len() % size_per_data != 0 {
         return Err(format!(
@@ -50,24 +50,23 @@ pub fn parse_array<T>(data: &[u8], size_per_data: usize) -> Result<Vec<T>, Strin
         ));
     }
     let num_elements = data.len() / size_per_data;
-    let bitvec = BitVec::from_slice(data);
+    let mut cursor = Cursor::new(&data);
+    let mut reader = Reader::new(&mut cursor);
     let mut result = Vec::with_capacity(num_elements);
-    let mut rest = bitvec.as_bitslice();
     for _ in 0..num_elements {
-        let (new_rest, element) = T::read(rest, ())
+        let element = T::from_reader_with_ctx(&mut reader, ())
             .map_err(|e| format!("{:?}", e))?;
         result.push(element);
-        rest = new_rest;
     }
     Ok(result)
 }
 
 fn parse_inner<T, V>(data: &[u8], ctx: V) -> Result<T, String>
-    where for<'a> T: DekuRead<'a, V>
+    where for<'a> T: DekuReader<'a, V>
 {
-    let bitvec = BitVec::from_slice(data);
-    let (_, element) = T::read(bitvec.as_bitslice(), ctx)
-        .map_err(|e| format!("{:?}", e))?;
+    let mut cursor = Cursor::new(&data);
+    let mut reader = Reader::new(&mut cursor);
+    let element = T::from_reader_with_ctx(&mut reader, ctx).map_err(|e| format!("{:?}", e))?;
     Ok(element)
 }
 
@@ -100,7 +99,11 @@ impl<'a> Iterator for ChunkedData<'a> {
         }
         let (_, chunk) = Chunk::from_bytes((&self.data[self.idx..], 0)).unwrap();
         let chunk_start = self.idx + 8;
-        let chunk_end = chunk_start + chunk.size as usize;
+        let mut chunk_end = chunk_start + chunk.size as usize;
+        // hack: ADTs in Zul'Drak seem to be missing 1 chunk for some reason
+        if chunk_end > self.data.len() {
+            chunk_end = self.data.len() - 1;
+        }
         let chunk_data = &self.data[chunk_start..chunk_end];
         self.idx = chunk_end;
         assert!(self.idx <= self.data.len());
@@ -176,6 +179,14 @@ pub struct Vec3 {
 impl Vec3 {
     pub fn new(v: f32) -> Self {
         Vec3 { x: v, y: v, z: v }
+    }
+}
+
+impl DivAssign<f32> for Vec3 {
+    fn div_assign(&mut self, rhs: f32) {
+        self.x /= rhs;
+        self.y /= rhs;
+        self.z /= rhs;
     }
 }
 
@@ -300,14 +311,14 @@ pub struct WowArray<T> {
     pub element_type: std::marker::PhantomData<T>,
 }
 
-impl<T> WowArray<T> where for<'a> T: DekuRead<'a> {
+impl<T> WowArray<T> where for<'a> T: DekuReader<'a> {
     pub fn to_vec(&self, data: &[u8]) -> Result<Vec<T>, String> {
         let mut result = Vec::with_capacity(self.count as usize);
-        let mut bitslice = BitSlice::from_slice(&data[self.offset as usize..]);
+        let mut cursor = Cursor::new(&data[self.offset as usize..]);
+        let mut reader = Reader::new(&mut cursor);
         for _ in 0..self.count {
-            let (new_bitslice, element) = T::read(bitslice, ())
+            let element = T::from_reader_with_ctx(&mut reader, ())
                 .map_err(|e| format!("{:?}", e))?;
-            bitslice = new_bitslice;
             result.push(element);
         }
         Ok(result)

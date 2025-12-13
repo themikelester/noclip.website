@@ -11,6 +11,7 @@ import { ViewerRenderInput } from "../../viewer.js";
 import { AssetFile, AssetLocation, AssetObjectData, UnityAssetResourceType, UnityAssetSystem, UnityChannel, UnityMaterialData, UnityMeshData, createUnityAssetSystem } from "./AssetManager.js";
 import { rust } from "../../rustlib.js";
 import { UnityMeshRenderer, UnityVec3, UnityQuaternion, UnityTransform, UnityPPtr, UnityGameObject, UnityMeshFilter, UnityAssetFileObject, UnityVersion } from "../../../rust/pkg/noclip_support.js";
+import { AABB } from "../../Geometry.js";
 
 export abstract class UnityComponent {
     public async load(level: UnityLevel): Promise<void> {
@@ -109,13 +110,15 @@ export class UnityShaderProgramBase extends DeviceProgram {
     public static Common = `
 precision mediump float;
 
+${GfxShaderLibrary.MatrixLibrary}
+
 layout(std140) uniform ub_SceneParams {
     Mat4x4 u_ProjectionView;
 };
 
 layout(std140) uniform ub_ShapeParams {
     // TODO(jstpierre): Skinned mesh
-    Mat4x3 u_BoneMatrix[1];
+    Mat3x4 u_BoneMatrix[1];
 };
 
 #ifdef VERT
@@ -136,8 +139,8 @@ layout(location = ${UnityChannel.BlendWeight}) attribute vec4 a_BlendWeight;
 ${GfxShaderLibrary.MulNormalMatrix}
 ${GfxShaderLibrary.CalcScaleBias}
 
-Mat4x3 CalcWorldFromLocalMatrix() {
-    return u_BoneMatrix[0];
+mat4x3 CalcWorldFromLocalMatrix() {
+    return UnpackMatrix(u_BoneMatrix[0]);
 }
 #endif
 `;
@@ -168,7 +171,6 @@ export class MeshRenderer extends UnityComponent {
             const materialPPtr = materials[i];
             // Don't wait on materials, we can render them as they load in...
             this.fetchMaterial(level, i, materialPPtr);
-            materialPPtr.free();
         }
     }
 
@@ -193,8 +195,6 @@ export class MeshRenderer extends UnityComponent {
         if (meshData === null)
             return;
 
-        // TODO(jstpierre): AABB culling
-
         if (this.staticBatchSubmeshCount > 0) {
             mat4.copy(this.modelMatrix, noclipSpaceFromUnitySpace);
         } else {
@@ -202,6 +202,12 @@ export class MeshRenderer extends UnityComponent {
             const transform = assertExists(this.gameObject.getComponent(Transform));
             mat4.copy(this.modelMatrix, transform.modelMatrix);
         }
+
+        // TODO(jstpierre): AABB culling
+        const aabb = new AABB();
+        aabb.transform(meshData.bbox, this.modelMatrix);
+        if (!viewerInput.camera.frustum.contains(aabb))
+            return;
 
         const template = renderInstManager.pushTemplate();
 

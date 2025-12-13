@@ -5,15 +5,22 @@ import ArrayBufferSlice from "../../ArrayBufferSlice";
 import { align, assert, nArray, readString } from "../../util.js";
 import { JSystemFileReaderHelper } from "./J3D/J3DLoader.js";
 import { GfxColor } from "../../gfx/platform/GfxPlatform";
-import { clamp } from "../../MathHelpers.js";
+import { clamp, MathConstants } from "../../MathHelpers.js";
 import { Endianness } from "../../endian.js";
 
 const scratchVec3a = vec3.create();
 const scratchVec3b = vec3.create();
 const scratchVec3c = vec3.create();
 
+// TODO: Setup the JMessage system in a separate file
+export namespace JMessage {
+    export class TControl {
+        public setMessageCode(packed: number): boolean { return true; };
+    }
+}
+
 //----------------------------------------------------------------------------------------------------------------------
-// Stage Objects
+// STB Objects
 // These are created an managed by the game. Each Stage Object has a corresponding STB Object, connected by an Adaptor. 
 // The STB objects are manipulated by Sequences from the STB file each frame, and update the Stage Object via Adaptor.
 //----------------------------------------------------------------------------------------------------------------------
@@ -203,11 +210,11 @@ abstract class TAdaptor {
         public enableLogging = true,
     ) { }
 
-    public abstract adaptor_do_prepare(obj: STBObject): void;
-    public abstract adaptor_do_begin(obj: STBObject): void;
-    public abstract adaptor_do_end(obj: STBObject): void;
-    public abstract adaptor_do_update(obj: STBObject, frameCount: number): void;
-    public abstract adaptor_do_data(obj: STBObject, id: number, data: DataView): void;
+    public adaptor_do_prepare(obj: STBObject): void {};
+    public adaptor_do_begin(obj: STBObject): void {};
+    public adaptor_do_end(obj: STBObject): void {};
+    public adaptor_do_update(obj: STBObject, frameCount: number): void {};
+    public adaptor_do_data(obj: STBObject, id: number, data: DataView): void {};
 
     // Set a single VariableValue update function, with the option of using FuncVals 
     public adaptor_setVariableValue(obj: STBObject, keyIdx: number, data: ParagraphData) {
@@ -247,7 +254,7 @@ abstract class TAdaptor {
         this.variableValues[startKeyIdx + 0].setValue_immediate(data.r);
         this.variableValues[startKeyIdx + 1].setValue_immediate(data.g);
         this.variableValues[startKeyIdx + 2].setValue_immediate(data.b);
-        this.variableValues[startKeyIdx + 4].setValue_immediate(data.a);
+        this.variableValues[startKeyIdx + 3].setValue_immediate(data.a);
     }
 
     // Get the current value of 4 consecutive VariableValues, as a GXColor. E.g. Fog color.
@@ -255,7 +262,7 @@ abstract class TAdaptor {
         dst.r = this.variableValues[startKeyIdx + 0].getValue();
         dst.g = this.variableValues[startKeyIdx + 1].getValue();
         dst.b = this.variableValues[startKeyIdx + 2].getValue();
-        dst.a = this.variableValues[startKeyIdx + 2].getValue();
+        dst.a = this.variableValues[startKeyIdx + 3].getValue();
     }
 
     public adaptor_updateVariableValue(obj: STBObject, frameCount: number) {
@@ -544,6 +551,8 @@ export abstract class TActor extends JStage.TObject {
     public JSGGetTextureAnimationFrame(): number { return 0.0; }
     public JSGSetTextureAnimationFrame(x: number): void { }
     public JSGGetTextureAnimationFrameMax(): number { return 0.0; }
+    
+    public JSGDebugGetAnimationName(x: number): string | null { return null; }
 }
 
 class TActorAdaptor extends TAdaptor {
@@ -565,13 +574,12 @@ class TActorAdaptor extends TAdaptor {
 
         if (reverse) { frame = maxFrame - frame; }
         if (maxFrame > 0.0) {
-            const func = FVB.TFunctionValue.toFunction_outside(outsideType);
-            frame = func(frame, maxFrame);
+            frame = FVB.TFunctionValue.calcFunction_outside(outsideType, frame, maxFrame);
         }
         return frame;
     }
 
-    public adaptor_do_prepare(obj: STBObject): void {
+    public override adaptor_do_prepare(obj: STBObject): void {
         this.variableValues[EActorTrack.AnimTransition].setOutput(this.object.JSGSetAnimationTransition.bind(this.object));
 
         this.variableValues[EActorTrack.AnimFrame].setOutput((frame: number, adaptor: TAdaptor) => {
@@ -585,7 +593,7 @@ class TActorAdaptor extends TAdaptor {
         });
     }
 
-    public adaptor_do_begin(obj: STBObject): void {
+    public override adaptor_do_begin(obj: STBObject): void {
         this.object.JSGFEnableFlag(1);
 
         const pos = scratchVec3a;
@@ -609,11 +617,11 @@ class TActorAdaptor extends TAdaptor {
         this.variableValues[EActorTrack.AnimFrame].setValue_immediate(this.object.JSGGetTextureAnimationFrame());
     }
 
-    public adaptor_do_end(obj: STBObject): void {
+    public override adaptor_do_end(obj: STBObject): void {
         this.object.JSGFDisableFlag(1);
     }
 
-    public adaptor_do_update(obj: STBObject, frameCount: number): void {
+    public override adaptor_do_update(obj: STBObject, frameCount: number): void {
         const pos = scratchVec3a;
         const rot = scratchVec3b;
         const scale = scratchVec3c;
@@ -631,7 +639,7 @@ class TActorAdaptor extends TAdaptor {
         this.object.JSGSetScaling(scale);
     }
 
-    public adaptor_do_data(obj: STBObject, id: number, data: DataView): void {
+    public override adaptor_do_data(obj: STBObject, id: number, data: DataView): void {
         this.log(`SetData: ${id}`);
         this.object.JSGSetData(id, data);
     }
@@ -699,7 +707,11 @@ class TActorAdaptor extends TAdaptor {
 
     public adaptor_do_ANIMATION(data: ParagraphData): void {
         assert(data.dataOp === EDataOp.ObjectIdx);
-        this.log(`SetAnimation: ${(data.value) & 0xFFFF} (${(data.value) >> 4 & 0x01})`);
+        const animName = this.object.JSGDebugGetAnimationName(data.value);
+        if( animName )
+            this.log(`SetAnimation: ${animName}`);
+        else 
+            this.log(`SetAnimation: ${(data.value) & 0xFFFF} (${(data.value) >> 4 & 0x01})`);
         this.object.JSGSetAnimation(data.value);
     }
 
@@ -862,14 +874,14 @@ class TCameraAdaptor extends TAdaptor {
         override object: TCamera
     ) { super(11); }
 
-    public adaptor_do_prepare(obj: STBObject): void {
+    public override adaptor_do_prepare(obj: STBObject): void {
         this.variableValues[ECameraTrack.FovY].setOutput(this.object.JSGSetProjectionFovy.bind(this.object));
         this.variableValues[ECameraTrack.Roll].setOutput(this.object.JSGSetViewRoll.bind(this.object));
         this.variableValues[ECameraTrack.DistNear].setOutput(this.object.JSGSetProjectionNear.bind(this.object));
         this.variableValues[ECameraTrack.DistFar].setOutput(this.object.JSGSetProjectionFar.bind(this.object));
     }
 
-    public adaptor_do_begin(obj: STBObject): void {
+    public override adaptor_do_begin(obj: STBObject): void {
         const camPos = scratchVec3a;
         const targetPos = scratchVec3b;
         this.object.JSGGetViewPosition(camPos);
@@ -886,11 +898,11 @@ class TCameraAdaptor extends TAdaptor {
         this.variableValues[ECameraTrack.DistFar].setValue_immediate(this.object.JSGGetProjectionFar());
     }
 
-    public adaptor_do_end(obj: STBObject): void {
+    public override adaptor_do_end(obj: STBObject): void {
         this.object.JSGFDisableFlag(1);
     }
 
-    public adaptor_do_update(obj: STBObject, frameCount: number): void {
+    public override adaptor_do_update(obj: STBObject, frameCount: number): void {
         const camPos = scratchVec3a;
         const targetPos = scratchVec3b;
 
@@ -904,7 +916,7 @@ class TCameraAdaptor extends TAdaptor {
         this.object.JSGSetViewTargetPosition(targetPos);
     }
 
-    public adaptor_do_data(obj: STBObject, id: number, data: DataView): void {
+    public override adaptor_do_data(obj: STBObject, id: number, data: DataView): void {
         // This is not used by TWW. Untested.
         debugger;
     }
@@ -977,6 +989,39 @@ class TCameraObject extends STBObject {
     }
 }
 
+//----------------------------------------------------------------------------------------------------------------------
+// Message
+//----------------------------------------------------------------------------------------------------------------------
+class TMessageAdaptor extends TAdaptor {
+    constructor( private messageControl: JMessage.TControl ) { super(0, []); }
+ 
+    public adaptor_do_MESSAGE(data: ParagraphData): void {
+        if(this.enableLogging) console.debug('JMSG:', data.value);
+        switch (data.dataOp) {
+            case EDataOp.ObjectIdx: this.messageControl.setMessageCode(data.value); break;
+            default: assert(false);
+        }
+    }
+}
+
+class TMessageObject extends STBObject {
+    override adaptor: TMessageAdaptor;
+
+    constructor(
+        control: TControl,
+        blockObj: TBlockObject,
+        adaptor: TMessageAdaptor,
+    ) { super(control, blockObj, adaptor) }
+
+    public override do_paragraph(file: Reader, dataSize: number, dataOffset: number, param: number): void {
+        const type = param >> 5;
+        const dataOp = param & 0x1F;
+        switch( type ) {
+            case 0x42: return this.adaptor.adaptor_do_MESSAGE(readData(dataOp, dataOffset, dataSize, file));
+            default: console.error('Unexpected JMSG paragraph type:', type);
+        }
+    }
+}
 
 //----------------------------------------------------------------------------------------------------------------------
 // Parsing helpers
@@ -1051,12 +1096,20 @@ namespace FVB {
         InterpSet = 0x16,
     };
 
-    enum EExtrapolationType {
+    enum EExtrapolateType {
         Raw,
         Repeat,
         Turn,
         Clamp
     }
+
+    enum EAdjustType {
+        Raw = 0,
+        BiasBegin = 1,
+        BiasEnd = 2,
+        BiasAve = 3,
+        Remap = 4,
+    };
 
     class TBlock {
         size: number;
@@ -1066,6 +1119,7 @@ namespace FVB {
     };
 
     export abstract class TFunctionValue {
+        public idNo: number;
         protected range: Attribute.Range | null = null;
         protected refer: Attribute.Refer | null = null;
         protected interpolate: Attribute.Interpolate | null = null;
@@ -1078,18 +1132,16 @@ namespace FVB {
         public getAttrRefer() { return this.refer; }
         public getAttrInterpolate() { return this.interpolate; }
 
-        public static toFunction_outside(type: EExtrapolationType): (frame: number, maxFrame: number) => number {
+        public setIdNo(idNo: number) { this.idNo = idNo; }
+
+        public static calcFunction_outside(type: EExtrapolateType, frame: number, maxFrame: number) {
             switch (type) {
-                case EExtrapolationType.Raw: return (f, m) => f;
-                case EExtrapolationType.Repeat: return (f, m) => { f = f % m; return f < 0 ? f + m : f; }
-                case EExtrapolationType.Turn: return (f, m) => { f %= (2 * m); if (f < 0) f += m; return f > m ? 2 * m - f : f };
-                case EExtrapolationType.Clamp: return (f, m) => clamp(f, 0.0, m);
+                case EExtrapolateType.Raw: return frame;
+                case EExtrapolateType.Repeat: frame = frame % maxFrame; return frame < 0 ? frame + maxFrame : frame;
+                case EExtrapolateType.Turn: frame %= (2 * maxFrame); if (frame < 0) frame += maxFrame; return frame > maxFrame ? 2 * maxFrame - frame : frame;
+                case EExtrapolateType.Clamp: return clamp(frame, 0.0, maxFrame);
             }
         }
-
-        // static ExtrapolateParameter toFunction(TFunctionValue::TEOutside outside) {
-        //     return toFunction_outside(outside);
-        // }
     }
 
     export abstract class TObject {
@@ -1165,10 +1217,28 @@ namespace FVB {
                         const interpType = file.view.getUint32(para.dataOffset + 0);
                         interp.set(interpType);
                         break;
+                    
+                    case EPrepareOp.RangeOutside: {
+                        assert(para.dataSize === 4);
+                        const range = this.funcVal.getAttrRange();
+                        assert(!!range, 'FVB Paragraph assumes FuncVal has range attribute, but it does not');
+                        const underflow = file.view.getInt16(para.dataOffset + 0);
+                        const overflow = file.view.getInt16(para.dataOffset + 2);
+                        range.setExtrapolation(underflow, overflow);
+                        break;
+                    }
+
+                    case EPrepareOp.RangeAdjust: {
+                        assert(para.dataSize === 4);
+                        const range = this.funcVal.getAttrRange();
+                        assert(!!range, 'FVB Paragraph assumes FuncVal has range attribute, but it does not');
+                        const adjust = file.view.getInt32(para.dataOffset + 0)
+                        range.setAdjust(adjust);
+                        break;
+                    }
+
 
                     case EPrepareOp.RangeProgress:
-                    case EPrepareOp.RangeAdjust:
-                    case EPrepareOp.RangeOutside:
                     default:
                         console.warn('Unhandled FVB PrepareOp: ', para.type);
                         debugger;
@@ -1229,6 +1299,7 @@ namespace FVB {
             if (!obj) { return false; }
 
             obj.prepare(block, this.control, file);
+            obj.funcVal.setIdNo(this.control.objects.length);
             this.control.objects.push(obj);
 
             return true;
@@ -1267,7 +1338,9 @@ namespace FVB {
             private diff: number = 0;
 
             private progress: number = 0;
-            private adjust: number = 0;
+            private adjust: EAdjustType = 0;
+            private underflow: EExtrapolateType = 0;
+            private overflow: EExtrapolateType = 0;
 
             public prepare() {
                 // Progress updated here
@@ -1280,10 +1353,47 @@ namespace FVB {
                 assert(this.diff >= 0);
             }
 
+            public setAdjust(adjust: EAdjustType) {
+                this.adjust = adjust;
+            }
+
+            public setExtrapolation(underflow: EExtrapolateType, overflow: EExtrapolateType) {
+                this.underflow = underflow;
+                this.overflow = overflow;
+            }
+
             public getParameter(time: number, startTime: number, endTime: number): number {
-                // @NOTE: Does not currently support, Progress, Adjust, or Outside modifications. These can only be set
+                // @NOTE: Does not currently support, Progress modifications. These can only be set
                 //        in an FVB paragraph, so attempt to set them will be caught in FVB.TObject.prepare().
-                return time;
+
+                const progress = time;
+
+                if( this.adjust != 0 ) {
+                    debugger; // Untested. Remove once confirmed working
+                }
+
+                switch (this.adjust) {
+                    case EAdjustType.Raw: return this.extrapolate(progress);
+                    case EAdjustType.BiasBegin: return this.extrapolate(progress + this.begin);
+                    case EAdjustType.BiasEnd: return this.extrapolate(progress) + this.end;
+                    case EAdjustType.BiasAve: return this.extrapolate(progress) + 0.5 * (this.begin + this.end);
+                    case EAdjustType.Remap: 
+                        const temp = this.extrapolate(progress);
+                        return startTime + ((temp - this.begin) * (endTime - startTime)) / this.diff;
+                    
+                    default: 
+                        debugger; 
+                        return this.extrapolate(progress);
+                }
+            }
+
+            private extrapolate(progress: number) {
+                let t = progress
+                t -= this.begin;
+                if (t < 0.0) { t = FVB.TFunctionValue.calcFunction_outside(this.underflow, t, this.diff); }
+                else if (t >= this.diff) { t = FVB.TFunctionValue.calcFunction_outside(this.overflow, t, this.diff); }
+                t += this.begin;
+                return t;
             }
         }
 
@@ -1625,7 +1735,6 @@ namespace FVB {
         }
 
         public static composite_add(fvs: TFunctionValue[], dataVal: number, timeSec: number): number {
-            debugger; // Untested. Remove once confirmed working
             let val = dataVal;
             for (let fv of fvs) { val += fv.getValue(timeSec); }
             return val;
@@ -1765,6 +1874,7 @@ export abstract class TBlockObject {
 // This combines JStudio::TControl and JStudio::stb::TControl into a single class, for simplicity.
 export class TControl {
     public system: TSystem;
+    public msgControl: JMessage.TControl;
     public fvbControl = new FVB.TControl();
     public secondsPerFrame: number = 1 / 30.0;
     private suspendFrames: number;
@@ -1780,8 +1890,9 @@ export class TControl {
     // A special object that the STB file can use to suspend the demo (such as while waiting for player input)
     private controlObject = new TControlObject(this);
 
-    constructor(system: TSystem) {
+    constructor(system: TSystem, msgControl: JMessage.TControl) {
         this.system = system;
+        this.msgControl = msgControl;
     }
 
     public isSuspended() { return this.suspendFrames > 0; }
@@ -1790,17 +1901,17 @@ export class TControl {
     public isTransformEnabled() { return !!this.transformOrigin; }
     public getTransformOnSet() { return this.transformOnSetMtx; }
     public getTransformOnGet() { return this.transformOnGetMtx; }
-    public transformSetOrigin(originPos: vec3, rotY: number) {
+    public transformSetOrigin(originPos: vec3, rotYDeg: number) {
         this.transformOrigin = originPos;
-        this.transformRotY = rotY;
+        this.transformRotY = rotYDeg;
 
         // The "OnGet" matrix transforms from world space into demo space
-        mat4.fromYRotation(this.transformOnGetMtx, -rotY);
+        mat4.fromYRotation(this.transformOnGetMtx, -rotYDeg * MathConstants.DEG_TO_RAD);
         mat4.translate(this.transformOnGetMtx, this.transformOnGetMtx, vec3.negate(scratchVec3a, originPos));
 
         // The "OnSet" matrix is the inverse 
         mat4.fromTranslation(this.transformOnSetMtx, originPos);
-        mat4.rotateY(this.transformOnSetMtx, this.transformOnSetMtx, rotY);
+        mat4.rotateY(this.transformOnSetMtx, this.transformOnSetMtx, rotYDeg * MathConstants.DEG_TO_RAD);
     }
 
     public setControlObject(obj: TBlockObject) {
@@ -1808,7 +1919,6 @@ export class TControl {
     }
 
     public forward(frameCount: number): boolean {
-        ;
         let andStatus = 0xFF;
         let orStatus = 0;
 
@@ -1831,8 +1941,8 @@ export class TControl {
     public getFunctionValueByIdx(idx: number) { return this.fvbControl.objects[idx].funcVal; }
     public getFunctionValueByName(name: string) { return this.fvbControl.objects.find(v => v.id === name)?.funcVal; }
 
-    // Really this is a stb::TFactory method
-    public createObject(blockObj: TBlockObject): STBObject | null {
+    // Really this is a stb::TFactory `createObject` method
+    public createStageObject(blockObj: TBlockObject): STBObject | null {
         let objConstructor;
         let objType: JStage.EObject;
         switch (blockObj.type) {
@@ -1854,6 +1964,18 @@ export class TControl {
         obj.adaptor.adaptor_do_prepare(obj);
         this.objects.push(obj);
         return obj;
+    }
+
+    public createMessageObject(blockObj: TBlockObject): STBObject | null {
+        if (blockObj.type == 'JMSG') {
+            const adaptor = new TMessageAdaptor(this.msgControl);
+            const obj = new TMessageObject(this, blockObj, adaptor);
+    
+            if (obj) { adaptor.adaptor_do_prepare(obj); }
+            this.objects.push(obj);
+            return obj;
+        }
+        return null;
     }
 
     public destroyObject_all() {
@@ -1893,7 +2015,9 @@ export class TParse {
             return true;
         }
 
-        const obj = this.control.createObject(blockObj);
+        let obj = this.control.createStageObject(blockObj);
+        if(!obj) { obj = this.control.createMessageObject(blockObj); } 
+
         if (!obj) {
             if (flags & 0x40) {
                 console.debug('Unhandled flag during parseBlockObject: 0x40');

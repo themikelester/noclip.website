@@ -13,13 +13,13 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Setup pnpm
       uses: pnpm/action-setup@v4
 
     - name: Cache Node dependencies
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         cache: pnpm
 
@@ -38,8 +38,8 @@ jobs:
       run: pnpm run build
 
     - name: Deploy
-      if: github.ref == 'refs/heads/master'
-      uses: burnett01/rsync-deployments@7.0.1
+      if: github.ref == 'refs/heads/main'
+      uses: burnett01/rsync-deployments@7.1.0
       with:
         switches: -va --delete-after --exclude=data/ --exclude=priv/ --exclude=.well-known/
         path: dist/

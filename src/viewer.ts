@@ -4,14 +4,12 @@ import * as UI from './ui.js';
 import InputManager from './InputManager.js';
 import { SceneDesc, SceneGroup } from "./SceneBase.js";
 import { CameraController, Camera, XRCameraController, CameraUpdateResult } from './Camera.js';
-import { GfxDevice, GfxSwapChain, GfxStatisticsGroup, GfxTexture, makeTextureDescriptor2D, GfxFormat } from './gfx/platform/GfxPlatform.js';
+import { GfxDevice, GfxSwapChain, GfxStatisticsGroup, GfxTexture, makeTextureDescriptor2D, GfxFormat, GfxPlatform } from './gfx/platform/GfxPlatform.js';
 import { createSwapChainForWebGL2, gfxDeviceGetImpl_GL, GfxPlatformWebGL2Config } from './gfx/platform/GfxPlatformWebGL2.js';
-import { createSwapChainForWebGPU } from './gfx/platform/GfxPlatformWebGPU.js';
-import { downloadFrontBufferToCanvas } from './Screenshot.js';
+import { createSwapChainForWebGPU, GfxPlatformWebGPUConfig } from './gfx/platform/GfxPlatformWebGPU.js';
 import { RenderStatistics, RenderStatisticsTracker } from './RenderStatistics.js';
 import { AntialiasingMode } from './gfx/helpers/RenderGraphHelpers.js';
 import { WebXRContext } from './WebXR.js';
-import { MathConstants } from './MathHelpers.js';
 import { IS_DEVELOPMENT } from './BuildVersion.js';
 import { GlobalSaveManager } from './SaveManager.js';
 import { mat4 } from 'gl-matrix';
@@ -90,8 +88,6 @@ export class Viewer {
 
     public camera = new Camera();
 
-    static readonly FOV_Y_DEFAULT: number = MathConstants.TAU / 6;
-    public fovY: number = Viewer.FOV_Y_DEFAULT;
     // Scene time. Can be paused / scaled / rewound / whatever.
     public sceneTime: number = 0;
     // requestAnimationFrame time. Used to calculate dt from the new time.
@@ -162,17 +158,17 @@ export class Viewer {
         this.viewerRenderInput.backbufferWidth = this.canvas.width;
         this.viewerRenderInput.backbufferHeight = this.canvas.height;
         this.gfxSwapChain.configureSwapChain(this.canvas.width, this.canvas.height);
-        this.viewerRenderInput.onscreenTexture = this.gfxSwapChain.getOnscreenTexture();
-
         this.gfxDevice.beginFrame();
+
+        this.viewerRenderInput.onscreenTexture = this.gfxSwapChain.getOnscreenTexture();
         this.renderStatisticsTracker.beginFrame();
 
         resetGfxStatisticsGroup(this.statisticsGroup);
-        this.gfxDevice.pushStatisticsGroup(this.statisticsGroup);
+        this.gfxDevice.setStatisticsGroup(this.statisticsGroup);
 
         this.renderViewport();
 
-        this.gfxDevice.popStatisticsGroup();
+        this.gfxDevice.setStatisticsGroup(null);
         this.gfxDevice.endFrame();
 
         const renderStatistics = this.renderStatisticsTracker.endFrame();
@@ -207,13 +203,13 @@ export class Viewer {
 
         this.viewerRenderInput.time = this.sceneTime;
         this.gfxSwapChain.configureSwapChain(baseLayer.framebufferWidth, baseLayer.framebufferHeight, baseLayer.framebuffer);
-        const swapChainTex = this.gfxSwapChain.getOnscreenTexture();
-
         this.gfxDevice.beginFrame();
+
+        const swapChainTex = this.gfxSwapChain.getOnscreenTexture();
         this.renderStatisticsTracker.beginFrame();
 
         resetGfxStatisticsGroup(this.statisticsGroup);
-        this.gfxDevice.pushStatisticsGroup(this.statisticsGroup);
+        this.gfxDevice.setStatisticsGroup(this.statisticsGroup);
 
         for (let i = 0; i < webXRContext.views.length; i++) {
             this.viewerRenderInput.camera = this.xrCameraController.cameras[i];
@@ -236,7 +232,7 @@ export class Viewer {
             this.viewerRenderInput.deltaTime = 0;
         }
 
-        this.gfxDevice.popStatisticsGroup();
+        this.gfxDevice.setStatisticsGroup(null);
         this.gfxDevice.endFrame();
         const renderStatistics = this.renderStatisticsTracker.endFrame();
         this.finishRenderStatistics(renderStatistics, this.statisticsGroup);
@@ -258,9 +254,10 @@ export class Viewer {
         statistics.lines.push(`Camera Position: ${camPositionX} ${camPositionY} ${camPositionZ}`);
 
         const vendorInfo = this.gfxDevice.queryVendorInfo();
-        statistics.lines.push(`Platform: ${vendorInfo.platformString}`);
+        const platformString = GfxPlatform[vendorInfo.platform];
+        statistics.lines.push(`Platform: ${platformString}`);
 
-        if (vendorInfo.platformString === 'WebGL2') {
+        if (vendorInfo.platform === GfxPlatform.WebGL2) {
             const impl = gfxDeviceGetImpl_GL(this.gfxDevice);
             const w = impl.gl.drawingBufferWidth, h = impl.gl.drawingBufferHeight;
             statistics.lines.push(`Drawing Buffer Size: ${w}x${h}`);
@@ -298,7 +295,6 @@ export class Viewer {
 
         camera.newFrame();
         const aspect = this.canvas.width / this.canvas.height;
-        camera.fovY = this.fovY;
         camera.aspect = aspect;
         camera.setClipPlanes(5);
 
@@ -324,89 +320,56 @@ export class Viewer {
         // Reset the delta for next frame.
         this.viewerRenderInput.deltaTime = 0;
     }
-
-    public takeScreenshotToCanvas(opaque: boolean): HTMLCanvasElement {
-        const canvas = document.createElement('canvas');
-
-        // TODO(jstpierre)
-        // Reading the resolved color texture gives us fringes, because the standard box filter will
-        // add the clear color just like the standard texture sample fringes... in order to get a
-        // nice-looking screenshot, we'd need to do a custom resolve of the MSAA render target.
-
-        if (this.scene !== null) {
-            // TODO(jstpierre): Implement in Gfx somehow.
-            const gl = gfxDeviceGetImpl_GL(this.gfxDevice).gl;
-            const width = gl.drawingBufferWidth, height = gl.drawingBufferHeight;
-            downloadFrontBufferToCanvas(gl, width, height, canvas, opaque);
-        }
-
-        return canvas;
-    }
 }
 
 export type { SceneDesc, SceneGroup };
 
 interface ViewerOut {
-    viewer: Viewer;
+    error: InitErrorCode;
+    viewer?: Viewer;
 }
 
-export const enum InitErrorCode {
+export enum InitErrorCode {
     SUCCESS,
     NO_WEBGL2_GENERIC,
-    GARBAGE_WEBGL2_GENERIC,
+    NO_WEBGPU_GENERIC,
     GARBAGE_WEBGL2_SWIFTSHADER,
     MISSING_MISC_WEB_APIS,
 }
 
-async function initializeViewerWebGL2(out: ViewerOut, canvas: HTMLCanvasElement): Promise<InitErrorCode> {
+export async function initializeViewerWebGL2(canvas: HTMLCanvasElement): Promise<ViewerOut> {
     const gl = canvas.getContext("webgl2", { antialias: false, preserveDrawingBuffer: false, depth: false, stencil: false });
     // For debugging purposes, add a hook for this.
     (window as any).gl = gl;
     if (!gl)
-        return InitErrorCode.NO_WEBGL2_GENERIC;
+        return { error: InitErrorCode.NO_WEBGL2_GENERIC };
 
     // SwiftShader is slow, and gives a poor experience.
     const WEBGL_debug_renderer_info = gl.getExtension('WEBGL_debug_renderer_info');
     if (WEBGL_debug_renderer_info && gl.getParameter(WEBGL_debug_renderer_info.UNMASKED_RENDERER_WEBGL).includes('SwiftShader'))
-        return InitErrorCode.GARBAGE_WEBGL2_SWIFTSHADER;
+        return { error: InitErrorCode.GARBAGE_WEBGL2_SWIFTSHADER };
 
     const config = new GfxPlatformWebGL2Config();
     config.trackResources = IS_DEVELOPMENT;
     config.shaderDebug = IS_DEVELOPMENT;
 
     const gfxSwapChain = createSwapChainForWebGL2(gl, config);
-    out.viewer = new Viewer(gfxSwapChain, canvas);
+    const viewer = new Viewer(gfxSwapChain, canvas);
 
-    return InitErrorCode.SUCCESS;
+    return { viewer, error: InitErrorCode.SUCCESS };
 }
 
-async function initializeViewerWebGPU(out: ViewerOut, canvas: HTMLCanvasElement): Promise<InitErrorCode> {
-    const gfxSwapChain = await createSwapChainForWebGPU(canvas);
+export async function initializeViewerWebGPU(canvas: HTMLCanvasElement): Promise<ViewerOut> {
+    const config = new GfxPlatformWebGPUConfig();
+    config.trackResources = IS_DEVELOPMENT;
+    config.shaderDebug = IS_DEVELOPMENT;
+
+    const gfxSwapChain = await createSwapChainForWebGPU(canvas, config);
     if (gfxSwapChain === null)
-        return InitErrorCode.MISSING_MISC_WEB_APIS;
+        return { error: InitErrorCode.NO_WEBGPU_GENERIC };
 
-    out.viewer = new Viewer(gfxSwapChain, canvas);
-    return InitErrorCode.SUCCESS;
-}
-
-function getPlatformBackend(): 'WebGPU' | 'WebGL2' {
-    if (location.search.includes('webgpu'))
-        return 'WebGPU';
-    else if (location.search.includes('webgl2'))
-        return 'WebGL2';
-
-    const platformBackend = GlobalSaveManager.loadSetting<string>('PlatformBackend', 'WebGL2');
-    if (platformBackend === 'WebGPU')
-        return 'WebGPU';
-    else
-        return 'WebGL2';
-}
-
-export async function initializeViewer(out: ViewerOut, canvas: HTMLCanvasElement): Promise<InitErrorCode> {
-    if (getPlatformBackend() === 'WebGPU')
-        return initializeViewerWebGPU(out, canvas);
-    else
-        return initializeViewerWebGL2(out, canvas);
+    const viewer = new Viewer(gfxSwapChain, canvas);
+    return { viewer, error: InitErrorCode.SUCCESS };
 }
 
 export function makeErrorMessageUI(message: string): DocumentFragment {
@@ -429,20 +392,20 @@ export function makeErrorUI(errorCode: InitErrorCode): DocumentFragment {
         return makeErrorMessageUI(`
 <p>Your browser does not appear to have WebGL 2 support.
 <p>If <a href="http://webglreport.com/?v=2">WebGL Report</a> says your browser supports WebGL 2, please open a <a href="https://github.com/magcius/noclip.website/issues/new?template=tech_support.md">GitHub issue</a> with as much as information as possible.
-<p style="text-align: right">Thanks, Jasper.
+<p style="text-align: right">Thank you.
+`);
+    else if (errorCode === InitErrorCode.NO_WEBGPU_GENERIC)
+        return makeErrorMessageUI(`
+<p>Your browser does not appear to have WebGPU support.
+<p>If <a href="https://webgpureport.org/">WebGPU</a> says your browser supports WebGPU, please open a <a href="https://github.com/magcius/noclip.website/issues/new?template=tech_support.md">GitHub issue</a> with as much as information as possible.
+<p style="text-align: right">Thank you.
 `);
     else if (errorCode === InitErrorCode.GARBAGE_WEBGL2_SWIFTSHADER)
         return makeErrorMessageUI(`
 <p>This application requires hardware acceleration to be enabled.
 <p>Please enable hardware acceleration in your's browser settings.
 <p>If you have enabled hardware acceleration and are still getting this error message, try restarting your browser and computer.
-<p style="text-align: right">Thanks, Jasper.
-`);
-    else if (errorCode === InitErrorCode.GARBAGE_WEBGL2_GENERIC)
-        return makeErrorMessageUI(`
-<p>This browser has a non-functioning version of WebGL 2 that I have not seen before.
-<p>If <a href="http://webglreport.com/?v=2">WebGL Report</a> says your browser supports WebGL 2, please open a <a href="https://github.com/magcius/noclip.website/issues/new?template=tech_support.md">GitHub issue</a> with as much as information as possible.
-<p style="text-align: right">Thanks, Jasper.
+<p style="text-align: right">Thank you.
 `);
     else if (errorCode === InitErrorCode.MISSING_MISC_WEB_APIS)
         return makeErrorMessageUI(`

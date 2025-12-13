@@ -1,7 +1,7 @@
 import { GeometryRenderer, FlipbookRenderer, GeometryData, MovementController, AnimationMode, SpawnedObjects, BKLayer } from './render.js';
 import { vec3, mat4, vec2 } from 'gl-matrix';
 import { nArray, assertExists } from '../util.js';
-import { MathConstants, lerp, angleDist, scaleMatrix, randomRange } from '../MathHelpers.js';
+import { MathConstants, lerp, angleDist, scaleMatrix, randomRangeFloat } from '../MathHelpers.js';
 import { getPointHermite } from '../Spline.js';
 import { brentildaWandConfig, ConfigurableEmitter, Emitter, farJumpPadConfig, JumpPadEmitter, lavaRockLaunchFlameConfig, nearJumpPadConfig, ParticleType, SparkleColor, Sparkler, lavaRockBigTrailConfig, lavaRockSmallTrailConfig, MultiEmitter, lavaRockExplosionConfig, fireballIndex, lavaSmokeIndex, emitAt, lavaRockShardsConfig, lavaRockSmokeConfig, LavaRockEmitter, StreamEmitter, fromBB, SceneEmitterHolder, SnowballChunkEmitter } from './particles.js';
 import { ViewerRenderInput } from '../viewer.js';
@@ -14,7 +14,7 @@ export class ClankerTooth extends GeometryRenderer {
     }
 }
 
-const enum BoltState {
+enum BoltState {
     InClanker,
     Rising,
     AtPeak,
@@ -136,14 +136,14 @@ export class SnowballChunk extends GeometryRenderer {
         // put in translucent object layer since these fade out
         mat4.getTranslation(chunkScratch[0], start);
         for (let i = 0; i < 3; i++)
-            chunkScratch[0][i] += randomRange(20);
+            chunkScratch[0][i] += randomRangeFloat(20);
         fromBB(chunkScratch[1], chunkVelMin, chunkVelMax);
         this.movementController.setFromVel(chunkScratch[0], chunkScratch[1]);
         vec2.set(this.movementController.angularVel,
-            randomRange(300 * MathConstants.DEG_TO_RAD),
-            randomRange(300 * MathConstants.DEG_TO_RAD),
+            randomRangeFloat(300 * MathConstants.DEG_TO_RAD),
+            randomRangeFloat(300 * MathConstants.DEG_TO_RAD),
         );
-        this.movementController.scale = randomRange(.65, 1.1);
+        this.movementController.scale = randomRangeFloat(.65, 1.1);
         this.setEnvironmentAlpha(1);
     }
 
@@ -155,7 +155,7 @@ export class SnowballChunk extends GeometryRenderer {
     }
 }
 
-const enum SnowballState {
+enum SnowballState {
     Dead,
     Aiming,
     Flying,
@@ -241,7 +241,7 @@ function turnTowards(mat: mat4, delta: number, cap: number): void {
     mat4.rotateY(mat, mat, delta);
 }
 
-const enum SirSlushState {
+enum SirSlushState {
     Idle,
     Throwing,
     // there is also a third, unanimated state for when the player is far away
@@ -332,7 +332,7 @@ interface RailLerp {
     speed?: [number, number];
 }
 
-const enum AngleUpdate {
+enum AngleUpdate {
     None,
     Rail,
     Lerp,
@@ -809,7 +809,7 @@ export class RailRider extends GeometryRenderer {
     }
 }
 
-const enum GloopState {
+enum GloopState {
     Swim,
     Bubble,
 }
@@ -838,7 +838,7 @@ class Gloop extends RailRider {
     }
 }
 
-const enum CarpetState {
+enum CarpetState {
     Normal,
     Disappearing,
     Hidden,
@@ -960,10 +960,10 @@ export class LavaRock extends GeometryRenderer {
         this.movementController.setFromTarget(lavaRockScratch[0], lavaRockScratch[1], this.timer);
 
         vec2.set(this.movementController.angularVel,
-            randomRange(1, 2) * 240 * MathConstants.DEG_TO_RAD,
-            -randomRange(1, 2) * 240 * MathConstants.DEG_TO_RAD,
+            randomRangeFloat(1, 2) * 240 * MathConstants.DEG_TO_RAD,
+            -randomRangeFloat(1, 2) * 240 * MathConstants.DEG_TO_RAD,
         );
-        this.movementController.scale = randomRange(big ? .8 : .2, big ? 1 : .6);
+        this.movementController.scale = randomRangeFloat(big ? .8 : .2, big ? 1 : .6);
 
         this.explode = !big && (Math.random() > .5);
         // activate appropriate flame trail

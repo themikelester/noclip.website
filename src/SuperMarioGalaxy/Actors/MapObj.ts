@@ -8,10 +8,13 @@ import { drawWorldSpacePoint, drawWorldSpaceVector, getDebugOverlayCanvas2D } fr
 import { GfxRenderInstManager } from '../../gfx/render/GfxRenderInstManager.js';
 import { GXMaterialBuilder } from '../../gx/GXMaterialBuilder.js';
 import { ColorKind, DrawParams, GXMaterialHelperGfx, MaterialParams } from '../../gx/gx_render.js';
-import { clamp, computeEulerAngleRotationFromSRTMatrix, computeModelMatrixR, computeModelMatrixSRT, computeModelMatrixT, getMatrixAxis, getMatrixAxisX, getMatrixAxisY, getMatrixAxisZ, getMatrixTranslation, invlerp, isNearZero, isNearZeroVec3, lerp, MathConstants, normToLength, quatFromEulerRadians, saturate, scaleMatrix, setMatrixTranslation, transformVec3Mat4w0, Vec3One, vec3SetAll, Vec3UnitX, Vec3UnitY, Vec3UnitZ, Vec3Zero } from '../../MathHelpers.js';
+import { clamp, calcEulerAngleRotationFromSRTMatrix, computeModelMatrixR, computeModelMatrixSRT, computeModelMatrixT, getMatrixAxis, getMatrixAxisX, getMatrixAxisY, getMatrixAxisZ, getMatrixTranslation, invlerp, isNearZero, isNearZeroVec3, lerp, MathConstants, normToLength, quatFromEulerRadians, saturate, scaleMatrix, setMatrixTranslation, transformVec3Mat4w0, Vec3One, vec3SetAll, Vec3UnitX, Vec3UnitY, Vec3UnitZ, Vec3Zero } from '../../MathHelpers.js';
 import { assert, assertExists, fallback, nArray } from '../../util.js';
 import * as Viewer from '../../viewer.js';
-import { addVelocityToGravity, attenuateVelocity, calcDistToCamera, calcFrontVec, calcGravity, calcGravityVector, calcMtxFromGravityAndZAxis, calcRailPointPos, calcRailPosAtCoord, calcUpVec, connectToSceneCollisionMapObj, connectToSceneCollisionMapObjStrongLight, connectToSceneCollisionMapObjWeakLight, connectToSceneEnvironment, connectToSceneEnvironmentStrongLight, connectToSceneIndirectMapObj, connectToSceneMapObj, connectToSceneMapObjMovement, connectToSceneMapObjStrongLight, connectToSceneNoShadowedMapObjStrongLight, connectToSceneNoSilhouettedMapObj, connectToScenePlanet, getBckFrameMaxNamed, getBrkFrameMax, getCamPos, getCurrentRailPointArg0, getCurrentRailPointArg1, getCurrentRailPointNo, getEaseOutValue, getJointMtx, getJointMtxByName, getNextRailPointArg2, getPlayerPos, getRailDirection, getRailPointNum, getRailPos, getRailTotalLength, getRandomFloat, getRandomInt, getRandomVector, hideModel, initCollisionParts, initCollisionPartsAutoEqualScaleOne, initDefaultPos, invalidateCollisionPartsForActor, invalidateShadowAll, isBckExist, isBckOneTimeAndStopped, isBckStopped, isBtkExist, isBtpExist, isExistCollisionResource, isExistRail, isHiddenModel, isLoopRail, isNearPlayer, isRailReachedGoal, isSameDirection, isValidSwitchB, isValidSwitchDead, isZeroGravity, joinToGroupArray, listenStageSwitchOnOffA, listenStageSwitchOnOffB, makeMtxFrontNoSupportPos, makeMtxFrontSidePos, makeMtxFrontUpPos, makeMtxUpFrontPos, makeMtxUpNoSupportPos, moveCoord, moveCoordAndFollowTrans, moveCoordAndTransToNearestRailPos, moveCoordAndTransToRailPoint, moveCoordToNearestPos, reboundVelocityFromCollision, reverseRailDirection, rotateVecDegree, setBckFrameAndStop, setBrkFrameAndStop, setBtkFrameAndStop, setBtpFrameAndStop, showModel, startBck, startBrk, startBtk, startBtp, startBva, syncStageSwitchAppear, tryStartAllAnim, turnVecToVecCosOnPlane, useStageSwitchReadAppear, useStageSwitchSleep, useStageSwitchWriteA, useStageSwitchWriteB, useStageSwitchWriteDead, validateCollisionPartsForActor, validateShadowAll, vecKillElement, appearStarPieceToDirection, declareStarPiece, isValidSwitchAppear, connectToScene, calcSqDistToCamera, quatFromMat4, turnVecToVecCos, getBckFrameMax, setBvaFrameAndStop, getBvaFrameMax, isBckPlaying, setBckRate, makeAxisCrossPlane, initCollisionPartsAutoEqualScale, connectToSceneEnemy, makeMtxTRFromQuatVec, isValidSwitchA, isOnSwitchA, turnDirectionToTargetRadians, quatGetAxisX, quatGetAxisY, connectToClippedMapParts, blendMtx, drawSimpleModel, listenStageSwitchOnOffAppear, startAction, isActionEnd, stopBck, isOnSwitchB, calcDistanceToPlayer, getCamZdir, getCamYdir, getCamXdir } from '../ActorUtil.js';
+import { addVelocityToGravity, attenuateVelocity, calcDistToCamera, calcFrontVec, calcGravity, calcGravityVector, calcMtxFromGravityAndZAxis, calcRailPointPos, calcRailPosAtCoord, calcUpVec, connectToSceneCollisionMapObj, connectToSceneCollisionMapObjStrongLight, connectToSceneCollisionMapObjWeakLight, connectToSceneEnvironment, connectToSceneEnvironmentStrongLight, connectToSceneIndirectMapObj, connectToSceneMapObj, connectToSceneMapObjMovement, connectToSceneMapObjStrongLight, connectToSceneNoShadowedMapObjStrongLight, connectToSceneNoSilhouettedMapObj, connectToScenePlanet, getBckFrameMaxNamed, getBrkFrameMax, getCamPos, getCurrentRailPointArg0, getCurrentRailPointArg1, getCurrentRailPointNo, getEaseOutValue, getJointMtx, getJointMtxByName, getNextRailPointArg2, getPlayerPos, getRailDirection, getRailPointNum, getRailPos, getRailTotalLength, hideModel, initCollisionParts, initCollisionPartsAutoEqualScaleOne, initDefaultPos, invalidateCollisionPartsForActor, invalidateShadowAll, isBckExist, isBckOneTimeAndStopped, isBckStopped, isBtkExist, isBtpExist, isExistCollisionResource, isExistRail, isHiddenModel, isLoopRail, isNearPlayer, isRailReachedGoal, isSameDirection, isValidSwitchB, isValidSwitchDead, isZeroGravity, joinToGroupArray, listenStageSwitchOnOffA, listenStageSwitchOnOffB, makeMtxFrontNoSupportPos, makeMtxFrontSidePos, makeMtxFrontUpPos, makeMtxUpFrontPos, makeMtxUpNoSupportPos, moveCoord, moveCoordAndFollowTrans, moveCoordAndTransToNearestRailPos, moveCoordAndTransToRailPoint, moveCoordToNearestPos, reboundVelocityFromCollision, reverseRailDirection, rotateVecDegree, setBckFrameAndStop, setBrkFrameAndStop, setBtkFrameAndStop, setBtpFrameAndStop, showModel, startBck, startBrk, startBtk, startBtp, startBva, syncStageSwitchAppear, tryStartAllAnim, turnVecToVecCosOnPlane, useStageSwitchReadAppear, useStageSwitchSleep, useStageSwitchWriteA, useStageSwitchWriteB, useStageSwitchWriteDead, validateCollisionPartsForActor, validateShadowAll, vecKillElement, appearStarPieceToDirection, declareStarPiece, isValidSwitchAppear, connectToScene, calcSqDistToCamera, quatFromMat4, turnVecToVecCos, getBckFrameMax, setBvaFrameAndStop, getBvaFrameMax, isBckPlaying, setBckRate, makeAxisCrossPlane, initCollisionPartsAutoEqualScale, connectToSceneEnemy, makeMtxTRFromQuatVec, isValidSwitchA, isOnSwitchA, turnDirectionToTargetRadians, quatGetAxisX, quatGetAxisY, connectToClippedMapParts, blendMtx, drawSimpleModel, listenStageSwitchOnOffAppear, startAction, isActionEnd, stopBck, isOnSwitchB, calcDistanceToPlayer, getCamZdir, getCamYdir, getCamXdir } from '../ActorUtil.js';
+import { randomRangeVec3 } from "../../MathHelpers.js";
+import { randomRangeInt } from '../../MathHelpers.js';
+import { randomRangeFloat } from '../../MathHelpers.js';
 import { CollisionParts, CollisionScaleType, createCollisionPartsFromLiveActor, getBindedNormal, getBindedPosition, getFirstPolyOnLineToMap, getGroundNormal, isBinded, isBindedGround, isBindedGroundDamageFire, isBindedRoof, isBindedWall, isOnGround, setBinderRadius, setBindTriangleFilter, tryCreateCollisionMoveLimit, validateCollisionParts } from '../Collision.js';
 import { registerDemoActionNerve, tryRegisterDemoCast } from '../Demo.js';
 import { LightType } from '../DrawBuffer.js';
@@ -491,7 +494,7 @@ export class RotateMoveObj extends MapObjActor {
     }
 }
 
-const enum RailMoveObjNrv { Wait, Move, Done, WaitForPlayerOn }
+enum RailMoveObjNrv { Wait, Move, Done, WaitForPlayerOn }
 
 export class RailMoveObj extends MapObjActor<RailMoveObjNrv> {
     private isWorking: boolean;
@@ -608,7 +611,7 @@ export class CollapsePlane extends MapObjActor {
 export class RailDemoMoveObj extends RailMoveObj {
 }
 
-const enum PeachCastleGardenPlanetNrv { Wait, Damage }
+enum PeachCastleGardenPlanetNrv { Wait, Damage }
 
 export class PeachCastleGardenPlanet extends MapObjActor<PeachCastleGardenPlanetNrv> {
     private indirectModel: PartsModel | null;
@@ -886,7 +889,7 @@ export class OceanWaveFloater extends MapObjActor {
     }
 }
 
-const enum LavaFloaterNrv { Float, Sink, }
+enum LavaFloaterNrv { Float, Sink, }
 export class LavaFloater extends LiveActor<LavaFloaterNrv> {
     private groundPos = vec3.create();
     private distanceToGround: number = 0;
@@ -925,7 +928,7 @@ export class LavaFloater extends LiveActor<LavaFloaterNrv> {
     }
 }
 
-const enum TsukidashikunNrv { Relax, WaitForward, SignForward, MoveForward, WaitBack, SignBack, MoveBack }
+enum TsukidashikunNrv { Relax, WaitForward, SignForward, MoveForward, WaitBack, SignBack, MoveBack }
 export class Tsukidashikun extends MapObjActor<TsukidashikunNrv> {
     private speed: number;
     private waitStep: number;
@@ -1008,7 +1011,7 @@ export class Tsukidashikun extends MapObjActor<TsukidashikunNrv> {
     }
 }
 
-const enum DriftWoodNrv { Wait }
+enum DriftWoodNrv { Wait }
 export class DriftWood extends MapObjActor<DriftWoodNrv> {
     private front: vec3;
 
@@ -1046,7 +1049,7 @@ export class DriftWood extends MapObjActor<DriftWoodNrv> {
     }
 }
 
-const enum UFOKinokoNrv { Wait }
+enum UFOKinokoNrv { Wait }
 export class UFOKinoko extends MapObjActor<UFOKinokoNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         const initInfo = new MapObjActorInitInfo<UFOKinokoNrv>();
@@ -1084,7 +1087,7 @@ export class UFOKinoko extends MapObjActor<UFOKinokoNrv> {
     }
 }
 
-const enum SideSpikeMoveStepNrv { Wait }
+enum SideSpikeMoveStepNrv { Wait }
 export class SideSpikeMoveStep extends MapObjActor<SideSpikeMoveStepNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         const initInfo = new MapObjActorInitInfo<SideSpikeMoveStepNrv>();
@@ -1111,7 +1114,7 @@ export class SideSpikeMoveStep extends MapObjActor<SideSpikeMoveStepNrv> {
     }
 }
 
-const enum AstroDomeNrv { Wait }
+enum AstroDomeNrv { Wait }
 export class AstroDome extends MapObjActor<AstroDomeNrv> {
     private domeId: number;
 
@@ -1162,8 +1165,8 @@ export class AstroDome extends MapObjActor<AstroDomeNrv> {
     }
 }
 
-const enum RockNrv { Appear, AppearMoveInvalidBind, Move, MoveInvalidBind, Break }
-const enum RockType { Rock, WanwanRolling, WanwanRollingMini, WanwanRollingGold }
+enum RockNrv { Appear, AppearMoveInvalidBind, Move, MoveInvalidBind, Break }
+enum RockType { Rock, WanwanRolling, WanwanRollingMini, WanwanRollingGold }
 class Rock extends LiveActor<RockNrv> {
     public useBreak: boolean = false;
     private type: RockType;
@@ -1466,7 +1469,7 @@ class Rock extends LiveActor<RockNrv> {
             const rotateSpeed = (MathConstants.DEG_TO_RAD * 1386.0) / perim;
 
             if (isFirstStep(this)) {
-                this.rotatePhase = this.type === RockType.WanwanRollingMini ? getRandomFloat(0, MathConstants.TAU) : 0.0;
+                this.rotatePhase = this.type === RockType.WanwanRollingMini ? randomRangeFloat(0, MathConstants.TAU) : 0.0;
                 this.updateRotateX(this.rotatePhase - rotateSpeed * this.appearStep);
             }
 
@@ -1692,7 +1695,7 @@ class Rock extends LiveActor<RockNrv> {
     }
 }
 
-const enum RockCreatorNrv { Active, Deactive }
+enum RockCreatorNrv { Active, Deactive }
 export class RockCreator extends LiveActor<RockCreatorNrv> {
     private arg0: number;
     private framesBetweenRocks: number;
@@ -1773,7 +1776,7 @@ export class RockCreator extends LiveActor<RockCreatorNrv> {
     }
 }
 
-const enum WatchTowerRotateStepNrv { Move }
+enum WatchTowerRotateStepNrv { Move }
 export class WatchTowerRotateStep extends LiveActor<WatchTowerRotateStepNrv> {
     private upVec = vec3.create();
     private lifts: PartsModel[] = [];
@@ -1836,7 +1839,7 @@ export class WatchTowerRotateStep extends LiveActor<WatchTowerRotateStepNrv> {
     }
 }
 
-const enum TreasureSpotNrv { Wait, Spout, End }
+enum TreasureSpotNrv { Wait, Spout, End }
 export class TreasureSpot extends MapObjActor<TreasureSpotNrv> {
     private isCoinFlower: boolean;
 
@@ -1899,7 +1902,7 @@ export class TreasureSpot extends MapObjActor<TreasureSpotNrv> {
     }
 }
 
-const enum PressureMessengerNrv { Sync }
+enum PressureMessengerNrv { Sync }
 class PressureMessenger extends LiveActor<PressureMessengerNrv> {
     public step: number = 0;
 
@@ -1936,8 +1939,8 @@ function getScaleWithReactionValueZeroToOne(t: number, a: number, b: number): nu
     }
 }
 
-const enum PressureBaseNrv { RelaxStart, Relax, FirstWait, WaitStart, Wait, SyncWait, PrepareToShot, Shot }
-const enum PressureBaseShotType { OnGravity, OffGravity, Follow, TargetPlayer }
+enum PressureBaseNrv { RelaxStart, Relax, FirstWait, WaitStart, Wait, SyncWait, PrepareToShot, Shot }
+enum PressureBaseShotType { OnGravity, OffGravity, Follow, TargetPlayer }
 abstract class PressureBase extends LiveActor<PressureBaseNrv> {
     private frontVec = vec3.create();
     private delay: number;
@@ -2160,7 +2163,7 @@ export class WaterPressure extends PressureBase {
     }
 }
 
-const enum WaterPressureBulletNrv { Fly }
+enum WaterPressureBulletNrv { Fly }
 class WaterPressureBullet extends LiveActor<WaterPressureBulletNrv> {
     private frontVec = vec3.create();
     private sideVec = vec3.create();
@@ -2288,8 +2291,8 @@ export class WaterPressureBulletHolder extends NameObj {
     }
 }
 
-const enum BreakableCageType { Cage, CageRotate, CageL, Fixation, Trash }
-const enum BreakableCageNrv { Wait, Break }
+enum BreakableCageType { Cage, CageRotate, CageL, Fixation, Trash }
+enum BreakableCageNrv { Wait, Break }
 export class BreakableCage extends LiveActor<BreakableCageNrv> {
     private type: BreakableCageType;
     private breakModel: ModelObj | null = null;
@@ -2496,7 +2499,7 @@ export class BreakableCage extends LiveActor<BreakableCageNrv> {
     }
 }
 
-const enum LargeChainNrv { Wait, Break }
+enum LargeChainNrv { Wait, Break }
 export class LargeChain extends LiveActor<LargeChainNrv> {
     private fixPartsBegin: LargeChainParts;
     private fixPartsEnd: LargeChainParts;
@@ -2621,8 +2624,8 @@ class LargeChainParts extends LiveActor {
     }
 }
 
-const enum MeteorStrikeType { MeteorStrike, MeteorStrikeEnvironment, MeteorCannon }
-const enum MeteorStrikeNrv { Move, Break }
+enum MeteorStrikeType { MeteorStrike, MeteorStrikeEnvironment, MeteorCannon }
+enum MeteorStrikeNrv { Move, Break }
 export class MeteorStrike extends LiveActor<MeteorStrikeNrv> {
     private speed: number;
     private type: MeteorStrikeType;
@@ -2776,7 +2779,7 @@ export class MeteorStrike extends LiveActor<MeteorStrikeNrv> {
 
         if (this.breakObj !== null) {
             vec3.copy(this.breakObj.translation, this.translation);
-            computeEulerAngleRotationFromSRTMatrix(this.breakObj.rotation, dst);
+            calcEulerAngleRotationFromSRTMatrix(this.breakObj.rotation, dst);
         }
     }
 
@@ -2845,7 +2848,7 @@ export class MeteorStrike extends LiveActor<MeteorStrikeNrv> {
     }
 }
 
-const enum MeteorStrikeLauncherNrv { Create, Interval }
+enum MeteorStrikeLauncherNrv { Create, Interval }
 export class MeteorStrikeLauncher extends LiveActor<MeteorStrikeLauncherNrv> {
     private meteors: MeteorStrike[] = [];
     private interval: number;
@@ -2957,7 +2960,7 @@ function tryFindLinkNamePos(dst: mat4, sceneObjHolder: SceneObjHolder, nameObj: 
     return true;
 }
 
-const enum AssemblyBlockNrv { Wait, Assemble, AssembleWait, Timer, Return }
+enum AssemblyBlockNrv { Wait, Assemble, AssembleWait, Timer, Return }
 export class AssemblyBlock extends LiveActor<AssemblyBlockNrv> {
     private initPosMtx = mat4.create();
     private assemblePosMtx = mat4.create();
@@ -3009,7 +3012,7 @@ export class AssemblyBlock extends LiveActor<AssemblyBlockNrv> {
         this.timer = fallback(getJMapInfoArg1(infoIter), 300.0);
         this.isTimed = getJMapInfoBool(fallback(getJMapInfoArg7(infoIter), -1));
 
-        this.idleRotateSpeed = (getRandomInt(0, 2) === 0 ? -0.1 : 0.1) * MathConstants.DEG_TO_RAD;
+        this.idleRotateSpeed = (randomRangeInt(0, 2) === 0 ? -0.1 : 0.1) * MathConstants.DEG_TO_RAD;
 
         if (this.isTimed)
             this.initEffectKeeper(sceneObjHolder, null);
@@ -3290,8 +3293,8 @@ function calcReflectionVector(dst: vec3, normal: ReadonlyVec3, bounceScale: numb
 }
 
 const scratchColor = colorNewCopy(White);
-const enum StarPieceType { StarPiece, StarPieceFloatingFromGroup, StarPieceRailFromGroup }
-const enum StarPieceNrv { Floating, RailMove, Fall, FallAfterReflect, Throw, ThrowNoFall, ThrowFall }
+enum StarPieceType { StarPiece, StarPieceFloatingFromGroup, StarPieceRailFromGroup }
+enum StarPieceNrv { Floating, RailMove, Fall, FallAfterReflect, Throw, ThrowNoFall, ThrowFall }
 export class StarPiece extends LiveActor<StarPieceNrv> {
     public matColor: Color;
 
@@ -3322,7 +3325,7 @@ export class StarPiece extends LiveActor<StarPieceNrv> {
         this.initModelManagerWithAnm(sceneObjHolder, this.name);
 
         if (starPieceColorIndex < 0 || starPieceColorIndex > 5)
-            starPieceColorIndex = getRandomInt(0, 6);
+            starPieceColorIndex = randomRangeInt(0, 6);
         this.setColor(starPieceColorIndex);
 
         connectToSceneNoSilhouettedMapObj(sceneObjHolder, this);
@@ -3472,7 +3475,7 @@ export class StarPiece extends LiveActor<StarPieceNrv> {
             this.trySetGravityAndFront(sceneObjHolder, this.gravityVector);
         }
 
-        getRandomVector(this.velocity, speedRange);
+        randomRangeVec3(this.velocity, speedRange);
         vec3.scaleAndAdd(this.velocity, this.velocity, this.gravityVector, -speedUp);
 
         this.launchCommon(sceneObjHolder, forceLandSpeed, forceEffectLight);
@@ -3482,7 +3485,7 @@ export class StarPiece extends LiveActor<StarPieceNrv> {
         vec3.copy(this.translation, translation);
         vec3.negate(this.gravityVector, direction);
         this.trySetGravityAndFront(sceneObjHolder, this.gravityVector);
-        getRandomVector(this.velocity, speedRange);
+        randomRangeVec3(this.velocity, speedRange);
         vec3.scaleAndAdd(this.velocity, this.velocity, direction, speedDirection);
 
         this.launchCommon(sceneObjHolder, forceLandSpeed, forceEffectLight);
@@ -3715,7 +3718,7 @@ export class StarPiece extends LiveActor<StarPieceNrv> {
     }
 }
 
-const enum StarPieceGroupNrv { Flow }
+enum StarPieceGroupNrv { Flow }
 export class StarPieceGroup extends LiveActor<StarPieceGroupNrv> {
     private starPieces: StarPiece[] = [];
     private isConnectedWithRail: boolean = false;
@@ -3860,8 +3863,8 @@ export class StarPieceGroup extends LiveActor<StarPieceGroupNrv> {
     }
 }
 
-const enum ItemBubbleItemType { Coin, StarPiece }
-const enum ItemBubbleNrv { Wait, Break }
+enum ItemBubbleItemType { Coin, StarPiece }
+enum ItemBubbleNrv { Wait, Break }
 export class ItemBubble extends LiveActor<ItemBubbleNrv> {
     private parts: PartsModel[] = [];
     private starPieces: StarPiece[]= [];
@@ -4068,7 +4071,7 @@ export class ItemBubble extends LiveActor<ItemBubbleNrv> {
 }
 
 // Combined Halo / PowerStarHalo, as ZoneHalo is unused.
-const enum PowerStarHaloNrv { Appear, Disappear }
+enum PowerStarHaloNrv { Appear, Disappear }
 export class PowerStarHalo extends MapObjActor<PowerStarHaloNrv> {
     private distInThresholdSq: number;
     private distOutThresholdSq: number;
@@ -4134,7 +4137,7 @@ export class FireBarBall extends ModelObj {
     }
 }
 
-const enum FireBarNrv { Wait }
+enum FireBarNrv { Wait }
 export class FireBar extends LiveActor<FireBarNrv> {
     private numSpokes: number;
     private numFireBalls: number;
@@ -4207,7 +4210,7 @@ export class FireBar extends LiveActor<FireBarNrv> {
     }
 }
 
-const enum FlipPanelNrv { Front, FrontLand, Back, BackLand }
+enum FlipPanelNrv { Front, FrontLand, Back, BackLand }
 export class FlipPanel extends MapObjActor<FlipPanelNrv> {
     private isReverse: boolean;
 
@@ -4277,7 +4280,7 @@ class SmallStoneMember extends ModelObj {
     }
 }
 
-const enum SmallStoneType { SmallStone, CircleShell, CircleStrawberry }
+enum SmallStoneType { SmallStone, CircleShell, CircleStrawberry }
 export class SmallStone extends LiveActor {
     private members: SmallStoneMember[] = [];
     private type: SmallStoneType;
@@ -4314,10 +4317,10 @@ export class SmallStone extends LiveActor {
             member.starPieceAppearAtTranslation = this.useGravity;
 
             if (this.type === SmallStoneType.CircleShell) {
-                member.rotation[1] = getRandomFloat(-MathConstants.TAU, MathConstants.TAU);
-                vec3SetAll(member.scale, getRandomFloat(0.75, 1.25));
+                member.rotation[1] = randomRangeFloat(-MathConstants.TAU, MathConstants.TAU);
+                vec3SetAll(member.scale, randomRangeFloat(0.75, 1.25));
                 startBva(member, 'Kind');
-                const whichKind = getRandomInt(0, getBvaFrameMax(member));
+                const whichKind = randomRangeInt(0, getBvaFrameMax(member));
                 setBvaFrameAndStop(member, whichKind);
                 member.breakEffectName = `Break${whichKind + 1}`;
             } else {
@@ -4370,7 +4373,7 @@ export class SmallStone extends LiveActor {
     }
 }
 
-const enum AnmModelObjNrv { Wait, Move, Done }
+enum AnmModelObjNrv { Wait, Move, Done }
 export class AnmModelObj extends MapObjActor<AnmModelObjNrv> {
     private moveJointPos: vec3;
 
@@ -4411,8 +4414,8 @@ function sendMsgEnemyAttackExplosionToAllBindedSensor(sceneObjHolder: SceneObjHo
         sendMsgEnemyAttackExplosion(sceneObjHolder, actor.binder!.ceilingHitInfo.hitSensor!, thisSensor);
 }
 
-const enum SpaceMineShadowType { None = -1, OnlyWhenExistRail = 0, Always = 1 }
-const enum SpaceMineNrv { Wait, Appear }
+enum SpaceMineShadowType { None = -1, OnlyWhenExistRail = 0, Always = 1 }
+enum SpaceMineNrv { Wait, Appear }
 export class SpaceMine extends MapObjActor<SpaceMineNrv> {
     private shadowType: SpaceMineShadowType;
 
@@ -4485,7 +4488,7 @@ export class SpaceMine extends MapObjActor<SpaceMineNrv> {
     }
 }
 
-const enum KoopaJrShipCannonShellNrv { Fly }
+enum KoopaJrShipCannonShellNrv { Fly }
 class KoopaJrShipCannonShell extends LiveActor<KoopaJrShipCannonShellNrv> {
     private poseQuat = quat.create();
 
@@ -4604,7 +4607,7 @@ class CannonShellHolder<T extends LiveActor> extends LiveActorGroup<T> {
     }
 }
 
-const enum IronCannonLauncherPointNrv { Wait, Shot }
+enum IronCannonLauncherPointNrv { Wait, Shot }
 export class IronCannonLauncherPoint extends LiveActor<IronCannonLauncherPointNrv> {
     private shells: CannonShellHolder<IronCannonShell>;
     private waitStep: number;
@@ -4753,7 +4756,7 @@ export class DashRing extends LiveActor {
     }
 }
 
-const enum SeaBottomTriplePropellerNrv { Wait, Break, }
+enum SeaBottomTriplePropellerNrv { Wait, Break, }
 export class SeaBottomTriplePropeller extends LiveActor<SeaBottomTriplePropellerNrv> {
     private propellerParts: CollisionParts[] = [];
 
@@ -4869,16 +4872,16 @@ class VolumeModelDrawer {
         this.materialClear.allocateMaterialParamsDataOnInst(template, materialParams);
 
         this.materialClear.allocateDrawParamsDataOnInst(template, drawParams);
-        this.materialClear.setOnRenderInst(sceneObjHolder.modelCache.cache, template);
+        this.materialClear.setOnRenderInst(sceneObjHolder.modelCache.renderCache, template);
         drawSimpleModel(renderInstManager, this.modelData!);
 
-        this.materialBack.setOnRenderInst(sceneObjHolder.modelCache.cache, template);
+        this.materialBack.setOnRenderInst(sceneObjHolder.modelCache.renderCache, template);
         drawSimpleModel(renderInstManager, this.modelData!);
 
-        this.materialFront.setOnRenderInst(sceneObjHolder.modelCache.cache, template);
+        this.materialFront.setOnRenderInst(sceneObjHolder.modelCache.renderCache, template);
         drawSimpleModel(renderInstManager, this.modelData!);
 
-        this.materialBlend.setOnRenderInst(sceneObjHolder.modelCache.cache, template);
+        this.materialBlend.setOnRenderInst(sceneObjHolder.modelCache.renderCache, template);
         drawSimpleModel(renderInstManager, this.modelData!);
 
         renderInstManager.popTemplate();
@@ -4983,7 +4986,7 @@ export class SwingLight extends MapObjActor {
     }
 }
 
-const enum BigFanNrv { Wait, Start, Stop }
+enum BigFanNrv { Wait, Start, Stop }
 export class BigFan extends LiveActor<BigFanNrv> {
     private windModel: ModelObj;
     private windStart = vec3.create();
@@ -5066,7 +5069,7 @@ export class BigFan extends LiveActor<BigFanNrv> {
     }
 }
 
-const enum BanekitiNrv { Wait }
+enum BanekitiNrv { Wait }
 export class Banekiti extends LiveActor<BanekitiNrv> {
     private railMover: MapPartsRailMover;
 
@@ -5108,7 +5111,7 @@ export class Banekiti extends LiveActor<BanekitiNrv> {
     }
 }
 
-const enum PhantomShipBridgeNrv { Wait, MoveA, MoveB }
+enum PhantomShipBridgeNrv { Wait, MoveA, MoveB }
 export class PhantomShipBridge extends LiveActor<PhantomShipBridgeNrv> {
     private type: number = 0;
     private moveCollisionParts: CollisionParts;

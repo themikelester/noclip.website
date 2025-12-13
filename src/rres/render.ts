@@ -8,14 +8,14 @@ import { Color, colorCopy } from '../Color.js';
 import { drawWorldSpaceLine, getDebugOverlayCanvas2D } from '../DebugJunk.js';
 import { AABB, IntersectionState } from "../Geometry.js";
 import { GfxBufferCoalescerCombo } from '../gfx/helpers/BufferHelpers.js';
-import { GfxDevice, GfxTexture } from "../gfx/platform/GfxPlatform.js";
+import { GfxDevice, GfxIndexBufferDescriptor, GfxInputLayout, GfxTexture, GfxVertexBufferDescriptor } from "../gfx/platform/GfxPlatform.js";
 import { arrayCopy } from '../gfx/platform/GfxPlatformObjUtil.js';
 import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
 import { GfxRendererLayer, GfxRenderInst, GfxRenderInstManager, makeSortKey, setSortKeyBias, setSortKeyDepth } from "../gfx/render/GfxRenderInstManager.js";
-import { LoadedVertexDraw } from '../gx/gx_displaylist.js';
-import { TexMapID } from '../gx/gx_enum.js';
+import { LoadedVertexData, LoadedVertexDraw, LoadedVertexLayout } from '../gx/gx_displaylist.js';
+import * as GX from '../gx/gx_enum.js';
 import * as GX_Material from '../gx/gx_material.js';
-import { ColorKind, DrawParams, GXMaterialHelperGfx, GXShapeHelperGfx, GXTextureHolder, loadedDataCoalescerComboGfx, loadTextureFromMipChain, MaterialParams, translateTexFilterGfx, translateWrapModeGfx } from "../gx/gx_render.js";
+import { ColorKind, createInputLayout, DrawParams, GXMaterialHelperGfx, GXTextureHolder, loadedDataCoalescerComboGfx, loadTextureFromMipChain, MaterialParams, translateTexFilterGfx, translateWrapModeGfx } from "../gx/gx_render.js";
 import { calcMipChain } from '../gx/gx_texture.js';
 import { CalcBillboardFlags, calcBillboardMatrix, computeNormalMatrix, getMatrixAxisY, texEnvMtx } from '../MathHelpers.js';
 import { TextureMapping } from "../TextureHolder.js";
@@ -81,6 +81,7 @@ class MaterialData {
             if (!sampler)
                 continue;
 
+            const isNoMip = sampler.minFilter === GX.TexFilter.LINEAR || sampler.minFilter === GX.TexFilter.NEAR;
             const [minFilter, mipFilter] = translateTexFilterGfx(sampler.minFilter);
             const [magFilter]            = translateTexFilterGfx(sampler.magFilter);
 
@@ -91,7 +92,7 @@ class MaterialData {
                 wrapT: translateWrapModeGfx(sampler.wrapT),
                 minFilter, mipFilter, magFilter,
                 minLOD: 0,
-                maxLOD: 100,
+                maxLOD: isNoMip ? 0 : 100,
             });
 
             this.textureMappings[i].gfxSampler = gfxSampler;
@@ -127,8 +128,16 @@ class MaterialData {
     }
 }
 
+class ShapeData {
+    public inputLayout: GfxInputLayout;
+
+    constructor(cache: GfxRenderCache, private loadedVertexLayout: LoadedVertexLayout, public loadedVertexData: LoadedVertexData, public vertexBuffers: GfxVertexBufferDescriptor[], public indexBuffer: GfxIndexBufferDescriptor) {
+        this.inputLayout = createInputLayout(cache, this.loadedVertexLayout);
+    }
+}
+
 export class MDL0Model {
-    public shapeData: GXShapeHelperGfx[] = [];
+    public shapeData: ShapeData[] = [];
     public materialData: MaterialData[] = [];
     private bufferCoalescer: GfxBufferCoalescerCombo;
 
@@ -138,7 +147,7 @@ export class MDL0Model {
         for (let i = 0; i < this.mdl0.shapes.length; i++) {
             const shape = this.mdl0.shapes[i];
             const coalescedBuffers = this.bufferCoalescer.coalescedBuffers[i];
-            this.shapeData.push(new GXShapeHelperGfx(device, cache, coalescedBuffers.vertexBuffers, coalescedBuffers.indexBuffer, shape.loadedVertexLayout, shape.loadedVertexData));
+            this.shapeData.push(new ShapeData(cache, shape.loadedVertexLayout, shape.loadedVertexData, coalescedBuffers.vertexBuffers, coalescedBuffers.indexBuffer));
         }
 
         for (let i = 0; i < this.mdl0.materials.length; i++) {
@@ -158,8 +167,6 @@ export class MDL0Model {
     }
 
     public destroy(device: GfxDevice): void {
-        for (let i = 0; i < this.shapeData.length; i++)
-            this.shapeData[i].destroy(device);
         this.bufferCoalescer.destroy(device);
     }
 }
@@ -169,7 +176,7 @@ const drawParams = new DrawParams();
 class ShapeInstance {
     public sortKeyBias = 0;
 
-    constructor(public shape: BRRES.MDL0_ShapeEntry, public shapeData: GXShapeHelperGfx, public sortVizNode: BRRES.MDL0_NodeEntry, public materialInstance: MaterialInstance) {
+    constructor(public shape: BRRES.MDL0_ShapeEntry, public shapeData: ShapeData, public sortVizNode: BRRES.MDL0_NodeEntry, public materialInstance: MaterialInstance) {
     }
 
     public prepareToRender(renderInstManager: GfxRenderInstManager, depth: number, camera: Camera, instanceStateData: InstanceStateData): void {
@@ -182,6 +189,7 @@ class ShapeInstance {
         template.sortKey = materialInstance.sortKey;
         template.sortKey = setSortKeyDepth(template.sortKey, depth);
         template.sortKey = setSortKeyBias(template.sortKey, this.sortKeyBias);
+        template.setVertexInput(this.shapeData.inputLayout, this.shapeData.vertexBuffers, this.shapeData.indexBuffer);
 
         materialInstance.setOnRenderInst(renderInstManager.gfxRenderCache, template);
 
@@ -218,12 +226,12 @@ class ShapeInstance {
                 continue;
 
             const renderInst = renderInstManager.newRenderInst();
-            this.shapeData.setOnRenderInst(renderInst, draw);
             materialInstance.materialHelper.allocateDrawParamsDataOnInst(renderInst, drawParams);
 
             if (usesSkinning)
                 materialInstance.fillMaterialParams(renderInst, instanceStateData, this.shape.mtxIdx, draw, camera);
 
+            renderInst.setDrawCount(draw.indexCount, draw.indexOffset);
             renderInstManager.submitRenderInst(renderInst);
         }
 
@@ -251,7 +259,7 @@ function lightChannelCopy(o: Readonly<GX_Material.LightChannelControl>): GX_Mate
     return { colorChannel, alphaChannel };
 }
 
-function findAnimationData_PAT0(pat0: BRRES.PAT0, materialName: string, texMapID: TexMapID) {
+function findAnimationData_PAT0(pat0: BRRES.PAT0, materialName: string, texMapID: GX.TexMapID) {
     const matData = pat0.matAnimations.find((m) => m.materialName === materialName);
     if (matData === undefined)
         return null;
@@ -406,7 +414,7 @@ class MaterialInstance {
         }
 
         if (texSrt.mapMode === BRRES.MapMode.PROJECTION) {
-            texProjCameraSceneTex(dstPost, camera, flipYScale);
+            texProjCameraSceneTex(dstPost, camera.projectionMatrix, flipYScale);
 
             // Apply effect matrix.
             mat4.mul(dstPost, texSrt.effectMtx, dstPost);
@@ -519,7 +527,7 @@ class MaterialInstance {
                 lightSet.calcAmbColorCopy(materialParams.u_Color[ColorKind.AMB0], lightSetting);
                 if (lightSet.calcLightSetLitMask(this.materialHelper.material.lightChannels, lightSetting)) {
                     this.materialHelper.material.hasLightsBlock = undefined;
-                    this.materialHelper.autoOptimizeMaterial();
+                    this.materialHelper.invalidateMaterial();
                 }
             }
         }

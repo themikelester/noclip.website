@@ -4,7 +4,6 @@ import ArrayBufferSlice from '../ArrayBufferSlice.js';
 import { mat4, ReadonlyVec4, vec4 } from 'gl-matrix';
 import { TextureFormat, decodeTexture, computeTextureByteSize, getTextureFormatFromGLFormat } from './pica_texture.js';
 import { GfxCullMode, GfxBlendMode, GfxBlendFactor, GfxMegaStateDescriptor, GfxCompareMode, GfxChannelWriteMask, GfxChannelBlendState, GfxTextureDimension } from '../gfx/platform/GfxPlatform.js';
-import { makeMegaState } from '../gfx/helpers/GfxMegaStateDescriptorHelpers.js';
 import { Color, colorNewFromRGBA8, colorNewFromRGBA } from '../Color.js';
 import { reverseDepthForCompareMode } from '../gfx/helpers/ReversedDepthHelpers.js';
 import { AnimationKeyframeHermite, sampleAnimationTrack,} from './csab.js';
@@ -22,7 +21,7 @@ export interface VatrChunk {
     boneWeights: ArrayBufferSlice;
 }
 
-export const enum Version {
+export enum Version {
     Ocarina, Majora, LuigisMansion, EverOasis
 }
 
@@ -112,7 +111,7 @@ export interface TextureBinding {
     wrapT: TextureWrapMode;
 }
 
-export const enum CombineResultOpDMP {
+export enum CombineResultOpDMP {
     REPLACE                  = 0x1E01,
     MODULATE                 = 0x2100,
     ADD                      = 0x0104,
@@ -125,18 +124,18 @@ export const enum CombineResultOpDMP {
     ADD_MULT                 = 0x6402,
 };
 
-export const enum CombineScaleDMP {
+export enum CombineScaleDMP {
     _1                       = 0x01,
     _2                       = 0x02,
     _4                       = 0x04,
 };
 
-export const enum CombineBufferInputDMP {
+export enum CombineBufferInputDMP {
     PREVIOUS                 = 0x8578,
     PREVIOUS_BUFFER          = 0x8579,
 };
 
-export const enum CombineSourceDMP {
+export enum CombineSourceDMP {
     TEXTURE0                 = 0x84C0,
     TEXTURE1                 = 0x84C1,
     TEXTURE2                 = 0x84C2,
@@ -149,7 +148,7 @@ export const enum CombineSourceDMP {
     FRAGMENT_SECONDARY_COLOR = 0x6211,
 };
 
-export const enum CombineOpDMP {
+export enum CombineOpDMP {
     SRC_COLOR                = 0x0300,
     ONE_MINUS_SRC_COLOR      = 0x0301,
     SRC_ALPHA                = 0x0302,
@@ -162,7 +161,7 @@ export const enum CombineOpDMP {
     ONE_MINUS_SRC_B          = 0x8585,
 };
 
-export const enum LightingConfig {
+export enum LightingConfig {
     Config0 = 0x62B0,
     Config1 = 0x62B1,
     Config2 = 0x62B2,
@@ -173,20 +172,20 @@ export const enum LightingConfig {
     Config7 = 0x62B7,
 };
 
-export const enum FresnelSelector {
+export enum FresnelSelector {
     No     = 0x62C0,
     Pri    = 0x62C1,
     Sec    = 0x62C2,
     PriSec = 0x62C3
 };
 
-export const enum BumpMode {
+export enum BumpMode {
     NotUsed   = 0x62C8,
     AsBump    = 0x62C9,
     AsTangent = 0x62CA// Doesn't exist in OoT3D?
 };
 
-export const enum LutInput {
+export enum LutInput {
     CosNormalHalf  = 0x62A0,
     CosViewHalf    = 0x62A1,
     CosNormalView  = 0x62A2,
@@ -195,13 +194,13 @@ export const enum LutInput {
     CosPhi         = 0x62A5
 }
 
-export const enum TextureTransformType {
+export enum TextureTransformType {
     DccMaya,
     DccSoftImage,
     Dcc3dsMax
 }
 
-export const enum TexCoordConfig {
+export enum TexCoordConfig {
     Config0120,
     Config0110,
     Config0111,
@@ -210,7 +209,7 @@ export const enum TexCoordConfig {
     Config0122
 }
 
-export const enum BumpTexture {
+export enum BumpTexture {
     TEXTURE0 = 0x84C0,
     TEXTURE1 = 0x84C1,
     TEXTURE2 = 0x84C2,
@@ -244,7 +243,7 @@ export interface TextureEnvironment {
     combinerBufferColor: Color;
 }
 
-export const enum TextureCoordinatorMappingMethod {
+export enum TextureCoordinatorMappingMethod {
     None,
     UvCoordinateMap,
     CameraCubeEnvMap,
@@ -277,7 +276,7 @@ export interface Material {
     textureEnvironment: TextureEnvironment;
     alphaTestFunction: GfxCompareMode;
     alphaTestReference: number;
-    renderFlags: GfxMegaStateDescriptor;
+    megaStateFlags: Partial<GfxMegaStateDescriptor>;
     isTransparent: boolean;
     polygonOffset: number;
     isVertexLightingEnabled: boolean;
@@ -303,13 +302,14 @@ export interface Material {
     ambientColor: Color;
     specular0Color: Color;
     specular1Color: Color;
+    blendColor: Readonly<Color> | null;
 
-    lutDist0:   MaterialLutSampler;
-    lutDist1:   MaterialLutSampler;
-    lutFesnel:  MaterialLutSampler;
-    lutReflecR: MaterialLutSampler;
-    lutReflecG: MaterialLutSampler;
-    lutReflecB: MaterialLutSampler;
+    lutDist0: MaterialLutSampler;
+    lutDist1: MaterialLutSampler;
+    lutFresnel: MaterialLutSampler;
+    lutReflectR: MaterialLutSampler;
+    lutReflectG: MaterialLutSampler;
+    lutReflectB: MaterialLutSampler;
 }
 
 export function calcTexMtx(dst: mat4, scaleS: number, scaleT: number, rotation: number, translationS: number, translationT: number): void {
@@ -488,28 +488,28 @@ function readMatsChunk(cmb: CMB, buffer: ArrayBufferSlice) {
             scale: view.getFloat32(offs + 0xFC, true)
         };
 
-        const lutReflecR = {
+        const lutReflectR = {
             isAbsolute: !!view.getUint8(offs + 0x100),
             index: view.getInt8(offs + 0x101),
             input: view.getUint16(offs + 0x102, true),
             scale: view.getFloat32(offs + 0x104, true)
         };
 
-        const lutReflecG = {
+        const lutReflectG = {
             isAbsolute: !!view.getUint8(offs + 0x109),
             index: view.getInt8(offs + 0x109),
             input: view.getUint16(offs + 0x10A, true),
             scale: view.getFloat32(offs + 0x10C, true)
         };
 
-        const lutReflecB = {
+        const lutReflectB = {
             isAbsolute: !!view.getUint8(offs + 0x110),
             index: view.getInt8(offs + 0x111),
             input: view.getUint16(offs + 0x112, true),
             scale: view.getFloat32(offs + 0x114, true)
         };
 
-        const lutFesnel = {
+        const lutFresnel = {
             isAbsolute: !!view.getUint8(offs + 0x118),
             index: view.getInt8(offs + 0x119),
             input: view.getUint16(offs + 0x11A, true),
@@ -608,23 +608,26 @@ function readMatsChunk(cmb: CMB, buffer: ArrayBufferSlice) {
         const usesBlendConstantAlpha = factorUsesBlendConstantAlpha(blendSrcFactorRGB) || factorUsesBlendConstantAlpha(blendDstFactorRGB) || factorUsesBlendConstantAlpha(blendSrcFactorAlpha) || factorUsesBlendConstantAlpha(blendDstFactorAlpha);
         const usesBlendConstantColor = factorUsesBlendConstantColor(blendSrcFactorRGB) || factorUsesBlendConstantColor(blendDstFactorRGB) || factorUsesBlendConstantColor(blendSrcFactorAlpha) || factorUsesBlendConstantColor(blendDstFactorAlpha);
 
-        const blendColorR = view.getFloat32(offs + 0x14C, true);
-        const blendColorG = view.getFloat32(offs + 0x150, true);
-        const blendColorB = view.getFloat32(offs + 0x154, true);
-        const blendColorA = view.getFloat32(offs + 0x158, true);
-        const blendConstant = colorNewFromRGBA(blendColorR, blendColorG, blendColorB, blendColorA);
+        let blendColor: Color | null = null;
+        if (usesBlendConstantColor || usesBlendConstantAlpha) {
+            const blendColorR = view.getFloat32(offs + 0x14C, true);
+            const blendColorG = view.getFloat32(offs + 0x150, true);
+            const blendColorB = view.getFloat32(offs + 0x154, true);
+            const blendColorA = view.getFloat32(offs + 0x158, true);
+            blendColor = colorNewFromRGBA(blendColorR, blendColorG, blendColorB, blendColorA);
 
-        if (usesBlendConstantAlpha) {
-            assert(!usesBlendConstantColor);
-            blendConstant.r = blendConstant.g = blendConstant.b = blendConstant.a;
-            rgbBlendState.blendSrcFactor = translateBlendFactor(rgbBlendState.blendSrcFactor);
-            rgbBlendState.blendDstFactor = translateBlendFactor(rgbBlendState.blendDstFactor);
-            alphaBlendState.blendSrcFactor = translateBlendFactor(alphaBlendState.blendSrcFactor);
-            alphaBlendState.blendDstFactor = translateBlendFactor(alphaBlendState.blendDstFactor);
+            if (usesBlendConstantAlpha) {
+                assert(!usesBlendConstantColor);
+                blendColor.r = blendColor.g = blendColor.b = blendColor.a;
+                rgbBlendState.blendSrcFactor = translateBlendFactor(rgbBlendState.blendSrcFactor);
+                rgbBlendState.blendDstFactor = translateBlendFactor(rgbBlendState.blendDstFactor);
+                alphaBlendState.blendSrcFactor = translateBlendFactor(alphaBlendState.blendSrcFactor);
+                alphaBlendState.blendDstFactor = translateBlendFactor(alphaBlendState.blendDstFactor);
+            }
         }
 
         const isTransparent = blendEnabled;
-        const renderFlags = makeMegaState({
+        const megaStateFlags: Partial<GfxMegaStateDescriptor> = {
             attachmentsState: [
                 {
                     channelWriteMask: GfxChannelWriteMask.AllChannels,
@@ -632,20 +635,19 @@ function readMatsChunk(cmb: CMB, buffer: ArrayBufferSlice) {
                     alphaBlendState,
                 },
             ],
-            blendConstant,
             depthCompare: reverseDepthForCompareMode(depthTestFunction),
             depthWrite: depthWriteEnabled,
             cullMode,
-        });
+        };
 
         const combinerBufferColor = colorNewFromRGBA(bufferColorR, bufferColorG, bufferColorB, bufferColorA);
         const textureEnvironment = { textureCombiners, combinerBufferColor };
         cmb.materials.push({
-            index: i, renderLayer, texCoordConfig, textureBindings, textureCoordinators, constantColors, textureEnvironment, alphaTestFunction, alphaTestReference, renderFlags,
+            index: i, renderLayer, texCoordConfig, textureBindings, textureCoordinators, constantColors, textureEnvironment, alphaTestFunction, alphaTestReference, megaStateFlags,
             isTransparent, polygonOffset, isVertexLightingEnabled, isFragmentLightingEnabled, isFogEnabled, lightingConfig, fresnelSelector,
             bumpMode, bumpTextureIndex, isBumpRenormEnabled, isClampHighlight, isGeoFactorEnabled, isGeo0Enabled, isGeo1Enabled, isDist0Enabled, isDist1Enabled, isReflectionEnabled,
-            emissionColor, ambientColor, diffuseColor, specular0Color, specular1Color,
-            lutDist0, lutDist1, lutFesnel, lutReflecR, lutReflecG, lutReflecB,
+            emissionColor, ambientColor, diffuseColor, specular0Color, specular1Color, blendColor,
+            lutDist0, lutDist1, lutFresnel, lutReflectR, lutReflectG, lutReflectB,
         });
 
         offs += 0x15C;
@@ -721,7 +723,7 @@ export function parseTexChunk(buffer: ArrayBufferSlice, texData: ArrayBufferSlic
                     for (let j = 0; j < depth; j++) {
                         const tempPixels = decodeTexture(format, mipWidth, mipHeight, texData.slice(startOffs[j], endOffs[j]));
                         pixels.set(tempPixels, setOffs);
-                        
+
                         startOffs[j] += mipSize;
                         setOffs += tempPixels.length;
                     }
@@ -788,7 +790,7 @@ function readLutsChunk(cmb: CMB, buffer: ArrayBufferSlice): void {
 
         const frames: AnimationKeyframeHermite[] = [];
         let keyframeTableIdx: number = offs + 0x10;
-        
+
         for (let j = 0; j < numKeyframes; j++) {
             let time = view.getInt32(keyframeTableIdx + 0x00, true);
             const value = view.getFloat32(keyframeTableIdx + 0x04, true);
@@ -931,7 +933,7 @@ function readPrmChunk(cmb: CMB, buffer: ArrayBufferSlice): Prm {
     return prm;
 }
 
-export const enum SkinningMode {
+export enum SkinningMode {
     SingleBone = 0x00,
     RigidSkinning = 0x01,
     SmoothSkinning = 0x02,
@@ -973,7 +975,7 @@ function readPrmsChunk(cmb: CMB, buffer: ArrayBufferSlice): Prms {
     return { prm, skinningMode, boneTable };
 }
 
-export const enum SepdVertexAttribMode {
+export enum SepdVertexAttribMode {
     ARRAY = 0,
     CONSTANT = 1,
 }
@@ -1053,7 +1055,7 @@ function readSepdChunk(cmb: CMB, buffer: ArrayBufferSlice): Sepd {
         sepd.hasVertexColors = !!((flags >>> 2) & 1);
         sepd.hasTangents = false;
     }
-    
+
     sepd.position = readVertexAttrib();
     sepd.normal = readVertexAttrib();
 

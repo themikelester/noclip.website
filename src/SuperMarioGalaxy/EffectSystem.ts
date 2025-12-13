@@ -54,9 +54,8 @@ export class ParticleResourceHolder {
             return null;
 
         if (!this.resourceDatas.has(idx)) {
-            const device = sceneObjHolder.modelCache.device;
-            const cache = sceneObjHolder.modelCache.cache;
-            const resData = new JPA.JPAResourceData(device, cache, this.jpacData, this.jpac.effects[idx]);
+            const cache = sceneObjHolder.modelCache.renderCache;
+            const resData = new JPA.JPAResourceData(cache, this.jpacData, this.jpac.effects[idx]);
             resData.name = name;
             this.addTexturesForResource(sceneObjHolder, resData);
             this.resourceDatas.set(idx, resData);
@@ -108,7 +107,7 @@ function isDigitStringTail(s: string): boolean {
     return !!s.match(/\d+$/);
 }
 
-const enum SRTFlags {
+enum SRTFlags {
     None = 0, S = 1, R = 2, T = 4,
 }
 
@@ -187,7 +186,7 @@ class ParticleEmitter {
     }
 }
 
-const enum EmitterLoopMode {
+enum EmitterLoopMode {
     OneTime, Forever,
 }
 
@@ -1082,7 +1081,7 @@ export class EffectSystem extends NameObj {
         // These numbers are from GameScene::initEffect.
         const maxParticleCount = 0x1800;
         const maxEmitterCount = 0x200;
-        this.emitterManager = new JPA.JPAEmitterManager(sceneObjHolder.modelCache.cache, maxParticleCount, maxEmitterCount);
+        this.emitterManager = new JPA.JPAEmitterManager(sceneObjHolder.modelCache.renderCache, maxParticleCount, maxEmitterCount);
 
         this.particleEmitterHolder = new ParticleEmitterHolder(this, maxParticleCount);
     }
@@ -1112,6 +1111,10 @@ export class EffectSystem extends NameObj {
 
     public drawEmitters(device: GfxDevice, renderInstManager: GfxRenderInstManager, groupID: number): void {
         this.emitterManager.draw(device, renderInstManager, this.drawInfo, groupID);
+    }
+
+    public prepareToRender(device: GfxDevice): void {
+        this.emitterManager.prepareToRender(device);
     }
 
     private createEmitter(resData: JPA.JPAResourceData, groupID: number): ParticleEmitter | null {

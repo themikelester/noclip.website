@@ -1,9 +1,10 @@
 
-import { vec3 } from "gl-matrix";
+import { ReadonlyVec3, vec3 } from "gl-matrix";
 import ArrayBufferSlice from "../ArrayBufferSlice.js";
 import { GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
 import { arrayRemove, assert, assertExists, nArray } from "../util.js";
 import { ViewerRenderInput } from "../viewer.js";
+import { fopAc_ac_c } from "./f_op_actor.js";
 
 export type fpc_pc__ProfileList = { Profiles: ArrayBufferSlice[] };
 
@@ -41,10 +42,11 @@ export class fGlobals {
 }
 
 //#region cPhs
-export const enum cPhs__Status {
+export enum cPhs__Status {
     Started,
     Loading,
     Next,
+    Stop,
     Complete,
     Error,
 }
@@ -109,7 +111,7 @@ function fpcDt_Handler(globals: fGlobals, globalUserData: GlobalUserData): void 
     globals.dtQueue.length = 0;
 }
 
-function fpcDt_Delete(globals: fGlobals, pc: base_process_class): void {
+export function fpcDt_Delete(globals: fGlobals, pc: base_process_class): void {
     fpcDt_ToDeleteQ(globals, pc);
 }
 
@@ -179,6 +181,8 @@ export function fpcCt_Handler(globals: fGlobals, globalUserData: GlobalUserData)
             shouldDelete = true;
         } else if (status === cPhs__Status.Error) {
             console.error(`Had error loading`);
+            shouldDelete = true;
+        } else if (status === cPhs__Status.Stop) {
             shouldDelete = true;
         } else if (status === cPhs__Status.Loading) {
             hadAnyLoading = true;
@@ -252,6 +256,16 @@ export function fpcLy_SetCurrentLayer(globals: fGlobals, layer: layer_class): vo
     globals.lyCurr = layer;
 }
 
+export function fpcLyIt_AllJudge<T>(globals: fGlobals, judgeFunc: (pc: base_process_class, userData: T) => boolean, userData: T): base_process_class | null {
+    for (let i = 0; i < globals.lnQueue.length; i++) {
+        const pc = globals.lnQueue[i];
+        if (judgeFunc(pc, userData)) {
+            return pc;
+        }
+    }
+    return null;
+}
+
 //#endregion
 
 //#region fpcEx (framework process executor)
@@ -278,6 +292,10 @@ function fpcEx_ToExecuteQ(globals: fGlobals, process: base_process_class): void 
     // fpcLnTg_ToQueue
     globals.liQueue[process.pi.listID].push(process);
     globals.lnQueue.push(process);
+}
+
+export function fpcEx_Search<T>(globals: fGlobals, judgeFunc: (pc: base_process_class, userData: T) => boolean, userData: T): base_process_class | null {
+    return fpcLyIt_AllJudge(globals, judgeFunc, userData);
 }
 
 //#endregion
@@ -490,6 +508,46 @@ export function fopKyM_create(globals: fGlobals, pcName: number, parameters: num
 
 export function fopKyM_Delete(globals: fGlobals, ky: kankyo_class): void {
     fpcDt_Delete(globals, ky);
+}
+//#endregion
+
+//#region fopMsgM
+export class msg_class extends leafdraw_class {
+    public actor: fopAc_ac_c | null;
+    public pos = vec3.create();
+    public msgNo: number;
+
+    private loadInit: boolean = false;
+
+    public override load(globals: GlobalUserData, prm: fopMsg_prm_class | null): cPhs__Status {
+        if (!this.loadInit) {
+            this.loadInit = true;
+
+            if (prm !== null) {
+                if (prm.pos !== null)
+                    vec3.copy(this.pos, prm.pos);
+                this.actor = prm.actor;
+                this.msgNo = prm.msgNo;
+            }
+        }
+        return cPhs__Status.Next;
+    }
+};
+
+export interface fopMsg_prm_class {
+    actor: fopAc_ac_c | null;
+    pos: ReadonlyVec3 | null;
+    msgNo: number;
+}
+
+export function fopMsgM_Delete(globals: fGlobals, msg: leafdraw_class) {
+    fpcDt_Delete(globals, msg);
+}
+
+export function fopMsgM_create(globals: fGlobals, pcName: number): number | null {
+    // Create on current layer.
+    const prm: fopMsg_prm_class = { actor: null, pos: null, msgNo: 0 };
+    return fpcSCtRq_Request(globals, null, pcName, prm);
 }
 //#endregion
 //#endregion

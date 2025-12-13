@@ -2,6 +2,7 @@
 import { ReadonlyVec3, mat4, vec3 } from "gl-matrix";
 import { Camera } from "../Camera.js";
 import { White, colorCopy, colorFromRGBA8, colorLerp, colorNewCopy } from "../Color.js";
+import * as UI from "../ui.js";
 import * as DDS from "../DarkSouls/dds.js";
 import { NamedArrayBufferSlice } from "../DataFetcher.js";
 import { AABB, Frustum } from "../Geometry.js";
@@ -9,10 +10,9 @@ import { getMatrixTranslation, invlerp } from "../MathHelpers.js";
 import { DeviceProgram } from "../Program.js";
 import { SceneContext } from "../SceneBase.js";
 import { TextureMapping } from "../TextureHolder.js";
-import { makeStaticDataBuffer } from "../gfx/helpers/BufferHelpers.js";
 import { makeAttachmentClearDescriptor, makeBackbufferDescSimple } from "../gfx/helpers/RenderGraphHelpers.js";
 import { fillColor, fillMatrix4x3, fillMatrix4x4, fillVec3v } from "../gfx/helpers/UniformBufferHelpers.js";
-import { GfxBindingLayoutDescriptor, GfxBuffer, GfxBufferUsage, GfxClipSpaceNearZ, GfxCullMode, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxProgram, GfxSamplerFormatKind, GfxTexFilterMode, GfxTexture, GfxTextureDimension, GfxTextureUsage, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency, GfxWrapMode, makeTextureDescriptor2D } from "../gfx/platform/GfxPlatform.js";
+import { GfxBindingLayoutDescriptor, GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxClipSpaceNearZ, GfxCullMode, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxProgram, GfxSamplerFormatKind, GfxTexFilterMode, GfxTexture, GfxTextureDimension, GfxTextureUsage, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency, GfxWrapMode, makeTextureDescriptor2D } from "../gfx/platform/GfxPlatform.js";
 import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
 import { GfxrAttachmentSlot } from "../gfx/render/GfxRenderGraph.js";
 import { GfxRenderHelper } from "../gfx/render/GfxRenderHelper.js";
@@ -22,6 +22,8 @@ import { SceneGfx, ViewerRenderInput } from "../viewer.js";
 import { BSA } from "./BSA.js";
 import { CELL, ESM, FRMR, LAND } from "./ESM.js";
 import { NIF, NIFData } from "./NIFBase.js";
+import { GfxShaderLibrary } from "../gfx/helpers/GfxShaderLibrary.js";
+import { createBufferFromData } from "../gfx/helpers/BufferHelpers.js";
 
 const noclipSpaceFromMorrowindSpace = mat4.fromValues(
     -1, 0, 0, 0,
@@ -109,7 +111,7 @@ export class ModelCache {
 
     constructor(public device: GfxDevice, private pluginData: PluginData) {
         this.renderCache = new GfxRenderCache(this.device);
-        this.zeroBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, new Uint8Array(16).buffer);
+        this.zeroBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, new Uint8Array(16).buffer);
     }
 
     public getTerrainTexture(): GfxTexture {
@@ -284,9 +286,9 @@ class CellTerrain {
         }
 
         const device = globals.modelCache.device;
-        this.vertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, vertexData.buffer);
+        this.vertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, vertexData.buffer);
         this.vertexBufferDescriptors = [
-            { buffer: this.vertexBuffer, byteOffset: 0 },
+            { buffer: this.vertexBuffer },
         ];
 
         // two trianges per edge
@@ -312,8 +314,8 @@ class CellTerrain {
                 indexData[indexIdx++] = i3;
             }
         }
-        this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, indexData.buffer);
-        this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+        this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, indexData.buffer);
+        this.indexBufferDescriptor = { buffer: this.indexBuffer };
         this.indexCount = indexData.length;
 
         this.terrainMapTex = device.createTexture(makeTextureDescriptor2D(GfxFormat.F32_R, 16, 16, 1));
@@ -336,11 +338,11 @@ class CellTerrain {
 }
 
 const bindingLayoutsNifInstanced: GfxBindingLayoutDescriptor[] = [
-    { numUniformBuffers: 3, numSamplers: 8 },
+    { numUniformBuffers: 3, numSamplers: 7 },
 ];
 
 const bindingLayoutsNifSingle: GfxBindingLayoutDescriptor[] = [
-    { numUniformBuffers: 2, numSamplers: 8 },
+    { numUniformBuffers: 2, numSamplers: 7 },
 ];
 
 class StaticModel {
@@ -512,6 +514,8 @@ class TerrainProgram extends DeviceProgram {
 precision mediump float;
 precision mediump sampler2DArray;
 
+${GfxShaderLibrary.MatrixLibrary}
+
 layout(std140) uniform ub_SceneParams {
     Mat4x4 u_ClipFromWorld;
     vec4 u_SunDirection;
@@ -520,7 +524,7 @@ layout(std140) uniform ub_SceneParams {
 };
 
 layout(std140) uniform ub_ObjectParams {
-    Mat4x3 u_WorldFromLocal;
+    Mat3x4 u_WorldFromLocal;
 };
 
 layout(location = 0) uniform sampler2DArray u_TextureTerrain;
@@ -542,9 +546,9 @@ void main() {
     float x = (uv.x - 0.5) * 8192.0;
     float y = (uv.y - 0.5) * 8192.0;
     float z = a_Height;
-    vec3 t_PositionWorld = Mul(u_WorldFromLocal, vec4(x, y, z, 1.0));
+    vec3 t_PositionWorld = UnpackMatrix(u_WorldFromLocal) * vec4(x, y, z, 1.0);
 
-    gl_Position = Mul(u_ClipFromWorld, vec4(t_PositionWorld, 1.0));
+    gl_Position = UnpackMatrix(u_ClipFromWorld) * vec4(t_PositionWorld, 1.0);
     v_Color = a_Color;
     v_Color *= dot(a_Normal, u_SunDirection.xyz) * u_SunDiffuse.xyz + u_SunAmbient.xyz;
 }
@@ -555,7 +559,7 @@ in vec2 v_CellUV;
 in vec3 v_Color;
 
 vec4 SampleTerrain(vec2 t_TexCoord, ivec2 t_Offset) {
-    float t_TexLayer = texelFetch(SAMPLER_2D(u_TextureTerrainMap), ivec2(t_TexCoord) + t_Offset, 0).r;
+    float t_TexLayer = texelFetch(TEXTURE(u_TextureTerrainMap), ivec2(t_TexCoord) + t_Offset, 0).r;
     return texture(SAMPLER_2DArray(u_TextureTerrain), vec3(t_TexCoord.xy, t_TexLayer));
 }
 
@@ -566,16 +570,22 @@ void main() {
     ivec2 t_TexCoordI = ivec2(t_TexCoord);
     vec4 t_Terrain = SampleTerrain(t_TexCoord, ivec2(0, 0));
 
+    vec4 t_TerrainPX = SampleTerrain(t_TexCoord, ivec2(1, 0));
+    vec4 t_TerrainNX = SampleTerrain(t_TexCoord, ivec2(-1, 0));
+
     // XXX(jstpierre): This doesn't blend across chunk boundaries, need a dynamic terrain system
     if (t_Frac.x > 0.5 && t_TexCoordI.x < 15)
-        t_Terrain = mix(t_Terrain, SampleTerrain(t_TexCoord, ivec2(1, 0)), t_Frac.x - 0.5);
+        t_Terrain = mix(t_Terrain, t_TerrainPX, t_Frac.x - 0.5);
     else if (t_TexCoordI.x > 0)
-        t_Terrain = mix(t_Terrain, SampleTerrain(t_TexCoord, ivec2(-1, 0)), 0.5 - t_Frac.x);
+        t_Terrain = mix(t_Terrain, t_TerrainNX, 0.5 - t_Frac.x);
+
+    vec4 t_TerrainPY = SampleTerrain(t_TexCoord, ivec2(0, 1));
+    vec4 t_TerrainNY = SampleTerrain(t_TexCoord, ivec2(0, -1));
 
     if (t_Frac.y > 0.5 && t_TexCoordI.y < 15)
-        t_Terrain = mix(t_Terrain, SampleTerrain(t_TexCoord, ivec2(0, 1)), t_Frac.y - 0.5);
+        t_Terrain = mix(t_Terrain, t_TerrainPY, t_Frac.y - 0.5);
     else if (t_TexCoordI.y > 0)
-        t_Terrain = mix(t_Terrain, SampleTerrain(t_TexCoord, ivec2(0, -1)), 0.5 - t_Frac.y);
+        t_Terrain = mix(t_Terrain, t_TerrainNY, 0.5 - t_Frac.y);
 
     bool t_ShowGridLines = false;
     if (t_ShowGridLines) {
@@ -637,7 +647,13 @@ class WorldManager {
             mipFilter: GfxMipFilterMode.Linear,
         });
 
-        this.textureMapping[1].gfxSampler = this.textureMapping[0].gfxSampler; // doesn't matter, only use texelFetch
+        this.textureMapping[1].gfxSampler = renderCache.createSampler({
+            wrapS: GfxWrapMode.Repeat,
+            wrapT: GfxWrapMode.Repeat,
+            minFilter: GfxTexFilterMode.Point,
+            magFilter: GfxTexFilterMode.Point,
+            mipFilter: GfxMipFilterMode.Nearest,
+        });
     }
 
     public getStaticModel(globals: Globals, path: string): StaticModel {
@@ -731,9 +747,13 @@ class SkyManager {
 
         mat4.fromTranslation(scratchMatrix, globals.view.cameraPos);
 
+        const template = renderInstManager.pushTemplate();
+        template.setBindingLayouts(bindingLayoutsNifSingle);
+        template.setInstanceCount(1);
         this.atmosphere.getTriShapes().forEach((triShape) => {
             triShape.prepareToRenderSingle(globals, renderInstManager, scratchMatrix);
         });
+        renderInstManager.popTemplate();
     }
 }
 
@@ -976,16 +996,46 @@ export class MorrowindRenderer implements SceneGfx {
     private worldManager: WorldManager;
     private skyManager: SkyManager;
 
+    // Time of day control
+    private timeOfDayPanel: UI.TimeOfDayPanel | null = null;
+    private useSystemTime: boolean = true;
+    private readonly defaultTimeAdv: number = 0.005;
+
     constructor(context: SceneContext, private globals: Globals) {
         this.renderHelper = new GfxRenderHelper(context.device, context, this.globals.modelCache.renderCache);
         this.worldManager = new WorldManager(this.globals);
         this.skyManager = new SkyManager(this.globals);
     }
 
+    public createPanels(): UI.Panel[] {
+        this.timeOfDayPanel = new UI.TimeOfDayPanel();
+        this.timeOfDayPanel.setTime(this.globals.time / 24);
+
+        this.timeOfDayPanel.onvaluechange = (t: number, useDynamicTime: boolean) => {
+            this.useSystemTime = useDynamicTime;
+            if (useDynamicTime) {
+                // Re-enable dynamic time: restore time advance rate and sync to current hour
+                this.globals.timeAdv = this.defaultTimeAdv;
+                this.globals.time = new Date().getHours();
+            } else {
+                // Freeze time at the selected value
+                this.globals.timeAdv = 0;
+                this.globals.time = t * 24;
+            }
+        };
+
+        return [this.timeOfDayPanel];
+    }
+
     private prepareToRender(device: GfxDevice, viewerInput: ViewerRenderInput): void {
         const globals = this.globals;
 
         globals.time += globals.timeAdv * (viewerInput.deltaTime / 1000 * 30);
+
+        // Update time-of-day panel display
+        if (this.timeOfDayPanel !== null && this.useSystemTime) {
+            this.timeOfDayPanel.setTime(globals.time / 24);
+        }
 
         globals.weatherManager.update(globals);
         globals.view.setupFromCamera(viewerInput.camera);

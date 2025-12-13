@@ -13,7 +13,7 @@ import { LoadedVertexData, LoadedVertexDraw, LoadedVertexLayout, VertexAttribute
 import ArrayBufferSlice from '../ArrayBufferSlice.js';
 import { TextureMapping, TextureHolder, LoadedTexture } from '../TextureHolder.js';
 
-import { GfxBufferCoalescerCombo, makeStaticDataBuffer } from '../gfx/helpers/BufferHelpers.js';
+import { GfxBufferCoalescerCombo } from '../gfx/helpers/BufferHelpers.js';
 import { fillColor, fillMatrix4x3, fillVec4, fillMatrix4x4, fillVec3v, fillMatrix4x2 } from '../gfx/helpers/UniformBufferHelpers.js';
 import { GfxFormat, GfxDevice, GfxWrapMode, GfxTexFilterMode, GfxMipFilterMode, GfxBindingLayoutDescriptor, GfxVertexBufferDescriptor, GfxBufferUsage, GfxVertexAttributeDescriptor, GfxBuffer, GfxInputLayout, GfxMegaStateDescriptor, GfxProgram, GfxVertexBufferFrequency, GfxRenderPass, GfxIndexBufferDescriptor, GfxInputLayoutBufferDescriptor, makeTextureDescriptor2D, GfxChannelWriteMask, GfxCullMode, GfxBlendFactor, GfxCompareMode, GfxFrontFaceMode, GfxBlendMode } from '../gfx/platform/GfxPlatform.js';
 import { makeBackbufferDescSimple, standardFullClearRenderPassDescriptor } from '../gfx/helpers/RenderGraphHelpers.js';
@@ -152,18 +152,12 @@ function fillDrawParamsDataWithOptimizations(material: GX_Material.GXMaterial, d
     assert(d.length >= offs);
 }
 
-export function fillSceneParams(sceneParams: SceneParams, projectionMatrix: ReadonlyMat4, viewportWidth: number, viewportHeight: number, customLODBias: number | null = null): void {
-    mat4.copy(sceneParams.u_Projection, projectionMatrix);
-
-    if (customLODBias !== null) {
-        sceneParams.u_SceneTextureLODBias = customLODBias;
-    } else {
-        // Mip levels in GX are assumed to be relative to the GameCube's embedded framebuffer (EFB) size,
-        // which is hardcoded to be 640x528. We need to bias our mipmap LOD selection by this amount to
-        // make sure textures are sampled correctly...
-        const textureLODBias = Math.log2(Math.min(viewportWidth / GX_Material.EFB_WIDTH, viewportHeight / GX_Material.EFB_HEIGHT));
-        sceneParams.u_SceneTextureLODBias = textureLODBias;
-    }
+export function calcLODBias(viewportWidth: number, viewportHeight: number): number {
+    // Mip levels in GX are assumed to be relative to the GameCube's embedded framebuffer (EFB) size,
+    // which is hardcoded to be 640x528. We need to bias our mipmap LOD selection by this amount to
+    // make sure textures are sampled correctly...
+    const textureLODBias = Math.log2(Math.min(viewportWidth / GX_Material.EFB_WIDTH, viewportHeight / GX_Material.EFB_HEIGHT));
+    return textureLODBias;
 }
 
 export function loadedDataCoalescerComboGfx(device: GfxDevice, loadedVertexDatas: LoadedVertexData[]): GfxBufferCoalescerCombo {
@@ -237,9 +231,9 @@ export function translateWrapModeGfx(wrapMode: GX.WrapMode): GfxWrapMode {
 export function translateTexFilterGfx(texFilter: GX.TexFilter): [GfxTexFilterMode, GfxMipFilterMode] {
     switch (texFilter) {
     case GX.TexFilter.LINEAR:
-        return [ GfxTexFilterMode.Bilinear, GfxMipFilterMode.NoMip ];
+        return [ GfxTexFilterMode.Bilinear, GfxMipFilterMode.Nearest ];
     case GX.TexFilter.NEAR:
-        return [ GfxTexFilterMode.Point, GfxMipFilterMode.NoMip ];
+        return [ GfxTexFilterMode.Point, GfxMipFilterMode.Nearest ];
     case GX.TexFilter.LIN_MIP_LIN:
         return [ GfxTexFilterMode.Bilinear, GfxMipFilterMode.Linear ];
     case GX.TexFilter.NEAR_MIP_LIN:
@@ -452,7 +446,7 @@ export class GXMaterialHelperGfx {
     public materialParamsBufferSize: number;
     public drawParamsBufferSize: number;
     private materialHacks: GX_Material.GXMaterialHacks = {};
-    private program!: GX_Material.GX_Program;
+    private program: GX_Material.GX_Program | null = null;
     private gfxProgram: GfxProgram | null = null;
     public valid = true;
 
@@ -460,12 +454,7 @@ export class GXMaterialHelperGfx {
         if (materialHacks)
             Object.assign(this.materialHacks, materialHacks);
 
-        this.materialInvalidated();
-    }
-
-    public autoOptimizeMaterial(): void {
-        autoOptimizeMaterial(this.material);
-        this.materialInvalidated();
+        this.invalidateMaterial();
     }
 
     private checkValid(): boolean {
@@ -475,27 +464,31 @@ export class GXMaterialHelperGfx {
         return true;
     }
 
-    public materialInvalidated(): void {
+    public invalidateMaterial(): void {
         this.valid = this.checkValid();
         if (!this.valid)
             return;
 
+        autoOptimizeMaterial(this.material);
         this.megaStateFlags = translateGfxMegaState(this.material);
 
         this.materialParamsBufferSize = GX_Material.getMaterialParamsBlockSize(this.material);
         this.drawParamsBufferSize = GX_Material.getDrawParamsBlockSize(this.material);
-        this.createProgram();
+        this.program = null;
     }
 
     public cacheProgram(cache: GfxRenderCache): void {
+        if (this.program === null)
+            this.createProgram();
+
         if (this.gfxProgram === null) {
-            this.gfxProgram = cache.createProgram(this.program);
+            this.gfxProgram = cache.createProgram(this.program!);
             this.programKey = this.gfxProgram.ResourceUniqueId;
         }
     }
 
-    public createProgram(): void {
-        this.program = new GX_Material.GX_Program(this.material, this.materialHacks);
+    public createProgram(klass = GX_Material.GX_Program): void {
+        this.program = new klass(this.material, this.materialHacks);
         this.gfxProgram = null;
     }
 
@@ -573,49 +566,22 @@ export function createInputLayout(cache: GfxRenderCache, loadedVertexLayout: Loa
     });
 }
 
-export class GXShapeHelperGfx {
-    public inputLayout: GfxInputLayout;
-    public vertexBufferDescriptors: GfxVertexBufferDescriptor[];
-
-    constructor(device: GfxDevice, cache: GfxRenderCache, vertexBuffers: GfxVertexBufferDescriptor[], public indexBufferDescriptor: GfxIndexBufferDescriptor, public loadedVertexLayout: LoadedVertexLayout, public loadedVertexData: LoadedVertexData | null = null) {
-        this.vertexBufferDescriptors = vertexBuffers.slice();
-        this.inputLayout = createInputLayout(cache, loadedVertexLayout);
-    }
-
-    public setOnRenderInst(renderInst: GfxRenderInst, draw: LoadedVertexDraw | null = null): void {
-        renderInst.setVertexInput(this.inputLayout, this.vertexBufferDescriptors, this.indexBufferDescriptor);
-
-        if (draw === null) {
-            // Legacy API -- render a single draw.
-            const loadedVertexData = assertExists(this.loadedVertexData);
-            assert(loadedVertexData.draws.length === 1);
-            draw = loadedVertexData.draws[0];
-        }
-
-        renderInst.setDrawCount(draw.indexCount, draw.indexOffset);
-    }
-
-    public destroy(device: GfxDevice): void {
-    }
-}
-
 export const gxBindingLayouts: GfxBindingLayoutDescriptor[] = [
     { numUniformBuffers: 3, numSamplers: 8, },
 ];
 
 const sceneParams = new SceneParams();
 export function fillSceneParamsDataOnTemplate(renderInst: GfxRenderInst, viewerInput: Viewer.ViewerRenderInput, customLODBias: number | null = null, sceneParamsScratch = sceneParams): void {
-    fillSceneParams(sceneParamsScratch, viewerInput.camera.projectionMatrix, viewerInput.backbufferWidth, viewerInput.backbufferHeight, customLODBias);
-    let offs = renderInst.getUniformBufferOffset(GX_Material.GX_Program.ub_SceneParams);
-    const d = renderInst.mapUniformBufferF32(GX_Material.GX_Program.ub_SceneParams);
-    fillSceneParamsData(d, offs, sceneParams);
+    mat4.copy(sceneParamsScratch.u_Projection, viewerInput.camera.projectionMatrix);
+    sceneParams.u_SceneTextureLODBias = customLODBias !== null ? customLODBias : calcLODBias(viewerInput.backbufferWidth, viewerInput.backbufferHeight);
+    let d = renderInst.allocateUniformBufferF32(GX_Material.GX_Program.ub_SceneParams, ub_SceneParamsBufferSize);
+    fillSceneParamsData(d, 0, sceneParamsScratch);
 }
 
 export class GXRenderHelperGfx extends GfxRenderHelper {
     public override pushTemplateRenderInst(): GfxRenderInst {
         const template = super.pushTemplateRenderInst();
         template.setBindingLayouts(gxBindingLayouts);
-        template.allocateUniformBuffer(GX_Material.GX_Program.ub_SceneParams, ub_SceneParamsBufferSize);
         return template;
     }
 }
@@ -632,12 +598,10 @@ export abstract class BasicGXRendererHelper implements Viewer.SceneGfx {
     protected abstract prepareToRender(device: GfxDevice, viewerInput: Viewer.ViewerRenderInput): void;
 
     public getCache(): GfxRenderCache {
-        return this.renderHelper.renderInstManager.gfxRenderCache;
+        return this.renderHelper.renderCache;
     }
 
     public render(device: GfxDevice, viewerInput: Viewer.ViewerRenderInput) {
-        const renderInstManager = this.renderHelper.renderInstManager;
-
         const mainColorDesc = makeBackbufferDescSimple(GfxrAttachmentSlot.Color0, viewerInput, this.clearRenderPassDescriptor);
         const mainDepthDesc = makeBackbufferDescSimple(GfxrAttachmentSlot.DepthStencil, viewerInput, this.clearRenderPassDescriptor);
 

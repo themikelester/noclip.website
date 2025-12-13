@@ -5,18 +5,17 @@ import { mat4, quat, vec3 } from 'gl-matrix';
 
 import ArrayBufferSlice from '../../../ArrayBufferSlice.js';
 import { Endianness } from '../../../endian.js';
-import { assert, assertExists, readString } from '../../../util.js';
+import { assert, readString } from '../../../util.js';
 
-import { compileVtxLoader, GX_Array, GX_VtxAttrFmt, GX_VtxDesc, LoadedVertexData, LoadedVertexLayout, getAttributeByteSize, compileLoadedVertexLayout } from '../../../gx/gx_displaylist.js';
+import BitMap from '../../../BitMap.js';
+import { Color, colorCopy, colorNewFromRGBA, colorNewFromRGBA8, TransparentBlack, White } from '../../../Color.js';
+import { AABB } from '../../../Geometry.js';
+import { compileLoadedVertexLayout, compileVtxLoader, getAttributeByteSize, GX_Array, GX_VtxAttrFmt, GX_VtxDesc, LoadedVertexData, LoadedVertexLayout } from '../../../gx/gx_displaylist.js';
 import * as GX from '../../../gx/gx_enum.js';
 import * as GX_Material from '../../../gx/gx_material.js';
-import { ColorKind } from '../../../gx/gx_render.js';
-import { AABB } from '../../../Geometry.js';
-import BitMap from '../../../BitMap.js';
-import { autoOptimizeMaterial } from '../../../gx/gx_render.js';
-import { Color, colorNewFromRGBA, colorCopy, colorNewFromRGBA8, White, TransparentBlack } from '../../../Color.js';
-import { readBTI_Texture, BTI_Texture } from '../JUTTexture.js';
+import { autoOptimizeMaterial, ColorKind } from '../../../gx/gx_render.js';
 import { quatFromEulerRadians } from '../../../MathHelpers.js';
+import { BTI_Texture, readBTI_Texture } from '../JUTTexture.js';
 
 //#region Helpers
 // ResNTAB / JUTNameTab
@@ -78,7 +77,7 @@ export class JSystemFileReaderHelper {
 //#endregion
 //#region J3DModel
 //#region INF1
-export const enum J3DLoadFlags {
+export enum J3DLoadFlags {
     // Scaling rule
     ScalingRule_Basic = 0x00000000,
     ScalingRule_XSI   = 0x00000001,
@@ -402,7 +401,7 @@ export interface MtxGroup {
     loadedVertexData: LoadedVertexData;
 }
 
-export const enum ShapeMtxType {
+export enum ShapeMtxType {
     Mtx = 0,
     BBoard = 1,
     YBBoard = 2,
@@ -541,7 +540,7 @@ function readSHP1Chunk(buffer: ArrayBufferSlice, bmd: BMD): SHP1 {
 }
 //#endregion
 //#region MAT3
-export const enum TexMtxMapMode {
+export enum TexMtxMapMode {
     None = 0x00,
     // Uses "Basic" conventions, no -1...1 remap.
     // Peach Beach uses EnvmapBasic, not sure on what yet...
@@ -549,8 +548,9 @@ export const enum TexMtxMapMode {
     ProjmapBasic = 0x02,
     ViewProjmapBasic = 0x03,
     // Unknown: 0x04, 0x05. No known uses.
+    Unk0x04 = 0x04,
+    Unk0x05 = 0x05,
     // Uses "Old" conventions, remaps translation in fourth component
-    // TODO(jstpierre): Figure out the geometric interpretation of old vs. new
     EnvmapOld = 0x06,
     // Uses "New" conventions, remaps translation in third component
     Envmap = 0x07,
@@ -562,7 +562,7 @@ export const enum TexMtxMapMode {
     EnvmapEffectMtx = 0x0B,
 }
 
-export const enum TexMtxProjection {
+export enum TexMtxProjection {
     MTX3x4 = 0,
     MTX2x4 = 1,
 }
@@ -1640,7 +1640,7 @@ export class BMT {
 //#endregion
 
 //#region Animation Core
-export const enum LoopMode {
+export enum LoopMode {
     Once = 0,
     OnceAndReset = 1,
     Repeat = 2,
@@ -1664,7 +1664,7 @@ export interface AnimationBase {
     loopMode: LoopMode;
 }
 
-const enum TangentType {
+enum TangentType {
     In = 0,
     InOut = 1,
 }

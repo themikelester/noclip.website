@@ -11,17 +11,16 @@ import { BTIData, BTI_Texture } from '../Common/JSYSTEM/JUTTexture.js';
 import { GX_Array, GX_VtxAttrFmt, GX_VtxDesc, compileVtxLoader, getAttributeByteSize } from '../gx/gx_displaylist.js';
 import { parseMaterial, GXMaterial } from '../gx/gx_material.js';
 import { DisplayListRegisters, displayListRegistersRun, displayListRegistersInitGX } from '../gx/gx_displaylist.js';
-import { GfxBufferCoalescerCombo } from '../gfx/helpers/BufferHelpers.js';
-import { ColorKind, DrawParams, MaterialParams, loadedDataCoalescerComboGfx } from "../gx/gx_render.js";
-import { GXShapeHelperGfx, GXMaterialHelperGfx } from '../gx/gx_render.js';
+import { ColorKind, DrawParams, MaterialParams } from "../gx/gx_render.js";
+import { GXMaterialHelperGfx } from '../gx/gx_render.js';
 import { TextureMapping } from '../TextureHolder.js';
 import { GfxRenderInstManager, makeSortKey, GfxRendererLayer } from '../gfx/render/GfxRenderInstManager.js';
 import { ViewerRenderInput } from '../viewer.js';
 import { colorCopy, colorFromRGBA } from '../Color.js';
 import { dKy_GxFog_set } from './d_kankyo.js';
 import { dBgS_GndChk } from './d_bg.js';
-import { getMatrixTranslation } from '../MathHelpers.js';
 import { cM_s2rad } from './SComponent.js';
+import { dDlst_BasicShape_c } from './d_drawlist.js';
 
 function createMaterialHelper(material: GXMaterial): GXMaterialHelperGfx {
     // Patch material.
@@ -160,7 +159,7 @@ interface FlowerAnim {
 class DynamicModel {
     public textureMapping = nArray(1, () => new TextureMapping());
     public materialHelper: GXMaterialHelperGfx;
-    public shapes: GXShapeHelperGfx[] = [];
+    public shapes: dDlst_BasicShape_c[] = [];
 
     constructor(public textureData: BTIData, material: GXMaterial) {
         this.textureData.fillTextureMapping(this.textureMapping[0]);
@@ -178,8 +177,6 @@ class FlowerModel {
     public pink: DynamicModel;
     public white: DynamicModel;
     public bessou: DynamicModel;
-
-    public bufferCoalescer: GfxBufferCoalescerCombo;
 
     constructor(globals: dGlobals) {
         const device = globals.modelCache.device, cache = globals.renderer.renderCache;
@@ -256,22 +253,15 @@ class FlowerModel {
         const lBessouUncut = loadVerts(l_pos3, l_color3, l_texCoord3, l_QbsfwDL);
         const lBessouCut = loadVerts(l_pos3, l_color3, l_texCoord3, l_QbsafDL);
 
-        // Coalesce all VBs and IBs into single buffers and upload to the GPU
-        this.bufferCoalescer = loadedDataCoalescerComboGfx(device, [ lWhiteUncut, lWhiteCut, lPinkUncut, lPinkCut, lBessouUncut, lBessouCut ]);
-
-        const b = this.bufferCoalescer.coalescedBuffers;
-
-        // Build an input layout and input state from the vertex layout and data
-        this.white.shapes.push(new GXShapeHelperGfx(device, cache, b[0].vertexBuffers, b[0].indexBuffer, vtxLoader.loadedVertexLayout, lWhiteUncut));
-        this.white.shapes.push(new GXShapeHelperGfx(device, cache, b[1].vertexBuffers, b[1].indexBuffer, vtxLoader.loadedVertexLayout, lWhiteCut));
-        this.pink.shapes.push(new GXShapeHelperGfx(device, cache, b[2].vertexBuffers, b[2].indexBuffer, vtxLoader.loadedVertexLayout, lPinkUncut));
-        this.pink.shapes.push(new GXShapeHelperGfx(device, cache, b[3].vertexBuffers, b[3].indexBuffer, vtxLoader.loadedVertexLayout, lPinkCut));
-        this.bessou.shapes.push(new GXShapeHelperGfx(device, cache, b[4].vertexBuffers, b[4].indexBuffer, vtxLoader.loadedVertexLayout, lBessouUncut));
-        this.bessou.shapes.push(new GXShapeHelperGfx(device, cache, b[5].vertexBuffers, b[5].indexBuffer, vtxLoader.loadedVertexLayout, lBessouCut));
+        this.white.shapes.push(new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, lWhiteUncut));
+        this.white.shapes.push(new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, lWhiteCut));
+        this.pink.shapes.push(new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, lPinkUncut));
+        this.pink.shapes.push(new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, lPinkCut));
+        this.bessou.shapes.push(new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, lBessouUncut));
+        this.bessou.shapes.push(new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, lBessouCut));
     }
 
     public destroy(device: GfxDevice): void {
-        this.bufferCoalescer.destroy(device);
         this.white.destroy(device);
         this.pink.destroy(device);
         this.bessou.destroy(device);
@@ -366,14 +356,12 @@ export class FlowerPacket {
     }
 
     private drawFlowers(globals: dGlobals, roomIdx: number, type: FlowerType, model: DynamicModel, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        const camera = viewerInput.camera;
-
-        getMatrixTranslation(scratchVec3a, camera.worldMatrix);
+        const camera = globals.camera;
 
         const template = renderInstManager.pushTemplate();
         template.setSamplerBindingsFromTextureMappings(model.textureMapping);
         setColorFromRoomNo(globals, materialParams, roomIdx);
-        dKy_GxFog_set(globals.g_env_light, materialParams.u_FogBlock, viewerInput.camera);
+        dKy_GxFog_set(globals.g_env_light, materialParams.u_FogBlock, camera);
         model.materialHelper.allocateMaterialParamsDataOnInst(template, materialParams);
         model.materialHelper.setOnRenderInst(renderInstManager.gfxRenderCache, template);
 
@@ -383,12 +371,12 @@ export class FlowerPacket {
 
             if (data.flags & FlowerFlags.IsFrustumCulled || data.type !== type)
                 continue;
-            if (distanceCull(scratchVec3a, data.pos))
+            if (distanceCull(camera.cameraPos, data.pos))
                 continue;
 
             const renderInst = renderInstManager.newRenderInst();
             model.shapes[0].setOnRenderInst(renderInst);
-            mat4.mul(drawParams.u_PosMtx[0], camera.viewMatrix, data.modelMatrix);
+            mat4.mul(drawParams.u_PosMtx[0], camera.viewFromWorldMatrix, data.modelMatrix);
             model.materialHelper.allocateDrawParamsDataOnInst(renderInst, drawParams);
             renderInstManager.submitRenderInst(renderInst);
         }
@@ -420,13 +408,13 @@ export class FlowerPacket {
 //#endregion
 
 //#region Tree
-const enum TreeFlags {
+enum TreeFlags {
     IsFrustumCulled = 1 << 0,
     NeedsGroundCheck = 1 << 1,
     unk8 = 1 << 3,
 }
 
-const enum TreeStatus {
+enum TreeStatus {
     UNCUT,
 }
 
@@ -460,8 +448,6 @@ class TreeModel {
     public shadow: DynamicModel;
     public main: DynamicModel;
 
-    public bufferCoalescer: GfxBufferCoalescerCombo;
-
     constructor(globals: dGlobals) {
         const device = globals.modelCache.device, cache = globals.renderer.renderCache;
 
@@ -480,9 +466,9 @@ class TreeModel {
         // @HACK: The tex coord array is being read as all zero. Hardcode it.
         const l_shadowTexCoord = new ArrayBufferSlice(new Uint8Array([0, 0, 1, 0, 1, 1, 0, 1]).buffer);
 
-        const l_Oba_swood_noneDL = globals.findExtraSymbolData('d_tree.o', 'l_Oba_swood_noneDL');
-        const l_Oba_swood_a_cuttDL = globals.findExtraSymbolData('d_tree.o', 'l_Oba_swood_a_cuttDL');
-        const l_Oba_swood_a_cutuDL = globals.findExtraSymbolData('d_tree.o', 'l_Oba_swood_a_cutuDL');
+        // const l_Oba_swood_noneDL = globals.findExtraSymbolData('d_tree.o', 'l_Oba_swood_noneDL');
+        // const l_Oba_swood_a_cuttDL = globals.findExtraSymbolData('d_tree.o', 'l_Oba_swood_a_cuttDL');
+        // const l_Oba_swood_a_cutuDL = globals.findExtraSymbolData('d_tree.o', 'l_Oba_swood_a_cutuDL');
         const l_Oba_swood_a_hapaDL = globals.findExtraSymbolData('d_tree.o', 'l_Oba_swood_a_hapaDL');
         const l_Oba_swood_a_mikiDL = globals.findExtraSymbolData('d_tree.o', 'l_Oba_swood_a_mikiDL');
         const g_dTree_Oba_kage_32DL = globals.findExtraSymbolData('d_tree.o', 'g_dTree_Oba_kage_32DL');
@@ -527,24 +513,18 @@ class TreeModel {
         vtxArrays[GX.Attr.CLR0] = { buffer: l_color, offs: 0, stride: getAttributeByteSize(vatFormat, GX.Attr.CLR0) };
         vtxArrays[GX.Attr.TEX0] = { buffer: l_texCoord, offs: 0, stride: getAttributeByteSize(vatFormat, GX.Attr.TEX0) };
 
-        // // const vtx_l_Oba_swood_noneDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_noneDL);
+        // const vtx_l_Oba_swood_noneDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_noneDL);
         const vtx_l_Oba_swood_a_hapaDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_hapaDL);
         const vtx_l_Oba_swood_a_mikiDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_mikiDL);
-        // // const vtx_l_Oba_swood_a_cuttDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_cuttDL);
-        // // const vtx_l_Oba_swood_a_cutuDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_cutuDL);
+        // const vtx_l_Oba_swood_a_cuttDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_cuttDL);
+        // const vtx_l_Oba_swood_a_cutuDL = vtxLoader.runVertices(vtxArrays, l_Oba_swood_a_cutuDL);
 
-        // Coalesce all VBs and IBs into single buffers and upload to the GPU
-        this.bufferCoalescer = loadedDataCoalescerComboGfx(device, [ vtx_l_Oba_swood_a_mikiDL, vtx_l_Oba_swood_a_hapaDL, vtx_l_shadowDL ]);
-
-        // Build an input layout and input state from the vertex layout and data
-        const b = this.bufferCoalescer.coalescedBuffers;
-        this.main.shapes.push(new GXShapeHelperGfx(device, cache, b[0].vertexBuffers, b[0].indexBuffer, vtxLoader.loadedVertexLayout, vtx_l_Oba_swood_a_hapaDL));
-        this.main.shapes.push( new GXShapeHelperGfx(device, cache, b[1].vertexBuffers, b[1].indexBuffer, vtxLoader.loadedVertexLayout, vtx_l_Oba_swood_a_mikiDL));
-        this.shadow.shapes.push(new GXShapeHelperGfx(device, cache, b[2].vertexBuffers, b[2].indexBuffer, shadowVtxLoader.loadedVertexLayout, vtx_l_shadowDL));
+        this.main.shapes.push(new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, vtx_l_Oba_swood_a_hapaDL));
+        this.main.shapes.push( new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, vtx_l_Oba_swood_a_mikiDL));
+        this.shadow.shapes.push(new dDlst_BasicShape_c(cache, shadowVtxLoader.loadedVertexLayout, vtx_l_shadowDL));
     }
 
     public destroy(device: GfxDevice): void {
-        this.bufferCoalescer.destroy(device);
         this.shadow.destroy(device);
         this.main.destroy(device);
     }
@@ -726,8 +706,7 @@ export class TreePacket {
         if (room.length === 0)
             return;
 
-        const worldToView = viewerInput.camera.viewMatrix;
-        const worldCamPos = mat4.getTranslation(scratchVec3b, viewerInput.camera.worldMatrix);
+        const camera = globals.camera;
 
         // Draw shadows
         {
@@ -735,7 +714,7 @@ export class TreePacket {
             const template = renderInstManager.pushTemplate();
             template.sortKey = makeSortKey(GfxRendererLayer.TRANSLUCENT);
             setColorFromRoomNo(globals, materialParams, roomIdx);
-            dKy_GxFog_set(globals.g_env_light, materialParams.u_FogBlock, viewerInput.camera);
+            dKy_GxFog_set(globals.g_env_light, materialParams.u_FogBlock, camera);
             // Set the shadow color. Pulled from d_tree::l_shadowColor$4656
             colorFromRGBA(materialParams.u_Color[ColorKind.C0], 0, 0, 0, 0x64/0xFF);
             this.treeModel.shadow.materialHelper.allocateMaterialParamsDataOnInst(template, materialParams);
@@ -744,12 +723,12 @@ export class TreePacket {
 
             for (let i = 0; i < room.length; i++) {
                 const data = room[i];
-                if (distanceCull(worldCamPos, data.pos))
+                if (distanceCull(camera.cameraPos, data.pos))
                     continue;
 
                 const shadowRenderInst = renderInstManager.newRenderInst();
                 this.treeModel.shadow.shapes[0].setOnRenderInst(shadowRenderInst);
-                mat4.mul(drawParams.u_PosMtx[0], worldToView, data.shadowModelMtx);
+                mat4.mul(drawParams.u_PosMtx[0], camera.viewFromWorldMatrix, data.shadowModelMtx);
                 this.treeModel.shadow.materialHelper.allocateDrawParamsDataOnInst(shadowRenderInst, drawParams);
                 renderInstManager.submitRenderInst(shadowRenderInst);
             }
@@ -760,7 +739,7 @@ export class TreePacket {
         {
             const template = renderInstManager.pushTemplate();
             setColorFromRoomNo(globals, materialParams, roomIdx);
-            dKy_GxFog_set(globals.g_env_light, materialParams.u_FogBlock, viewerInput.camera);
+            dKy_GxFog_set(globals.g_env_light, materialParams.u_FogBlock, camera);
             // Set the tree alpha. This fades after the tree is cut. This is multiplied with the texture alpha at the end of TEV stage 1.
             colorFromRGBA(materialParams.u_Color[ColorKind.C2], 0, 0, 0, 1);
             this.treeModel.main.materialHelper.allocateMaterialParamsDataOnInst(template, materialParams);
@@ -772,18 +751,18 @@ export class TreePacket {
 
                 if (data.flags & TreeFlags.IsFrustumCulled)
                     continue;
-                if (distanceCull(worldCamPos, data.pos))
+                if (distanceCull(camera.cameraPos, data.pos))
                     continue;
 
                 const trunkRenderInst = renderInstManager.newRenderInst();
                 this.treeModel.main.shapes[0].setOnRenderInst(trunkRenderInst);
-                mat4.mul(drawParams.u_PosMtx[0], worldToView, data.trunkModelMtx);
+                mat4.mul(drawParams.u_PosMtx[0], camera.viewFromWorldMatrix, data.trunkModelMtx);
                 this.treeModel.main.materialHelper.allocateDrawParamsDataOnInst(trunkRenderInst, drawParams);
                 renderInstManager.submitRenderInst(trunkRenderInst);
 
                 const topRenderInst = renderInstManager.newRenderInst();
                 this.treeModel.main.shapes[1].setOnRenderInst(topRenderInst);
-                mat4.mul(drawParams.u_PosMtx[0], worldToView, data.topModelMtx);
+                mat4.mul(drawParams.u_PosMtx[0], camera.viewFromWorldMatrix, data.topModelMtx);
                 this.treeModel.main.materialHelper.allocateDrawParamsDataOnInst(topRenderInst, drawParams);
                 renderInstManager.submitRenderInst(topRenderInst);
             }
@@ -804,7 +783,7 @@ export class TreePacket {
 //#endregion
 
 //#region Grass
-const enum GrassFlags {
+enum GrassFlags {
     IsFrustumCulled = 1 << 0,
     NeedsGroundCheck = 1 << 1,
 }
@@ -827,8 +806,6 @@ interface GrassAnim {
 class GrassModel {
     public main: DynamicModel;
     public vmori: DynamicModel;
-
-    public bufferCoalescer: GfxBufferCoalescerCombo;
 
     constructor(globals: dGlobals) {
         const device = globals.modelCache.device, cache = globals.renderer.renderCache;
@@ -882,17 +859,11 @@ class GrassModel {
         const vtx_l_Oba_kusa_aDL = loadVerts(l_pos, l_color, l_texCoord, l_Oba_kusa_aDL);
         const vtx_l_Vmori_00DL = loadVerts(l_Vmori_pos, l_Vmori_color, l_Vmori_texCoord, l_Vmori_00DL);
 
-        // Coalesce all VBs and IBs into single buffers and upload to the GPU
-        this.bufferCoalescer = loadedDataCoalescerComboGfx(device, [ vtx_l_Oba_kusa_aDL, vtx_l_Vmori_00DL ]);
-
-        // Build an input layout and input state from the vertex layout and data
-        const b = this.bufferCoalescer.coalescedBuffers;
-        this.main.shapes.push(new GXShapeHelperGfx(device, cache, b[0].vertexBuffers, b[0].indexBuffer, vtxLoader.loadedVertexLayout, vtx_l_Oba_kusa_aDL));
-        this.vmori.shapes.push(new GXShapeHelperGfx(device, cache, b[1].vertexBuffers, b[1].indexBuffer, vtxLoader.loadedVertexLayout, vtx_l_Oba_kusa_aDL));
+        this.main.shapes.push(new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, vtx_l_Oba_kusa_aDL));
+        this.vmori.shapes.push(new dDlst_BasicShape_c(cache, vtxLoader.loadedVertexLayout, vtx_l_Vmori_00DL));
     }
 
     public destroy(device: GfxDevice): void {
-        this.bufferCoalescer.destroy(device);
         this.main.destroy(device);
         this.vmori.destroy(device);
     }
@@ -1024,13 +995,12 @@ export class GrassPacket {
         if (room.length === 0)
             return;
 
-        const worldToView = viewerInput.camera.viewMatrix;
-        const worldCamPos = mat4.getTranslation(scratchVec3b, viewerInput.camera.worldMatrix);
+        const camera = globals.camera;
 
         const template = renderInstManager.pushTemplate();
         template.setSamplerBindingsFromTextureMappings(this.grassModel.textureMapping);
         setColorFromRoomNo(globals, materialParams, roomIdx);
-        dKy_GxFog_set(globals.g_env_light, materialParams.u_FogBlock, viewerInput.camera);
+        dKy_GxFog_set(globals.g_env_light, materialParams.u_FogBlock, camera);
         this.grassModel.materialHelper.allocateMaterialParamsDataOnInst(template, materialParams);
         this.grassModel.materialHelper.setOnRenderInst(renderInstManager.gfxRenderCache, template);
 
@@ -1039,12 +1009,12 @@ export class GrassPacket {
 
             if (data.flags & GrassFlags.IsFrustumCulled)
                 continue;
-            if (distanceCull(worldCamPos, data.pos))
+            if (distanceCull(camera.cameraPos, data.pos))
                 continue;
 
             const renderInst = renderInstManager.newRenderInst();
             this.grassModel.shapes[0].setOnRenderInst(renderInst);
-            mat4.mul(drawParams.u_PosMtx[0], worldToView, data.modelMtx);
+            mat4.mul(drawParams.u_PosMtx[0], camera.viewFromWorldMatrix, data.modelMtx);
             this.grassModel.materialHelper.allocateDrawParamsDataOnInst(renderInst, drawParams);
             renderInstManager.submitRenderInst(renderInst);
         }

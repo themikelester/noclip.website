@@ -1,22 +1,22 @@
-import * as F3DEX2 from "./f3dex2.js";
 import * as RDP from "../Common/N64/RDP.js";
+import * as F3DEX2 from "./f3dex2.js";
 import * as MIPS from "./mips.js";
 
+import { vec3, vec4 } from "gl-matrix";
 import ArrayBufferSlice from "../ArrayBufferSlice.js";
 import { RSPSharedOutput, StagingVertex } from "../BanjoKazooie/f3dex.js";
-import { vec3, vec4 } from "gl-matrix";
-import { assert, hexzero, assertExists, nArray } from "../util.js";
-import { TextFilt, ImageFormat, ImageSize } from "../Common/N64/Image.js";
-import { Endianness } from "../endian.js";
-import { findNewTextures } from "./animation.js";
-import { MotionParser, Motion, Splash, Direction } from "./motion.js";
-import { Vec3UnitY, Vec3One, bitsAsFloat32 } from "../MathHelpers.js";
-import {parseParticles, ParticleSystem } from "./particles.js";
-import { GfxDevice, GfxBufferUsage, GfxVertexAttributeDescriptor, GfxInputLayoutBufferDescriptor, GfxFormat, GfxVertexBufferFrequency } from "../gfx/platform/GfxPlatform.js";
 import { RenderData } from "../BanjoKazooie/render.js";
-import { makeStaticDataBuffer } from "../gfx/helpers/BufferHelpers.js";
-import { EggProgram } from "./render.js";
+import { ImageFormat, ImageSize, TextFilt } from "../Common/N64/Image.js";
+import { Endianness } from "../endian.js";
+import { GfxBufferFrequencyHint, GfxBufferUsage, GfxFormat, GfxInputLayoutBufferDescriptor, GfxVertexAttributeDescriptor, GfxVertexBufferFrequency } from "../gfx/platform/GfxPlatform.js";
 import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
+import { bitsAsFloat32, Vec3One, Vec3UnitY } from "../MathHelpers.js";
+import { assert, assertExists, hexzero, nArray } from "../util.js";
+import { findNewTextures } from "./animation.js";
+import { Direction, Motion, MotionParser, Splash } from "./motion.js";
+import { parseParticles, ParticleSystem } from "./particles.js";
+import { EggProgram } from "./render.js";
+import { createBufferFromData } from "../gfx/helpers/BufferHelpers.js";
 
 export interface Level {
     sharedCache: RDP.TextureCache;
@@ -136,7 +136,7 @@ export class DataMap {
     }
 }
 
-export const enum SpawnType {
+export enum SpawnType {
     GROUND,
     FLYING,
     OTHER,
@@ -477,7 +477,7 @@ export interface MaterialData {
 
 export const ColorFlagStart = 9;
 
-export const enum MaterialFlags {
+export enum MaterialFlags {
     Tex1    = 0x0001,
     Tex2    = 0x0002,
     Palette = 0x0004,
@@ -878,7 +878,7 @@ function materialDLHandler(scrollData: MaterialData[]): F3DEX2.dlRunner {
 }
 
 
-export const enum EntryKind {
+export enum EntryKind {
     Exit            = 0x00,
     InitFunc        = 0x01,
     Block           = 0x02,
@@ -907,7 +907,7 @@ export const enum EntryKind {
     SetColor        = 0x16, // choose based on flags, also directly sets update time???
 }
 
-export const enum PathKind {
+export enum PathKind {
     Linear,
     Bezier,
     BSpline,
@@ -1326,7 +1326,7 @@ function parseCollisionSubtree(treeView: DataView, planeView: DataView, planeLis
     return { line, posSubtree, posPlane, negSubtree, negPlane };
 }
 
-export const enum InteractionType {
+export enum InteractionType {
     PokefluteA      = 0x05,
     PokefluteB      = 0x06,
     PokefluteC      = 0x07,
@@ -1439,7 +1439,7 @@ function parseStateGraph(dataMap: DataMap, addr: number, nodes: GFXNode[]): Stat
     return {states, animations};
 }
 
-export const enum GeneralFuncs {
+export enum GeneralFuncs {
     RunProcess  = 0x08C28,
     EndProcess  = 0x08F2C,
 
@@ -1455,7 +1455,7 @@ export const enum GeneralFuncs {
     GetRoom     = 0xE2184,
 }
 
-export const enum StateFuncs {
+export enum StateFuncs {
     SetAnimation    = 0x35F138,
     ForceAnimation  = 0x35F15C,
     SetMotion       = 0x35EDF8,
@@ -1481,7 +1481,7 @@ export const enum StateFuncs {
     DanceInteract2  = 0x2C0140,
 }
 
-export const enum ObjectField {
+export enum ObjectField {
     ObjectFlags     = 0x08,
     Tangible        = 0x10,
     // on the root node
@@ -1519,7 +1519,7 @@ export const enum ObjectField {
     PathParam       = 0xEC,
 }
 
-export const enum EndCondition {
+export enum EndCondition {
     Animation   = 0x01,
     Motion      = 0x02,
     Timer       = 0x04,
@@ -2348,7 +2348,7 @@ function buildEggData(dataMap: DataMap, id: number): Float32Array | undefined {
 
 export function eggInputSetup(cache: GfxRenderCache, data: RenderData, vertices: Float32Array): void {
     const device = cache.device;
-    const eggBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, vertices.buffer);
+    const eggBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, vertices.buffer);
     data.dynamicBufferCopies.push(eggBuffer); // put it here to make sure it gets destroyed later
 
     const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
@@ -2371,8 +2371,8 @@ export function eggInputSetup(cache: GfxRenderCache, data: RenderData, vertices:
     });
 
     data.vertexBufferDescriptors = [
-        { buffer: data.vertexBuffer, byteOffset: 0 },
-        { buffer: eggBuffer, byteOffset: 0 },
+        { buffer: data.vertexBuffer },
+        { buffer: eggBuffer },
     ];
-    data.indexBufferDescriptor = { buffer: data.indexBuffer, byteOffset: 0 };
+    data.indexBufferDescriptor = { buffer: data.indexBuffer };
 }

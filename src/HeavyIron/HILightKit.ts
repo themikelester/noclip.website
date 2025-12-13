@@ -4,7 +4,7 @@ import ArrayBufferSlice from "../ArrayBufferSlice.js";
 import { RwEngine, RwStream } from "./rw/rwcore.js";
 import { HIScene } from "./HIScene.js";
 
-export const enum HILightKitLightType {
+export enum HILightKitLightType {
     Ambient = 1,
     Directional = 2,
     Point = 3, // unsupported
@@ -14,8 +14,8 @@ export const enum HILightKitLightType {
 export class HILightKit {
     public lightList: RpLight[] = [];
 
-    constructor(data: ArrayBufferSlice, rw: RwEngine) {
-        const stream = new RwStream(data);
+    constructor(stream: RwStream, rw: RwEngine) {
+        if (stream.buffer.byteLength === 0) return;
         
         const tagID = stream.readUint32();
         const groupID = stream.readUint32();

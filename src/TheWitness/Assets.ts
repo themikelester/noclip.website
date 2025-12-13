@@ -1,24 +1,23 @@
 
+import { ReadonlyVec4, vec2, vec3 } from "gl-matrix";
 import ArrayBufferSlice from "../ArrayBufferSlice.js";
-import * as LZ4 from "../Common/Compression/LZ4.js";
-import { assert, assertExists, nArray } from "../util.js";
-import { ZipFile, parseZipFile, decompressZipFileEntry, ZipFileEntry } from "../ZipFile.js";
-import { GfxDevice, GfxTexture, GfxTextureDimension, GfxFormat, GfxBufferUsage, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxInputLayoutBufferDescriptor, GfxVertexBufferFrequency, GfxIndexBufferDescriptor, GfxTextureUsage, makeTextureDescriptor2D } from "../gfx/platform/GfxPlatform.js";
-import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
 import { Color } from "../Color.js";
-import { GfxBuffer, GfxInputLayout } from "../gfx/platform/GfxPlatformImpl.js";
+import * as LZ4 from "../Common/Compression/LZ4.js";
+import { AABB } from "../Geometry.js";
+import { GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxTexture, GfxTextureDimension, GfxTextureUsage, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency, makeTextureDescriptor2D } from "../gfx/platform/GfxPlatform.js";
+import { getFormatByteSize } from "../gfx/platform/GfxPlatformFormat.js";
+import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
+import { GfxRenderInst } from "../gfx/render/GfxRenderInstManager.js";
+import { Destroyable } from "../SceneBase.js";
+import { TextureMapping } from "../TextureHolder.js";
+import { assert, assertExists, nArray } from "../util.js";
+import { decompressZipFileEntry, parseZipFile, ZipFile, ZipFileEntry } from "../ZipFile.js";
 import { Entity } from "./Entity.js";
 import { load_entities } from "./Entity_Types.js";
-import { Stream_read_Color, Stream, Stream_read_Vector3, Stream_read_Vector2, Stream_read_Vector4 } from "./Stream.js";
-import { AABB } from "../Geometry.js";
-import { vec3, vec2, ReadonlyVec4 } from "gl-matrix";
-import { makeStaticDataBufferFromSlice } from "../gfx/helpers/BufferHelpers.js";
-import { getFormatByteSize } from "../gfx/platform/GfxPlatformFormat.js";
-import { Destroyable } from "../SceneBase.js";
-import { GfxRenderInst } from "../gfx/render/GfxRenderInstManager.js";
-import { TextureMapping } from "../TextureHolder.js";
+import { Stream, Stream_read_Color, Stream_read_Vector2, Stream_read_Vector3, Stream_read_Vector4 } from "./Stream.js";
+import { createBufferFromSlice } from "../gfx/helpers/BufferHelpers.js";
 
-export const enum Asset_Type {
+export enum Asset_Type {
     Texture,
     Lightmap,
     Bitmap,
@@ -35,7 +34,7 @@ export const enum Asset_Type {
     Cataloged_Raw,
 }
 
-const enum Asset_Format {
+enum Asset_Format {
     Raw, LZ4
 }
 
@@ -47,14 +46,14 @@ type AssetT<T extends Asset_Type> =
     T extends Asset_Type.World ? Entity[] :
     never;
 
-const enum Texture_Asset_Flags {
+enum Texture_Asset_Flags {
     Is_sRGB         = 0x01,
     Has_Alpha_Mask  = 0x02,
     No_Skip_Mipmaps = 0x04,
     Is_Cube         = 0x08,
 }
 
-const enum D3DFormat {
+enum D3DFormat {
     DXT1 = 0x31545844,
     DXT5 = 0x35545844,
     ATI1 = 0x31495441,
@@ -298,7 +297,7 @@ function Stream_read_Bounding_Sphere(stream: Stream): Bounding_Sphere {
     return { center, radius };
 }
 
-export const enum Material_Type {
+export enum Material_Type {
     Standard, Deprecated_Terrain, Foliage, Lake, Reflective, Video, Gadget, Blended, Distant,
     Video_Window, Refract, Distant_Foliage, Translucent, Pool, Panel_Face, Shadow_Only, Grate,
     Blocker, Giant_Panel, Hedge, Blended3, Tinted, Decal, Deprecated_Blended_Decal, Vegetation,
@@ -309,7 +308,7 @@ export const enum Material_Type {
     Sky, // noclip extension
 }
 
-export const enum Material_Flags {
+export enum Material_Flags {
     Dynamic_Substitute                       = 0x00000001,
     Casts_Shadow                             = 0x00000002,
     Two_Sided_Deprecated                     = 0x00000002,
@@ -382,7 +381,7 @@ function unpack_Array<T>(stream: Stream, unpack_func: (stream: Stream) => T): T[
     return nArray(count, () => unpack_func(stream));
 }
 
-const enum VertexAttributeFlags {
+enum VertexAttributeFlags {
     BYTE_PACKED_POSITION            = 0x00000001,
     WORD_PACKED_POSITION            = 0x00000002,
     HALF_PACKED_POSITION            = 0x00000004,
@@ -486,10 +485,10 @@ class Device_Mesh {
         this.index_count = sub_mesh_asset.index_count;
         this.instance_count = calculate_instance_count(mesh_asset.material_array[this.material_index]);
 
-        this.vertex_buffer = makeStaticDataBufferFromSlice(device, GfxBufferUsage.Vertex, sub_mesh_asset.vertex_data);
+        this.vertex_buffer = createBufferFromSlice(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, sub_mesh_asset.vertex_data);
 
         if (this.index_count > 0) {
-            this.index_buffer = makeStaticDataBufferFromSlice(device, GfxBufferUsage.Index, sub_mesh_asset.index_data);
+            this.index_buffer = createBufferFromSlice(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, sub_mesh_asset.index_data);
         } else {
             this.index_buffer = null;
         }
@@ -606,8 +605,8 @@ class Device_Mesh {
             vertexBufferDescriptors,
         });
 
-        this.vertex_buffer_descriptors = [{ buffer: this.vertex_buffer, byteOffset: 0 }];
-        this.index_buffer_descriptor = this.index_buffer !== null ? { buffer: this.index_buffer, byteOffset: 0 } : null;
+        this.vertex_buffer_descriptors = [{ buffer: this.vertex_buffer }];
+        this.index_buffer_descriptor = this.index_buffer !== null ? { buffer: this.index_buffer } : null;
     }
 
     public setOnRenderInst(renderInst: GfxRenderInst): void {
@@ -728,13 +727,13 @@ function get_processed_filename(type: Asset_Type, source_name: string, options_h
 }
 
 export class Asset_Manager {
-    public cache: GfxRenderCache;
+    public renderCache: GfxRenderCache;
     private destroyables: Destroyable[] = [];
     private asset_cache = new Map<string, any>();
     private entry_cache = new Map<string, ZipFileEntry>();
 
     constructor(public device: GfxDevice) {
-        this.cache = new GfxRenderCache(device);
+        this.renderCache = new GfxRenderCache(device);
     }
 
     private add_bundle(bundle: ZipFile, filename?: string) {
@@ -783,7 +782,7 @@ export class Asset_Manager {
         const asset_data = this.load_asset_data(processed_filename);
         if (asset_data === null)
             return null;
-        const asset = load_asset(this.device, this.cache, type, asset_data, source_name);
+        const asset = load_asset(this.device, this.renderCache, type, asset_data, source_name);
         if ('destroy' in asset)
             this.destroyables.push(asset as Destroyable);
         this.asset_cache.set(processed_filename, asset);
@@ -791,7 +790,7 @@ export class Asset_Manager {
     }
 
     public destroy(device: GfxDevice): void {
-        this.cache.destroy();
+        this.renderCache.destroy();
         for (let i = 0; i < this.destroyables.length; i++)
             this.destroyables[i].destroy(device);
     }

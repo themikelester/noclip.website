@@ -8,7 +8,7 @@ import { GfxrResolveTextureID } from "../../gfx/render/GfxRenderGraph.js";
 import { nArray, assert, assertExists } from "../../util.js";
 import { BSPFile, Cubemap, WorldLight, WorldLightType, AmbientCube, BSPLeaf, WorldLightFlags } from "../BSPFile.js";
 import { BSPRenderer, SourceEngineView, SourceEngineViewType } from "../Main.js";
-import { VTF } from "../VTF.js";
+import type { VTF } from "../VTF.js";
 
 //#region Runtime Lighting / LightCache
 function findEnvCubemapTexture(bspfile: BSPFile, pos: ReadonlyVec3): Cubemap | null {
@@ -105,7 +105,7 @@ function worldLightAngleFalloff(light: WorldLight, surfaceNormal: ReadonlyVec3, 
 const scratchVec3 = vec3.create();
 const ntscGrayscale = vec3.fromValues(0.299, 0.587, 0.114);
 
-export const enum ShaderWorldLightType {
+export enum ShaderWorldLightType {
     None, Point, Spot, Directional,
 }
 

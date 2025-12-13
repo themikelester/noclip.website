@@ -51,7 +51,7 @@ export class WebXRContext {
     }
 
     public async start() {
-        const xr = (window.navigator as any).xr as XRSystem;
+        const xr = window.navigator.xr!;
 
         this.xrSession = await xr.requestSession('immersive-vr', {
             requiredFeatures: [],

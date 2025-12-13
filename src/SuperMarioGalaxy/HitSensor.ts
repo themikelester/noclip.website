@@ -7,8 +7,9 @@ import { NameObj, MovementType } from "./NameObj.js";
 import { arrayRemove, assertExists } from "../util.js";
 import { transformVec3Mat4w1, transformVec3Mat4w0, Vec3Zero } from "../MathHelpers.js";
 import { drawWorldSpacePoint, getDebugOverlayCanvas2D } from "../DebugJunk.js";
+import { Color, Magenta } from "../Color.js";
 
-export const enum HitSensorType {
+export enum HitSensorType {
     _Player_Start               = 0x00,
     Player                      = 0x01,
     Puppeteer                   = 0x02,
@@ -331,6 +332,14 @@ export class HitSensorKeeper {
     public update(): void {
         for (let i = 0; i < this.sensorInfos.length; i++)
             this.sensorInfos[i].update();
+    }
+
+    public debugDraw(sceneObjHolder: SceneObjHolder, color: Color): void {
+        for (let i = 0; i < this.sensorInfos.length; i++) {
+            const info = this.sensorInfos[i];
+            const sensor = info.sensor;
+            sceneObjHolder.debugDraw.drawSphereLine(sensor.center, sensor.radius, color);
+        }
     }
 }
 

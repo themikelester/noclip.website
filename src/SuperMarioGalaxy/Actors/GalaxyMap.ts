@@ -6,7 +6,7 @@ import { GfxClipSpaceNearZ, GfxFormat } from "../../gfx/platform/GfxPlatform.js"
 import { GfxRenderInstList, GfxRenderInstManager } from "../../gfx/render/GfxRenderInstManager.js";
 import { GfxrAttachmentSlot, GfxrRenderTargetDescription, GfxrRenderTargetID } from "../../gfx/render/GfxRenderGraph.js";
 import { GX_Program } from "../../gx/gx_material.js";
-import { fillSceneParams, fillSceneParamsData, SceneParams, ub_SceneParamsBufferSize } from "../../gx/gx_render.js";
+import { calcLODBias, fillSceneParamsData, SceneParams, ub_SceneParamsBufferSize } from "../../gx/gx_render.js";
 import { projectionMatrixForCuboid, getMatrixTranslation } from "../../MathHelpers.js";
 import { assertExists } from "../../util.js";
 import { connectToScene } from "../ActorUtil.js";
@@ -43,7 +43,7 @@ function setLayoutScalePosAtPaneScaleTrans(dst: LayoutActor, src: LayoutActor, p
     vec2.copy(dstPane.scale, srcPane.scale);
 }
 
-const enum GalaxyMapIconStatus { Hidden, CanOpen, Opened, Completed }
+enum GalaxyMapIconStatus { Hidden, CanOpen, Opened, Completed }
 class GalaxyMapIcon extends LayoutActor {
     constructor(sceneObjHolder: SceneObjHolder, private galaxyName: string, private parent: LayoutActor, private mapPaneName: string) {
         super(sceneObjHolder, 'GalaxyMapIcon');
@@ -210,7 +210,7 @@ class GalaxyMapMarioIcon extends LayoutActor {
     }
 }
 
-const enum GalaxyMapNrv { Idle, FadeinAstroMap, FadeinGalaxyMap }
+enum GalaxyMapNrv { Idle, FadeinAstroMap, FadeinGalaxyMap }
 class GalaxyMap extends LayoutActor<GalaxyMapNrv> {
     private galaxyMapIcon: GalaxyMapIcon[] = [];
     private galaxyMapMarioIcon: GalaxyMapMarioIcon;
@@ -350,7 +350,7 @@ const scratchMatrix = mat4.create();
 const scratchDrawInfo = new LayoutDrawInfo();
 const sceneParams = new SceneParams();
 
-const enum GalaxyMapControllerNrv { Wait }
+enum GalaxyMapControllerNrv { Wait }
 export class GalaxyMapController extends LayoutActor<GalaxyMapControllerNrv> {
     private renderInstList = new GfxRenderInstList();
     private galaxyMapBackground: GalaxyMapBackground;
@@ -396,15 +396,15 @@ export class GalaxyMapController extends LayoutActor<GalaxyMapControllerNrv> {
 
         const template = renderInstManager.pushTemplate();
 
-        let offs = template.allocateUniformBuffer(GX_Program.ub_SceneParams, ub_SceneParamsBufferSize);
-        const d = template.mapUniformBufferF32(GX_Program.ub_SceneParams);
+        const d = template.allocateUniformBufferF32(GX_Program.ub_SceneParams, ub_SceneParamsBufferSize);
 
+        const sceneParams = new SceneParams();
         const w = 604, h = 456;
-        projectionMatrixForCuboid(scratchMatrix, -w / 2, w / 2, -h / 2, h / 2, -10000.0, 10000.0);
+        projectionMatrixForCuboid(sceneParams.u_Projection, -w / 2, w / 2, -h / 2, h / 2, -10000.0, 10000.0);
         const clipSpaceNearZ = renderInstManager.gfxRenderCache.device.queryVendorInfo().clipSpaceNearZ;
-        projectionMatrixConvertClipSpaceNearZ(scratchMatrix, clipSpaceNearZ, GfxClipSpaceNearZ.NegativeOne);
-        fillSceneParams(sceneParams, scratchMatrix, desc.width, desc.height);
-        fillSceneParamsData(d, offs, sceneParams);
+        projectionMatrixConvertClipSpaceNearZ(sceneParams.u_Projection, clipSpaceNearZ, GfxClipSpaceNearZ.NegativeOne);
+        sceneParams.u_SceneTextureLODBias = calcLODBias(desc.width, desc.height);
+        fillSceneParamsData(d, 0, sceneParams);
 
         scratchDrawInfo.aspectAdjust = true;
         scratchDrawInfo.aspectAdjustScaleX = 0.75;

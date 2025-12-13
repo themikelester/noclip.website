@@ -1,13 +1,12 @@
 
 import { mat4, vec3 } from 'gl-matrix';
-import { Camera, computeViewMatrix } from '../Camera.js';
+import { Camera } from '../Camera.js';
 import { CalcBillboardFlags, calcBillboardMatrix } from '../MathHelpers.js';
 import { TextureMapping } from '../TextureHolder.js';
-import { makeStaticDataBuffer } from '../gfx/helpers/BufferHelpers.js';
 import { setAttachmentStateSimple } from '../gfx/helpers/GfxMegaStateDescriptorHelpers.js';
 import { fillMatrix4x3, fillVec4v } from '../gfx/helpers/UniformBufferHelpers.js';
 import {
-    GfxBlendFactor, GfxBlendMode, GfxBuffer, GfxBufferUsage, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxProgram, GfxTexFilterMode,
+    GfxBlendFactor, GfxBlendMode, GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxProgram, GfxTexFilterMode,
     GfxVertexAttributeDescriptor,
     GfxVertexBufferDescriptor,
     GfxVertexBufferFrequency,
@@ -21,10 +20,9 @@ import { DataManager } from './DataManager.js';
 import { DkrControlGlobals } from './DkrControlGlobals.js';
 import { DkrObject, MODEL_TYPE_2D_BILLBOARD } from './DkrObject.js';
 import { F3DDKR_Sprite_Program, MAX_NUM_OF_SPRITE_FRAMES, MAX_NUM_OF_SPRITE_INSTANCES } from './F3DDKR_Sprite_Program.js';
+import { createBufferFromData } from '../gfx/helpers/BufferHelpers.js';
 
-const viewMatrixScratch = mat4.create();
-const viewMatrixCalcScratch = mat4.create();
-const viewMatrixCalc2Scratch = mat4.create();
+const scratchMatrix = mat4.create();
 const mirrorMatrix = mat4.fromValues(
     -1, 0, 0, 0,
      0, 1, 0, 0,
@@ -105,8 +103,8 @@ export class DkrSprites {
                 1, 2, 3
             ]);
 
-            this.vertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, vertices.buffer);
-            this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, indices.buffer);
+            this.vertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, vertices.buffer);
+            this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, indices.buffer);
     
             const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
                 { location: F3DDKR_Sprite_Program.a_Position, bufferIndex: 0, format: GfxFormat.F32_RG, bufferByteOffset: 0 * 0x04, }
@@ -121,8 +119,8 @@ export class DkrSprites {
                 vertexBufferDescriptors,
             });
     
-            this.vertexBufferDescriptors = [{ buffer: this.vertexBuffer, byteOffset: 0 }];
-            this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+            this.vertexBufferDescriptors = [{ buffer: this.vertexBuffer }];
+            this.indexBufferDescriptor = { buffer: this.indexBuffer };
 
             // Setup sprite sheet texture
             const sampler = cache.createSampler({
@@ -196,7 +194,7 @@ export class DkrSprites {
 
     public advanceTime(viewerInput: ViewerRenderInput): void {
         if (viewerInput.deltaTime > 0.0)
-            this.currentFrame += 0.1 * ((1000 / 30) / viewerInput.deltaTime);
+            this.currentFrame += viewerInput.deltaTime * (20 / 1000);
     }
 
     public prepareToRender(device: GfxDevice, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput, layer: number) {
@@ -239,8 +237,6 @@ export class DkrSprites {
         this.bind(renderInst);
         renderInst.sortKey = setSortKeyDepth(renderInst.sortKey, 0);
 
-        computeViewMatrix(viewMatrixScratch, viewerInput.camera);
-
         assert(layerInstances.length <= MAX_NUM_OF_SPRITE_INSTANCES);
         for (let i = 0; i < layerInstances.length; i++) {
             const instanceObject: DkrObject = layerInstances[i];
@@ -253,13 +249,13 @@ export class DkrSprites {
             const color = instanceObject.getSpriteColor();
             offs += fillVec4v(d, offs, color);
             if (DkrControlGlobals.ADV2_MIRROR.on) {
-                mat4.mul(viewMatrixCalcScratch, mirrorMatrix, instanceObject.getModelMatrix());
-                mat4.mul(viewMatrixCalcScratch, viewMatrixScratch, viewMatrixCalcScratch);
+                mat4.mul(scratchMatrix, mirrorMatrix, instanceObject.getModelMatrix());
+                mat4.mul(scratchMatrix, viewerInput.camera.viewMatrix, scratchMatrix);
             } else {
-                mat4.mul(viewMatrixCalcScratch, viewMatrixScratch, instanceObject.getModelMatrix());
+                mat4.mul(scratchMatrix, viewerInput.camera.viewMatrix, instanceObject.getModelMatrix());
             }
-            calcBillboardMatrix(viewMatrixCalc2Scratch, viewMatrixCalcScratch, CalcBillboardFlags.UseRollLocal | CalcBillboardFlags.PriorityZ | CalcBillboardFlags.UseZPlane);
-            offs += fillMatrix4x3(d, offs, viewMatrixCalc2Scratch);
+            calcBillboardMatrix(scratchMatrix, scratchMatrix, CalcBillboardFlags.UseRollLocal | CalcBillboardFlags.PriorityZ | CalcBillboardFlags.UseZPlane);
+            offs += fillMatrix4x3(d, offs, scratchMatrix);
         }
 
         // Set tex parameters

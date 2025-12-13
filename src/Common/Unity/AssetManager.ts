@@ -1,25 +1,25 @@
 
-import { vec2, vec3, vec4 } from 'gl-matrix';
-import { UnityVersion, UnityAssetFile, UnityAssetFileObject, UnityClassID, UnityGameObject, UnityPPtr, UnityStreamingInfo, UnityMesh, UnityMeshCompression, UnityVertexFormat, UnitySubMesh, UnityAABB, UnityChannelInfo, UnityGLTextureSettings, UnityTextureFormat, UnityTexture2D, UnityMaterial, UnityTextureColorSpace } from '../../../rust/pkg/noclip_support';
+import { vec2, vec3 } from 'gl-matrix';
+import { UnityAABB, UnityAssetFile, UnityAssetFileObject, UnityChannelInfo, UnityClassID, UnityGLTextureSettings, UnityMaterial, UnityMesh, UnityMeshCompression, UnityPPtr, UnityShader, UnityStreamingInfo, UnitySubMesh, UnityTexture2D, UnityTextureColorSpace, UnityTextureFormat, UnityVersion, UnityVertexFormat, CrunchTexture } from '../../../rust/pkg/noclip_support';
 import ArrayBufferSlice from '../../ArrayBufferSlice.js';
 import { Color, TransparentBlack, colorNewFromRGBA } from '../../Color.js';
 import { DataFetcher } from '../../DataFetcher.js';
-import { downloadBlob } from '../../DownloadUtils.js';
 import * as Geometry from '../../Geometry.js';
 import { Destroyable, SceneContext } from '../../SceneBase.js';
 import { TextureMapping } from '../../TextureHolder.js';
-import { coalesceBuffer, makeStaticDataBuffer } from '../../gfx/helpers/BufferHelpers.js';
-import { fillColor, fillVec4, fillVec4v } from '../../gfx/helpers/UniformBufferHelpers.js';
-import { GfxBufferUsage, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxSampler, GfxSamplerDescriptor, GfxTexFilterMode, GfxTexture, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency, GfxWrapMode, makeTextureDescriptor2D } from '../../gfx/platform/GfxPlatform.js';
+import { coalesceBuffer, createBufferFromData } from '../../gfx/helpers/BufferHelpers.js';
+import { fillColor, fillVec4 } from '../../gfx/helpers/UniformBufferHelpers.js';
+import { GfxBufferFrequencyHint, GfxBufferUsage, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxSampler, GfxSamplerDescriptor, GfxTexFilterMode, GfxTexture, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency, GfxWrapMode, makeTextureDescriptor2D } from '../../gfx/platform/GfxPlatform.js';
 import { FormatCompFlags, getFormatCompByteSize, setFormatCompFlags } from '../../gfx/platform/GfxPlatformFormat.js';
 import { GfxRenderCache } from '../../gfx/render/GfxRenderCache.js';
 import { rust } from '../../rustlib.js';
 import { assert, assertExists, fallbackUndefined } from '../../util.js';
 
-function concatBufs(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffer> {
-    let result = new Uint8Array(a.byteLength + b.byteLength);
-    result.set(a);
-    result.set(b, a.byteLength);
+function concatBufs(a: Uint8Array<ArrayBuffer>, b: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
+    const origByteLength = a.byteLength;
+    const newBuffer = a.buffer.transfer(a.byteLength + b.byteLength);
+    const result = new Uint8Array(newBuffer);
+    result.set(b, origByteLength);
     return result;
 }
 
@@ -110,7 +110,7 @@ export interface AssetObjectData {
 
 // An AssetFile is a single serialized asset file in the filesystem, aka sharedassets or a level file.
 
-export const enum UnityAssetResourceType {
+export enum UnityAssetResourceType {
     Mesh,
     Texture2D,
     Material,
@@ -121,6 +121,7 @@ type ResType<T extends UnityAssetResourceType> =
     T extends UnityAssetResourceType.Mesh ? UnityMeshData :
     T extends UnityAssetResourceType.Texture2D ? UnityTexture2DData :
     T extends UnityAssetResourceType.Material ? UnityMaterialData :
+    T extends UnityAssetResourceType.Shader ? UnityShaderData :
     never;
 
 type CreateFunc<T> = (assetSystem: UnityAssetSystem, objData: AssetObjectData) => Promise<T | null>;
@@ -137,7 +138,7 @@ export class AssetFile {
     private promiseCache = new Map<BigInt, Promise<Destroyable | null>>();
     public dataOffset: bigint = BigInt(0);
 
-    constructor(private path: string, public version: UnityVersion) {
+    constructor(public path: string, public version: UnityVersion) {
     }
 
     private ensureAssetFile(buffer: Uint8Array): void {
@@ -155,8 +156,10 @@ export class AssetFile {
         this.waitForHeaderPromise = null;
     }
 
-    public waitForHeader(): Promise<void> {
-        return assertExists(this.waitForHeaderPromise);
+    public async waitForHeader() {
+        if (this.waitForHeaderPromise !== null) {
+            await this.waitForHeaderPromise;
+        }
     }
 
     private async initFullInternal(dataFetcher: DataFetcher): Promise<void> {
@@ -214,7 +217,6 @@ export class AssetFile {
         if (this.waitForHeaderPromise !== null)
             await this.waitForHeaderPromise;
 
-
         try {
             const obj = assertExists(this.unityObjectByFileID.get(pathID));
 
@@ -240,32 +242,26 @@ export class AssetFile {
         if (pptr.file_index === 0) {
             return this;
         } else {
-            let externalFilename = assertExists(this.assetFile.get_external_path(pptr));
-            if (externalFilename.startsWith("Library/")) {
-                externalFilename = externalFilename.replace("Library/", "Resources/");
-            }
+            let externalFilename = assertExists(this.assetFile.get_external_path(pptr)).toLowerCase();
+            if (externalFilename.startsWith("library/"))
+                externalFilename = externalFilename.replace("library/", "resources/");
             return assetSystem.fetchAssetFile(externalFilename, true);
         }
     }
 
     private createMeshData = async (assetSystem: UnityAssetSystem, objData: AssetObjectData): Promise<UnityMeshData> => {
-        try {
-            const mesh = rust.UnityMesh.create(assetSystem.version, objData.data);
+        const mesh = rust.UnityMesh.create(assetSystem.version, objData.data);
 
-            const streamingInfo: UnityStreamingInfo = mesh.streaming_info;
-            if (streamingInfo.path.length !== 0) {
-                const buf = await assetSystem.fetchStreamingInfo(streamingInfo);
-                mesh.set_vertex_data(buf.createTypedArray(Uint8Array));
-            }
+        const streamingInfo: UnityStreamingInfo = mesh.streaming_info;
+        if (streamingInfo.path.length !== 0) {
+            const buf = await assetSystem.fetchStreamingInfo(streamingInfo);
+            mesh.set_vertex_data(buf.createTypedArray(Uint8Array));
+        }
 
-            if (mesh.mesh_compression !== UnityMeshCompression.Off) {
-                return loadCompressedMesh(assetSystem.device, mesh);
-            } else {
-                return loadMesh(assetSystem.device, mesh);
-            }
-        } catch (e) {
-            console.error(objData);
-            throw e;
+        if (mesh.mesh_compression !== UnityMeshCompression.Off) {
+            return loadCompressedMesh(assetSystem.device, mesh);
+        } else {
+            return loadMesh(assetSystem.device, mesh);
         }
     };
 
@@ -284,6 +280,12 @@ export class AssetFile {
         return new UnityTexture2DData(assetSystem.renderCache, header, data);
     };
 
+    private createShaderData = async (assetSystem: UnityAssetSystem, objData: AssetObjectData): Promise<UnityShaderData> => {
+        const header = rust.UnityShader.create(assetSystem.version, objData.data);
+        const shaderData = new UnityShaderData(objData.location, header);
+        return shaderData;
+    };
+
     private createMaterialData = async (assetSystem: UnityAssetSystem, objData: AssetObjectData): Promise<UnityMaterialData> => {
         const header = rust.UnityMaterial.create(assetSystem.version, objData.data);
         const materialData = new UnityMaterialData(objData.location, header);
@@ -295,14 +297,10 @@ export class AssetFile {
         if (this.promiseCache.has(pathID))
             return this.promiseCache.get(pathID)! as Promise<T>;
 
-        const promise = this.fetchObject(pathID).then((objData) => {
-                return createFunc(assetSystem, objData).then((v) => {
-                    this.dataCache.set(pathID, v);
-                    return v;
-                }).catch(e => {
-                    console.error(`failed to fetch ${this.path}: ${pathID}, ${e}`);
-                    throw e;
-                });
+        const promise = this.fetchObject(pathID).then(async objData => {
+            const v = await createFunc(assetSystem, objData);
+            this.dataCache.set(pathID, v);
+            return v;
         });
         this.promiseCache.set(pathID, promise);
         return promise;
@@ -318,6 +316,8 @@ export class AssetFile {
             return this.fetchFromCache(assetSystem, pathID, this.createTexture2DData) as Promise<ResType<T>>;
         else if (type === UnityAssetResourceType.Material)
             return this.fetchFromCache(assetSystem, pathID, this.createMaterialData) as Promise<ResType<T>>;
+        else if (type === UnityAssetResourceType.Shader)
+            return this.fetchFromCache(assetSystem, pathID, this.createShaderData) as Promise<ResType<T>>;
         else
             throw "whoops";
     }
@@ -333,12 +333,43 @@ export class AssetFile {
     }
 }
 
+function pptrToKey(file: AssetFile, p: UnityPPtr): string {
+    return JSON.stringify([file.path, Number(p.path_id)]);
+}
+
 export class UnityAssetSystem {
     private assetFiles = new Map<string, AssetFile>();
+    private shaderPPtrToName = new Map<string, string>();
     public renderCache: GfxRenderCache;
 
     constructor(public device: GfxDevice, private dataFetcher: DataFetcher, private basePath: string, public version: UnityVersion) {
         this.renderCache = new GfxRenderCache(this.device);
+    }
+
+    public async init() {
+        const globalGameManager = this.fetchAssetFile("globalgamemanagers", true);
+        await globalGameManager.waitForHeader();
+        const scriptMapperFileObj = globalGameManager.unityObjects.find(obj => obj.class_id === UnityClassID.ScriptMapper);
+        if (scriptMapperFileObj === undefined) {
+            console.warn('no ScriptMapper found');
+            return;
+        }
+        const scriptMapperPromise = globalGameManager.fetchObject(scriptMapperFileObj.file_id);
+        await this.fetchData();
+        const scriptMapperData = await scriptMapperPromise;
+        const scriptMapper = rust.UnityScriptMapper.create(this.version, scriptMapperData.data);
+        const pptrs = scriptMapper.get_shader_pointers();
+        const shaderNames = scriptMapper.get_shader_names();
+        for (let i = 0; i < pptrs.length; i++) {
+            const assetFile = globalGameManager.getPPtrFile(this, pptrs[i]);
+            this.shaderPPtrToName.set(pptrToKey(assetFile, pptrs[i]), shaderNames[i]);
+        }
+    }
+
+    public getShaderNameFromPPtr(location: AssetLocation, pptr: UnityPPtr): string | undefined {
+        const assetFile = location.file.getPPtrFile(this, pptr);
+        const key = pptrToKey(assetFile, pptr);
+        return this.shaderPPtrToName.get(key);
     }
 
     public async fetchBytes(filename: string, range: Range): Promise<ArrayBufferSlice> {
@@ -463,9 +494,9 @@ function loadCompressedMesh(device: GfxDevice, mesh: UnityMesh): UnityMeshData {
     ];
     const indexBufferFormat: GfxFormat = GfxFormat.U32_R;
     const layout = device.createInputLayout({ vertexAttributeDescriptors, vertexBufferDescriptors, indexBufferFormat });
-    const indexData = makeStaticDataBuffer(device, GfxBufferUsage.Index, indices.buffer);
+    const indexData = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, indices.buffer);
     const vertexBuffers = coalesceBuffer(device, GfxBufferUsage.Vertex, [new ArrayBufferSlice(vertices.buffer), new ArrayBufferSlice(normals.buffer)]);
-    const indexBuffer = { buffer: indexData, byteOffset: 0 };
+    const indexBuffer = { buffer: indexData };
     return new UnityMeshData(layout, vertexBuffers, indexBuffer, mesh.local_aabb, mesh.submeshes, indexBufferFormat);
 }
 
@@ -515,8 +546,8 @@ function loadMesh(device: GfxDevice, mesh: UnityMesh): UnityMeshData {
     const layoutBufferDescriptors: GfxInputLayoutBufferDescriptor[] = [];
     const stateBufferDescriptors: GfxVertexBufferDescriptor[] = [];
 
-    const vertData = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, mesh.get_vertex_data().buffer);
-    const indexData = makeStaticDataBuffer(device, GfxBufferUsage.Index, mesh.get_index_data().buffer);
+    const vertData = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, mesh.get_vertex_data().buffer);
+    const indexData = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, mesh.get_index_data().buffer);
 
     const channels = mesh.get_channels();
     for (let i = 0; i < channels.length; i++) {
@@ -536,45 +567,45 @@ function loadMesh(device: GfxDevice, mesh: UnityMesh): UnityMeshData {
 
     const indexBufferFormat = (mesh.index_format === rust.UnityIndexFormat.UInt32) ? GfxFormat.U32_R : GfxFormat.U16_R;
     const layout = device.createInputLayout({ vertexAttributeDescriptors, vertexBufferDescriptors: layoutBufferDescriptors, indexBufferFormat });
-    const indexBuffer = { buffer: indexData, byteOffset: 0 };
+    const indexBuffer = { buffer: indexData };
     return new UnityMeshData(layout, stateBufferDescriptors, indexBuffer, mesh.local_aabb, mesh.submeshes, indexBufferFormat);
 }
 
 function translateTextureFormat(fmt: UnityTextureFormat, colorSpace: UnityTextureColorSpace): GfxFormat {
-    if (fmt === rust.UnityTextureFormat.BC1 && colorSpace === rust.UnityTextureColorSpace.Linear)
-        return GfxFormat.BC1;
-    else if (fmt === rust.UnityTextureFormat.BC1 && colorSpace === rust.UnityTextureColorSpace.SRGB)
-        return GfxFormat.BC1_SRGB;
-    else if (fmt === rust.UnityTextureFormat.BC3 && colorSpace === rust.UnityTextureColorSpace.Linear)
-        return GfxFormat.BC3;
-    else if (fmt === rust.UnityTextureFormat.BC3 && colorSpace === rust.UnityTextureColorSpace.SRGB)
-        return GfxFormat.BC3_SRGB;
+    if (fmt === rust.UnityTextureFormat.Alpha8 && colorSpace === rust.UnityTextureColorSpace.Linear)
+        return GfxFormat.U8_R_NORM;
+    else if (fmt === rust.UnityTextureFormat.R8 && colorSpace === rust.UnityTextureColorSpace.Linear)
+        return GfxFormat.U8_R_NORM;
+    else if (fmt === rust.UnityTextureFormat.RHalf && colorSpace === rust.UnityTextureColorSpace.Linear)
+        return GfxFormat.U16_R_NORM;
     else if (fmt === rust.UnityTextureFormat.RGB24 && colorSpace === rust.UnityTextureColorSpace.Linear)
         return GfxFormat.U8_RGBA_NORM;
     else if (fmt === rust.UnityTextureFormat.RGB24 && colorSpace === rust.UnityTextureColorSpace.SRGB)
         return GfxFormat.U8_RGBA_SRGB;
     else if (fmt === rust.UnityTextureFormat.RGBA32 && colorSpace === rust.UnityTextureColorSpace.Linear)
         return GfxFormat.U8_RGBA_NORM;
+    else if (fmt === rust.UnityTextureFormat.RGBAHalf && colorSpace === rust.UnityTextureColorSpace.Linear)
+        return GfxFormat.U16_RGBA_NORM;
     else if (fmt === rust.UnityTextureFormat.RGBA32 && colorSpace === rust.UnityTextureColorSpace.SRGB)
         return GfxFormat.U8_RGBA_SRGB;
     else if (fmt === rust.UnityTextureFormat.ARGB32 && colorSpace === rust.UnityTextureColorSpace.Linear)
         return GfxFormat.U8_RGBA_NORM;
     else if (fmt === rust.UnityTextureFormat.ARGB32 && colorSpace === rust.UnityTextureColorSpace.SRGB)
         return GfxFormat.U8_RGBA_SRGB;
-    else if (fmt === rust.UnityTextureFormat.DXT1Crunched && colorSpace === rust.UnityTextureColorSpace.Linear)
+    else if ((fmt === rust.UnityTextureFormat.DXT1 || fmt === rust.UnityTextureFormat.DXT1Crunched) && colorSpace === rust.UnityTextureColorSpace.Linear)
         return GfxFormat.BC1;
-    else if (fmt === rust.UnityTextureFormat.DXT1Crunched && colorSpace === rust.UnityTextureColorSpace.SRGB)
+    else if ((fmt === rust.UnityTextureFormat.DXT1 || fmt === rust.UnityTextureFormat.DXT1Crunched) && colorSpace === rust.UnityTextureColorSpace.SRGB)
         return GfxFormat.BC1_SRGB;
-    else if (fmt === rust.UnityTextureFormat.DXT5Crunched && colorSpace === rust.UnityTextureColorSpace.Linear)
+    else if ((fmt === rust.UnityTextureFormat.DXT5 || fmt === rust.UnityTextureFormat.DXT5Crunched) && colorSpace === rust.UnityTextureColorSpace.Linear)
         return GfxFormat.BC3;
-    else if (fmt === rust.UnityTextureFormat.DXT5Crunched && colorSpace === rust.UnityTextureColorSpace.SRGB)
+    else if ((fmt === rust.UnityTextureFormat.DXT5 || fmt === rust.UnityTextureFormat.DXT5Crunched) && colorSpace === rust.UnityTextureColorSpace.SRGB)
         return GfxFormat.BC3_SRGB;
     else if (fmt === rust.UnityTextureFormat.BC7 && colorSpace === rust.UnityTextureColorSpace.Linear)
         return GfxFormat.BC7;
     else if (fmt === rust.UnityTextureFormat.BC7 && colorSpace === rust.UnityTextureColorSpace.SRGB)
         return GfxFormat.BC7_SRGB;
     else
-        throw "whoops";
+        throw new Error(`unknown texture format ${fmt} and colorspace ${colorSpace} combo`);
 }
 
 function translateWrapMode(v: number): GfxWrapMode {
@@ -608,16 +639,14 @@ function translateSampler(header: UnityGLTextureSettings): GfxSamplerDescriptor 
 }
 
 function calcLevelSize(fmt: UnityTextureFormat, w: number, h: number): number {
-    if (fmt === rust.UnityTextureFormat.BC1 || fmt === rust.UnityTextureFormat.BC2 || fmt === rust.UnityTextureFormat.BC3 || fmt === rust.UnityTextureFormat.BC6H || fmt === rust.UnityTextureFormat.BC7|| fmt === rust.UnityTextureFormat.DXT1Crunched || fmt === rust.UnityTextureFormat.DXT5Crunched) {
+    if (fmt === rust.UnityTextureFormat.BC6H || fmt === rust.UnityTextureFormat.BC7|| fmt === rust.UnityTextureFormat.DXT1 || fmt === rust.UnityTextureFormat.DXT5 || fmt === rust.UnityTextureFormat.DXT1Crunched || fmt === rust.UnityTextureFormat.DXT5Crunched) {
         w = Math.max(w, 4);
         h = Math.max(h, 4);
         const depth = 1;
         const count = ((w * h) / 16) * depth;
-        if (fmt === rust.UnityTextureFormat.BC1 || fmt === rust.UnityTextureFormat.DXT1Crunched)
+        if (fmt === rust.UnityTextureFormat.DXT1 || fmt === rust.UnityTextureFormat.DXT1Crunched)
             return count * 8;
-        else if (fmt === rust.UnityTextureFormat.BC2)
-            return count * 16;
-        else if (fmt === rust.UnityTextureFormat.BC3 || fmt === rust.UnityTextureFormat.DXT5Crunched)
+        else if (fmt === rust.UnityTextureFormat.DXT5 || fmt === rust.UnityTextureFormat.DXT5Crunched)
             return count * 16;
         else if (fmt === rust.UnityTextureFormat.BC6H)
             return count * 16;
@@ -630,6 +659,8 @@ function calcLevelSize(fmt: UnityTextureFormat, w: number, h: number): number {
     } else if (fmt === rust.UnityTextureFormat.RGB24) {
         return w * h * 4;
     } else if (fmt === rust.UnityTextureFormat.RGBA32) {
+        return w * h * 4;
+    } else if (fmt === rust.UnityTextureFormat.RGBAHalf) {
         return w * h * 4;
     } else if (fmt === rust.UnityTextureFormat.ARGB32) {
         return w * h * 4;
@@ -683,19 +714,21 @@ export class UnityTexture2DData {
 
         this.gfxSampler = cache.createSampler(translateSampler(header.texture_settings));
 
-        // TODO(jstpierre): Support crunched formats
-        if (header.texture_format === rust.UnityTextureFormat.DXT1Crunched) {
-            console.warn(`DXT1Crunched ${this.header.name}`);
-            return;
+        if (header.texture_format === rust.UnityTextureFormat.DXT1Crunched || header.texture_format === rust.UnityTextureFormat.DXT5Crunched) {
+            const crunched = CrunchTexture.new(data);
+            const levels = [];
+            // FIXME: texture2ddecoder seems to be broken for higher mip levels
+            // let numLevels = crunched.get_num_levels();
+            let numLevels = 1;
+            for (let i = 0; i < numLevels; i++) {
+                levels.push(crunched.decode_level(data, i));
+            }
+            device.uploadTextureData(this.gfxTexture, 0, levels);
+        } else {
+            const oData = imageFormatConvertData(data, header.texture_format);
+            const levels = calcLevels(oData, header.texture_format, header.width, header.height, header.mip_count);
+            device.uploadTextureData(this.gfxTexture, 0, levels);
         }
-        if (header.texture_format === rust.UnityTextureFormat.DXT5Crunched) {
-            console.warn(`DXT5Crunched ${this.header.name}`);
-            return;
-        }
-
-        const oData = imageFormatConvertData(data, header.texture_format);
-        const levels = calcLevels(oData, header.texture_format, header.width, header.height, header.mip_count);
-        device.uploadTextureData(this.gfxTexture, 0, levels);
     }
 
     public fillTextureMapping(dst: TextureMapping): void {
@@ -714,11 +747,22 @@ export class UnityTexture {
     }
 }
 
+export class UnityShaderData {
+    public name: string;
+
+    constructor(private location: AssetLocation, private header: UnityShader) {
+        this.name = header.name;
+    }
+
+    public destroy(device: GfxDevice): void {}
+}
+
 export class UnityMaterialData {
     public name: string;
     public texturesByName: Map<string, UnityTexture> = new Map();
     public colorsByName: Map<string, Color> = new Map();
     public floatsByName: Map<string, number> = new Map();
+    public shader: UnityShaderData | null = null;
 
     constructor(private location: AssetLocation, private header: UnityMaterial) {
         this.name = this.header.name;
@@ -777,6 +821,13 @@ export class UnityMaterialData {
         for (const name of this.header.get_float_keys()) {
             this.floatsByName.set(name, this.header.get_float_by_key(name)!);
         }
+
+        const shaderPPtr = this.header.shader;
+        this.shader = await assetSystem.fetchResource(UnityAssetResourceType.Shader, this.location, shaderPPtr);
+        assert(this.shader !== null);
+        const shaderName = assetSystem.getShaderNameFromPPtr(this.location, shaderPPtr);
+        assert(shaderName !== undefined);
+        this.shader.name = shaderName;
     }
 
     public destroy(device: GfxDevice): void {
@@ -786,7 +837,9 @@ export class UnityMaterialData {
 
 export async function createUnityAssetSystem(context: SceneContext, basePath: string, version: UnityVersion): Promise<UnityAssetSystem> {
     const runtime = await context.dataShare.ensureObject(`UnityAssetSystem/${basePath}`, async () => {
-        return new UnityAssetSystem(context.device, context.dataFetcher, basePath, version);
+        const system = new UnityAssetSystem(context.device, context.dataFetcher, basePath, version);
+        await system.init();
+        return system;
     });
     return runtime;
 }

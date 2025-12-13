@@ -3,7 +3,7 @@ import * as UI from '../ui.js';
 import * as Viewer from '../viewer.js';
 import { TextureHolder, LoadedTexture, TextureMapping } from '../TextureHolder.js';
 
-import { GfxDevice, GfxSampler, GfxWrapMode, GfxMipFilterMode, GfxTexFilterMode, GfxCullMode, GfxCompareMode, GfxInputLayout, GfxBuffer, GfxBufferUsage, GfxFormat, GfxVertexAttributeDescriptor, GfxVertexBufferFrequency, GfxVertexBufferDescriptor, GfxBindingLayoutDescriptor, GfxBlendMode, GfxBlendFactor, GfxProgram, GfxMegaStateDescriptor, GfxIndexBufferDescriptor, GfxInputLayoutBufferDescriptor, makeTextureDescriptor2D } from '../gfx/platform/GfxPlatform.js';
+import { GfxDevice, GfxSampler, GfxWrapMode, GfxMipFilterMode, GfxTexFilterMode, GfxCullMode, GfxCompareMode, GfxInputLayout, GfxBuffer, GfxBufferUsage, GfxFormat, GfxVertexAttributeDescriptor, GfxVertexBufferFrequency, GfxVertexBufferDescriptor, GfxBindingLayoutDescriptor, GfxBlendMode, GfxBlendFactor, GfxProgram, GfxMegaStateDescriptor, GfxIndexBufferDescriptor, GfxInputLayoutBufferDescriptor, makeTextureDescriptor2D, GfxBufferFrequencyHint } from '../gfx/platform/GfxPlatform.js';
 
 import * as BNTX from './bntx.js';
 import { surfaceToCanvas } from '../Common/bc_texture.js';
@@ -12,7 +12,6 @@ import { FMDL, FSHP, FMAT, FMAT_RenderInfo, FMAT_RenderInfoType, FVTX, FSHP_Mesh
 import { GfxRenderInst, makeSortKey, GfxRendererLayer, setSortKeyDepth, GfxRenderInstManager, GfxRenderInstList } from '../gfx/render/GfxRenderInstManager.js';
 import { TextureAddressMode, FilterMode, IndexFormat, AttributeFormat, getChannelFormat, getTypeFormat } from './nngfx_enum.js';
 import { nArray, assert, assertExists } from '../util.js';
-import { makeStaticDataBuffer, makeStaticDataBufferFromSlice } from '../gfx/helpers/BufferHelpers.js';
 import { fillMatrix4x4, fillMatrix4x3 } from '../gfx/helpers/UniformBufferHelpers.js';
 import { mat4 } from 'gl-matrix';
 import { computeViewMatrix, computeViewSpaceDepthFromWorldSpaceAABB } from '../Camera.js';
@@ -25,6 +24,8 @@ import { makeBackbufferDescSimple, standardFullClearRenderPassDescriptor } from 
 import { setAttachmentStateSimple } from '../gfx/helpers/GfxMegaStateDescriptorHelpers.js';
 import { GfxrAttachmentSlot } from '../gfx/render/GfxRenderGraph.js';
 import ArrayBufferSlice from '../ArrayBufferSlice.js';
+import { GfxShaderLibrary } from '../gfx/helpers/GfxShaderLibrary.js';
+import { createBufferFromData, createBufferFromSlice } from '../gfx/helpers/BufferHelpers.js';
 
 export class BRTITextureHolder extends TextureHolder<BNTX.BRTI> {
     public addFRESTextures(device: GfxDevice, fres: FRES): void {
@@ -92,10 +93,9 @@ function translateMipFilterMode(filterMode: FilterMode): GfxMipFilterMode {
     switch (filterMode) {
     case FilterMode.Linear:
         return GfxMipFilterMode.Linear;
+    case 0:
     case FilterMode.Point:
         return GfxMipFilterMode.Nearest;
-    case 0:
-        return GfxMipFilterMode.NoMip;
     default:
         throw "whoops";
     }
@@ -147,12 +147,21 @@ class AglProgram extends DeviceProgram {
     public static globalDefinitions = `
 precision mediump float;
 
+${GfxShaderLibrary.MatrixLibrary}
+
 layout(std140) uniform ub_ShapeParams {
     Mat4x4 u_Projection;
-    Mat4x3 u_ModelView;
+    Mat3x4 u_ModelView;
 };
 
-uniform sampler2D u_Samplers[8];
+uniform sampler2D u_Texture0;
+uniform sampler2D u_Texture1;
+uniform sampler2D u_Texture2;
+uniform sampler2D u_Texture3;
+uniform sampler2D u_Texture4;
+uniform sampler2D u_Texture5;
+uniform sampler2D u_Texture6;
+uniform sampler2D u_Texture7;
 `;
 
     public override both = AglProgram.globalDefinitions;
@@ -199,7 +208,7 @@ uniform sampler2D u_Samplers[8];
         try {
             const samplerIndex = this.lookupSamplerIndex(shadingModelSamplerBindingName);
             const uv = 'v_TexCoord0';
-            return `texture(SAMPLER_2D(u_Samplers[${samplerIndex}]), ${uv})`;
+            return `texture(SAMPLER_2D(u_Texture${samplerIndex}), ${uv})`;
         } catch(e) {
             // TODO(jstpierre): Figure out wtf is going on.
             console.warn(`${this.name}: No sampler by name ${shadingModelSamplerBindingName}`);
@@ -289,7 +298,8 @@ out vec4 v_NormalWorld;
 out vec4 v_TangentWorld;
 
 void main() {
-    gl_Position = Mul(u_Projection, Mul(_Mat4x4(u_ModelView), vec4(_p0, 1.0)));
+    vec3 t_PositionView = UnpackMatrix(u_ModelView) * vec4(_p0, 1.0);
+    gl_Position = UnpackMatrix(u_Projection) * vec4(t_PositionView, 1.0);
     v_PositionWorld = _p0.xyz;
     v_TexCoord0 = _u0;
     v_VtxColor = _c0;
@@ -565,11 +575,8 @@ class FVTXData {
                     frequency: GfxVertexBufferFrequency.PerVertex,
                 };
 
-                const gfxBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, convertedAttribute.data);
-                this.vertexBufferDescriptors[attribBufferIndex] = {
-                    buffer: gfxBuffer,
-                    byteOffset: 0,
-                };
+                const gfxBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, convertedAttribute.data);
+                this.vertexBufferDescriptors[attribBufferIndex] = { buffer: gfxBuffer };
             } else {
                 // Can use buffer data directly.
                 this.vertexAttributeDescriptors.push({
@@ -580,17 +587,14 @@ class FVTXData {
                 });
 
                 if (!this.vertexBufferDescriptors[bufferIndex]) {
-                    const gfxBuffer = makeStaticDataBufferFromSlice(device, GfxBufferUsage.Vertex, vertexBuffer.data);
+                    const gfxBuffer = createBufferFromSlice(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, vertexBuffer.data);
 
                     this.inputBufferDescriptors[bufferIndex] = {
                         byteStride: vertexBuffer.stride,
                         frequency: GfxVertexBufferFrequency.PerVertex,
                     };
 
-                    this.vertexBufferDescriptors[bufferIndex] = {
-                        buffer: gfxBuffer,
-                        byteOffset: 0,
-                    };
+                    this.vertexBufferDescriptors[bufferIndex] = { buffer: gfxBuffer };
                 }
             }
         }
@@ -651,8 +655,8 @@ export class FSHPMeshData {
         });
     
         this.vertexBufferDescriptors = fvtxData.vertexBufferDescriptors;
-        this.indexBuffer = makeStaticDataBufferFromSlice(cache.device, GfxBufferUsage.Index, mesh.indexBufferData);
-        this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+        this.indexBuffer = createBufferFromSlice(cache.device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, mesh.indexBufferData);
+        this.indexBufferDescriptor = { buffer: this.indexBuffer };
     }
 
     public destroy(device: GfxDevice): void {

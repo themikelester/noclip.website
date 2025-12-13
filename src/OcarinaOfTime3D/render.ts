@@ -12,11 +12,10 @@ import ArrayBufferSlice from '../ArrayBufferSlice.js';
 import { Camera, computeViewMatrix, computeViewMatrixSkybox } from '../Camera.js';
 import { Color, colorAdd, colorClamp, colorCopy, colorMult, colorNewCopy, colorNewFromRGBA, OpaqueBlack, TransparentBlack } from '../Color.js';
 import { drawWorldSpaceLine, getDebugOverlayCanvas2D } from '../DebugJunk.js';
-import { makeStaticDataBuffer } from '../gfx/helpers/BufferHelpers.js';
 import { GfxShaderLibrary } from '../gfx/helpers/GfxShaderLibrary.js';
 import { reverseDepthForDepthOffset } from '../gfx/helpers/ReversedDepthHelpers.js';
 import { fillColor, fillMatrix4x3, fillMatrix4x4, fillVec4, fillVec4v } from '../gfx/helpers/UniformBufferHelpers.js';
-import { GfxBuffer, GfxBufferUsage, GfxCompareMode, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxProgram, GfxSampler, GfxTexFilterMode, GfxTexture, GfxTextureDescriptor, GfxTextureDimension, GfxTextureUsage, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency, GfxWrapMode, makeTextureDescriptor2D } from '../gfx/platform/GfxPlatform.js';
+import { GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxCompareMode, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxProgram, GfxSampler, GfxTexFilterMode, GfxTexture, GfxTextureDescriptor, GfxTextureDimension, GfxTextureUsage, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency, GfxWrapMode, makeTextureDescriptor2D } from '../gfx/platform/GfxPlatform.js';
 import { getFormatByteSize, setFormatCompFlags } from '../gfx/platform/GfxPlatformFormat.js';
 import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
 import { GfxRendererLayer, GfxRenderInst, GfxRenderInstManager, makeSortKey } from '../gfx/render/GfxRenderInstManager.js';
@@ -26,13 +25,14 @@ import { TextureMapping } from '../TextureHolder.js';
 import { assert, nArray } from '../util.js';
 import { ColorAnimType } from './cmab.js';
 import { BumpMode, FresnelSelector, LightingConfig, LutInput, TexCoordConfig } from './cmb.js';
+import { createBufferFromData } from '../gfx/helpers/BufferHelpers.js';
 
 interface DMPMaterialHacks {
     texturesEnabled: boolean;
     vertexColorsEnabled: boolean;
 }
 
-const enum MatLutType {
+enum MatLutType {
     Distribution0,
     Distribution1,
     Fresnel,
@@ -56,6 +56,7 @@ class DMPProgram extends DeviceProgram {
     public static a_BoneWeights = 7;
 
     public static BindingsDefinition = `
+${GfxShaderLibrary.MatrixLibrary}
 
 struct Light {
     vec4 Ambient;
@@ -83,7 +84,7 @@ layout(std140) uniform ub_MaterialParams {
     vec4 u_FogStartEnd;
 
     vec4 u_ConstantColor[6];
-    Mat4x3 u_TexMtx[3];
+    Mat3x4 u_TexMtx[3];
     vec4 u_MatMisc[1];
 };
 
@@ -97,8 +98,8 @@ layout(std140) uniform ub_MaterialParams {
 #define u_DepthOffset      (u_MatMisc[0].w)
 
 layout(std140) uniform ub_PrmParams {
-    Mat4x3 u_BoneMatrix[16];
-    Mat4x3 u_ViewMatrix;
+    Mat3x4 u_BoneMatrix[16];
+    Mat3x4 u_ViewMatrix;
     vec4 u_PrmMisc[1];
 };
 
@@ -319,9 +320,9 @@ uniform samplerCube u_Cubemap;
         if(material.isReflectionEnabled){
             if(this.IsLUTSupported(MatLutType.ReflectR))
                 S+= `
-        t_ReflValue.r = ${this.getLutInput(material.lutReflecB)};
-        t_ReflValue.g = ${this.IsLUTSupported(MatLutType.ReflectG) ? this.getLutInput(material.lutReflecG) : `t_ReflValue.r`};
-        t_ReflValue.b = ${this.IsLUTSupported(MatLutType.ReflectB) ? this.getLutInput(material.lutReflecB) : `t_ReflValue.r`};
+        t_ReflValue.r = ${this.getLutInput(material.lutReflectR)};
+        t_ReflValue.g = ${this.IsLUTSupported(MatLutType.ReflectG) ? this.getLutInput(material.lutReflectG) : `t_ReflValue.r`};
+        t_ReflValue.b = ${this.IsLUTSupported(MatLutType.ReflectB) ? this.getLutInput(material.lutReflectB) : `t_ReflValue.r`};
         `;
         }
 
@@ -333,7 +334,7 @@ uniform samplerCube u_Cubemap;
             specular_1 = `(${specular_1} * t_GeoFactor)`;
 
         if (material.fresnelSelector !== FresnelSelector.No && this.IsLUTSupported(MatLutType.Fresnel)) {
-            const value = this.getLutInput(material.lutFesnel);
+            const value = this.getLutInput(material.lutFresnel);
 
             // Only use the last light
             S += `\tif(i == 1){\n\t\t\t`;
@@ -379,10 +380,10 @@ uniform samplerCube u_Cubemap;
         case LutInput.CosNormalView:  index = "dot(t_Normal, normalize(v_View.xyz))"; break;
         case LutInput.CosLightNormal: index = "dot(t_LightVector, t_Normal)"; break;
         case LutInput.CosLightSpot:   index = "dot(t_LightVector, t_SpotDir)"; break;
-        case LutInput.CosPhi:{
-                const half_angle_proj = "normalize(t_HalfVector) - t_Normal * dot(t_Normal, normalize(t_HalfVector))"
-                index = `dot(${half_angle_proj}, t_Tangent)`;
-            } break;
+        case LutInput.CosPhi: {
+            const half_angle_proj = "normalize(t_HalfVector) - t_Normal * dot(t_Normal, normalize(t_HalfVector))"
+            index = `dot(${half_angle_proj}, t_Tangent)`;
+        } break;
         }
 
         output = `texture(SAMPLER_2D(u_TextureLUT), vec2(((${index} + 1.0) * 0.5) + (1.0 / 512.0), ${this.generateFloat(sampler.index)})).r`;
@@ -404,7 +405,7 @@ in vec2 v_TexCoord2;
 in vec3 v_Normal;
 in vec4 v_QuatNormal;
 in float v_Depth;
-in vec4 v_View;
+in vec3 v_View;
 
 vec3 QuatRotate(vec4 q, vec3 v) {
     return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
@@ -474,11 +475,12 @@ out vec2 v_TexCoord2;
 out vec3 v_Normal;
 out vec4 v_QuatNormal;
 out float v_Depth;
-out vec4 v_View;
+out vec3 v_View;
 
-vec4 CalcQuatFromNormal(vec3 normal){
+vec4 CalcQuatFromNormal(vec3 normal) {
     float QuatZ = 0.5 * (normal.z + 1.0);
-    if (QuatZ <= 0.0) return vec4(1.0, 0.0, 0.0, 0.0);
+    if (QuatZ <= 0.0)
+        return vec4(1.0, 0.0, 0.0, 0.0);
     QuatZ = 1.0 / sqrt(QuatZ);
     return vec4((0.5 * normal.xy) * QuatZ, (1.0 / QuatZ), 0.0);
 }
@@ -517,7 +519,6 @@ vec4 FullQuatCalcFallback(in vec4 t_temp0, in vec4 t_Normal, in vec4 t_temp1) {
 }
 
 vec4 CalcQuatFromTangent(in vec3 t_Tangent) {
-
     vec4 t_temp0 = vec4(normalize(cross(v_Normal, t_Tangent)), 0.0);
     vec4 t_temp1 = vec4(cross(t_temp0.xyz, v_Normal.xyz), t_temp0.z);
     vec4 t_Normal = vec4(v_Normal.xyz, t_temp0.x);
@@ -569,7 +570,7 @@ vec3 CalcTextureCoordRaw(in int t_Idx) {
     } else if (t_MappingMode == 1) {
         // UV mapping.
         vec2 t_TexSrc = CalcTextureSrc(t_Params.y);
-        return Mul(u_TexMtx[t_Idx], vec4(t_TexSrc, 0.0, 1.0));
+        return UnpackMatrix(u_TexMtx[t_Idx]) * vec4(t_TexSrc, 0.0, 1.0);
     } else if (t_MappingMode == 2) {
         // Cube env mapping.
         //vec3 t_Incident = normalize(vec3(t_Position.xy, -t_Position.z) - vec3(u_CameraPos.xy, -u_CameraPos.z));
@@ -580,7 +581,7 @@ vec3 CalcTextureCoordRaw(in int t_Idx) {
         // Sphere env mapping.
         // Convert view-space normal to proper place.
         vec2 t_TexSrc = (v_Normal.xy * 0.5) + 0.5;
-        return Mul(u_TexMtx[t_Idx], vec4(t_TexSrc, 0.0, 1.0));
+        return UnpackMatrix(u_TexMtx[t_Idx]) * vec4(t_TexSrc, 0.0, 1.0);
     } else if (t_MappingMode == 4) {
         // Projection mapping.
         // Not implemented yet.
@@ -599,7 +600,7 @@ vec3 CalcTextureCoord(in int t_Idx) {
 
 void main() {
     // Compute our matrix.
-    Mat4x3 t_BoneMatrix;
+    mat4x3 t_BoneMatrix;
 
     vec4 t_BoneWeights = a_BoneWeights;
 
@@ -613,28 +614,26 @@ void main() {
     if (u_BoneDimension < 1.0)
         t_BoneWeights.x = 0.0;
 
-    if ((t_BoneWeights.x + t_BoneWeights.y + t_BoneWeights.z + t_BoneWeights.w) > 0.0) {
-        t_BoneMatrix = _Mat4x3(0.0);
-
-        Fma(t_BoneMatrix, u_BoneMatrix[int(a_BoneIndices.x)], t_BoneWeights.x);
-        Fma(t_BoneMatrix, u_BoneMatrix[int(a_BoneIndices.y)], t_BoneWeights.y);
-        Fma(t_BoneMatrix, u_BoneMatrix[int(a_BoneIndices.z)], t_BoneWeights.z);
-        Fma(t_BoneMatrix, u_BoneMatrix[int(a_BoneIndices.w)], t_BoneWeights.w);
+    if (any(greaterThan(t_BoneWeights.xyzw, vec4(0.0)))) {
+        t_BoneMatrix = mat4x3(0.0);
+        t_BoneMatrix += UnpackMatrix(u_BoneMatrix[int(a_BoneIndices.x)]) * t_BoneWeights.x;
+        t_BoneMatrix += UnpackMatrix(u_BoneMatrix[int(a_BoneIndices.y)]) * t_BoneWeights.y;
+        t_BoneMatrix += UnpackMatrix(u_BoneMatrix[int(a_BoneIndices.z)]) * t_BoneWeights.z;
+        t_BoneMatrix += UnpackMatrix(u_BoneMatrix[int(a_BoneIndices.w)]) * t_BoneWeights.w;
     } else {
         // If we have no bone weights, then we're in rigid skinning, so take the first bone index.
         // If we're single-bone, then our bone indices will be 0, so this also works for that.
-        t_BoneMatrix = u_BoneMatrix[int(a_BoneIndices.x)];
+        t_BoneMatrix = UnpackMatrix(u_BoneMatrix[int(a_BoneIndices.x)]);
     }
 
-    vec4 t_LocalPosition = vec4(a_Position, 1.0);
-    vec4 t_ModelPosition = Mul(_Mat4x4(t_BoneMatrix), t_LocalPosition);
-    vec4 t_ViewPosition = Mul(_Mat4x4(u_ViewMatrix), t_ModelPosition);
-    gl_Position = Mul(u_Projection, t_ViewPosition);
+    vec3 t_ModelPosition = t_BoneMatrix * vec4(a_Position, 1.0);
+    vec3 t_ViewPosition = UnpackMatrix(u_ViewMatrix) * vec4(t_ModelPosition, 1.0);
+    gl_Position = UnpackMatrix(u_Projection) * vec4(t_ViewPosition, 1.0);
 
     vec3 t_ModelNormal = MulNormalMatrix(t_BoneMatrix, a_Normal);
-    vec3 t_ModelTangent = Mul(_Mat4x4(t_BoneMatrix), vec4(a_Tangent, 0.0)).xyz;
-    vec3 t_ViewTangent = normalize(Mul(_Mat4x4(u_ViewMatrix), vec4(t_ModelTangent, 0.0)).xyz);
-    v_Normal = normalize(Mul(_Mat4x4(u_ViewMatrix), vec4(t_ModelNormal, 0.0)).xyz);
+    vec3 t_ModelTangent = (t_BoneMatrix * vec4(a_Tangent, 0.0)).xyz;
+    vec3 t_ViewTangent = normalize((UnpackMatrix(u_ViewMatrix) * vec4(t_ModelTangent, 0.0)).xyz);
+    v_Normal = normalize((UnpackMatrix(u_ViewMatrix) * vec4(t_ModelNormal, 0.0)).xyz);
     v_QuatNormal = vec4(1.0, 0.0, 0.0, 0.0);
 
     v_Depth = gl_Position.w;
@@ -728,6 +727,7 @@ class MaterialInstance {
 
             const [minFilter, mipFilter] = this.translateTextureFilter(binding.minFilter);
             const [magFilter] = this.translateTextureFilter(binding.magFilter);
+            const isNoMip = binding.minFilter === CMB.TextureFilter.LINEAR || binding.minFilter === CMB.TextureFilter.NEAREST;
 
             const gfxSampler = cache.createSampler({
                 wrapS: this.translateWrapMode(binding.wrapS),
@@ -736,7 +736,7 @@ class MaterialInstance {
                 minFilter,
                 mipFilter,
                 minLOD: 0,
-                maxLOD: 100,
+                maxLOD: isNoMip ? 0 : 100,
             });
             this.gfxSamplers.push(gfxSampler);
 
@@ -752,7 +752,8 @@ class MaterialInstance {
             wrapT: GfxWrapMode.Clamp,
             minFilter: GfxTexFilterMode.Bilinear,
             magFilter: GfxTexFilterMode.Bilinear,
-            mipFilter: GfxMipFilterMode.NoMip,
+            mipFilter: GfxMipFilterMode.Nearest,
+            minLOD: 0, maxLOD: 0,
         });
         this.gfxSamplers.push(lutSampler);
         this.textureMappings[3].gfxSampler = lutSampler;
@@ -833,7 +834,8 @@ class MaterialInstance {
         let offs = template.allocateUniformBuffer(DMPProgram.ub_MaterialParams, 4*4 + 4*5*3 + 4*2 + 4*6 + 4*3*3 + 4);
         const layer = this.material.isTransparent ? GfxRendererLayer.TRANSLUCENT : GfxRendererLayer.OPAQUE;
         template.sortKey = makeSortKey(layer + this.material.renderLayer);
-        template.setMegaStateFlags(this.material.renderFlags);
+        template.setMegaStateFlags(this.material.megaStateFlags);
+        template.setBlendColor(this.material.blendColor);
 
         if (this.gfxProgram === null)
             this.gfxProgram = cache.createProgram(this.program!);
@@ -968,9 +970,9 @@ class MaterialInstance {
     private translateTextureFilter(filter: CMB.TextureFilter): [GfxTexFilterMode, GfxMipFilterMode] {
         switch (filter) {
         case CMB.TextureFilter.LINEAR:
-            return [GfxTexFilterMode.Bilinear, GfxMipFilterMode.NoMip];
+            return [GfxTexFilterMode.Bilinear, GfxMipFilterMode.Nearest];
         case CMB.TextureFilter.NEAREST:
-            return [GfxTexFilterMode.Bilinear, GfxMipFilterMode.NoMip];
+            return [GfxTexFilterMode.Bilinear, GfxMipFilterMode.Nearest];
         case CMB.TextureFilter.LINEAR_MIPMAP_LINEAR:
             return [GfxTexFilterMode.Bilinear, GfxMipFilterMode.Linear];
         case CMB.TextureFilter.LINEAR_MIPMAP_NEAREST:
@@ -1033,10 +1035,10 @@ class SepdData {
         };
 
         const pushBuffer = (location: number, format: GfxFormat, data: Float32Array, frequency: GfxVertexBufferFrequency) => {
-            const buffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, data.buffer, data.byteOffset, data.byteLength);
+            const buffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, data.buffer, data.byteOffset, data.byteLength);
             const bufferIndex = this.vertexBufferDescriptors.length;
             this.buffers.push(buffer);
-            this.vertexBufferDescriptors.push({ buffer, byteOffset: 0 });
+            this.vertexBufferDescriptors.push({ buffer });
             vertexBufferDescriptors.push({ byteStride: getFormatByteSize(format), frequency });
             vertexAttributeDescriptors.push({ location, format, bufferIndex, bufferByteOffset: 0 });
         };
@@ -1124,11 +1126,11 @@ class SepdData {
             indexBufferOffs += prms.prm.count;
         }
 
-        this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, indexData.buffer);
+        this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, indexData.buffer);
         const indexBufferFormat = GfxFormat.U16_R;
         this.inputLayout = cache.createInputLayout({ vertexAttributeDescriptors, vertexBufferDescriptors, indexBufferFormat });
 
-        this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+        this.indexBufferDescriptor = { buffer: this.indexBuffer };
     }
 
     public destroy(device: GfxDevice): void {

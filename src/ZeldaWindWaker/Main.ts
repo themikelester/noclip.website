@@ -10,37 +10,39 @@ import * as BYML from '../byml.js';
 import * as UI from '../ui.js';
 import * as Viewer from '../viewer.js';
 
-import { Camera, texProjCameraSceneTex } from '../Camera.js';
+import { texProjCameraSceneTex } from '../Camera.js';
 import { TransparentBlack } from '../Color.js';
 import * as Yaz0 from '../Common/Compression/Yaz0.js';
+import { J2DGrafContext } from '../Common/JSYSTEM/J2Dv1.js';
 import { J3DModelInstance } from '../Common/JSYSTEM/J3D/J3DGraphBase.js';
 import * as JPA from '../Common/JSYSTEM/JPA.js';
 import { BTIData } from '../Common/JSYSTEM/JUTTexture.js';
-import { dfRange } from '../DebugFloaters.js';
-import { MathConstants, getMatrixAxisZ, range } from '../MathHelpers.js';
+import { computeModelMatrixT, range } from '../MathHelpers.js';
 import { SceneContext } from '../SceneBase.js';
 import { TextureMapping } from '../TextureHolder.js';
 import { setBackbufferDescSimple, standardFullClearRenderPassDescriptor } from '../gfx/helpers/RenderGraphHelpers.js';
-import { GfxDevice, GfxFormat, GfxRenderPass, GfxTexture, makeTextureDescriptor2D } from '../gfx/platform/GfxPlatform.js';
+import { GfxDevice, GfxFormat, GfxMipFilterMode, GfxRenderPass, GfxTexFilterMode, GfxWrapMode } from '../gfx/platform/GfxPlatform.js';
 import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
 import { GfxrAttachmentSlot, GfxrRenderTargetDescription } from '../gfx/render/GfxRenderGraph.js';
 import { GfxRenderInstList, GfxRenderInstManager } from '../gfx/render/GfxRenderInstManager.js';
-import { GXRenderHelperGfx, fillSceneParamsDataOnTemplate } from '../gx/gx_render.js';
+import { GXRenderHelperGfx } from '../gx/gx_render.js';
 import { FlowerPacket, GrassPacket, TreePacket } from './Grass.js';
 import { LegacyActor__RegisterFallbackConstructor } from './LegacyActor.js';
 import { dDlst_2DStatic_c, d_a__RegisterConstructors } from './d_a.js';
 import { d_a_sea } from './d_a_sea.js';
 import { dBgS } from './d_bg.js';
-import { EDemoCamFlags, EDemoMode, dDemo_manager_c } from './d_demo.js';
+import { CameraTrimHeight, dCamera_c } from './d_camera.js';
+import { EDemoMode, dDemo_manager_c } from './d_demo.js';
 import { dDlst_list_Set, dDlst_list_c } from './d_drawlist.js';
 import { dKankyo_create, dKy__RegisterConstructors, dKy_setLight, dScnKy_env_light_c } from './d_kankyo.js';
 import { dKyw__RegisterConstructors } from './d_kankyo_wether.js';
-import { dPa_control_c } from './d_particle.js';
+import { ParticleGroup, dPa_control_c } from './d_particle.js';
+import { Placename, PlacenameState, dPn__update, d_pn__RegisterConstructors } from './d_place_name.js';
 import { dProcName_e } from './d_procname.js';
 import { ResType, dRes_control_c } from './d_resorce.js';
 import { dStage_dt_c_roomLoader, dStage_dt_c_roomReLoader, dStage_dt_c_stageInitLoader, dStage_dt_c_stageLoader, dStage_roomControl_c, dStage_roomStatus_c, dStage_stageDt_c } from './d_stage.js';
 import { WoodPacket } from './d_wood.js';
-import { fopAcM_create, fopAc_ac_c } from './f_op_actor.js';
+import { fopAcM_create, fopAcM_searchFromName, fopAc_ac_c } from './f_op_actor.js';
 import { cPhs__Status, fGlobals, fopDw_Draw, fopScn, fpcCt_Handler, fpcLy_SetCurrentLayer, fpcM_Management, fpcPf__Register, fpcSCtRq_Request, fpc_pc__ProfileList } from './framework.js';
 
 type SymbolData = { Filename: string, SymbolName: string, Data: ArrayBufferSlice };
@@ -136,12 +138,10 @@ export class dGlobals {
     // "Current" room number.
     public mStayNo: number = 0;
 
-    // g_dComIfG_gameInfo.mPlay.mpPlayer.mPos3
+    // g_dComIfG_gameInfo.mPlay.mpPlayer.mPos
     public playerPosition = vec3.create();
     // g_dComIfG_gameInfo.mPlay.mCameraInfo[0].mpCamera
-    public camera: Camera;
-    public cameraPosition = vec3.create();
-    public cameraFwd = vec3.create();
+    public camera: dCamera_c;
 
     public resCtrl: dRes_control_c;
     // TODO(jstpierre): Remove
@@ -156,7 +156,7 @@ export class dGlobals {
 
     public sea: d_a_sea | null = null;
 
-    constructor(public context: SceneContext, public modelCache: ModelCache, private extraSymbolData: SymbolMap, public frameworkGlobals: fGlobals) {
+    constructor(public sceneContext: SceneContext, public modelCache: ModelCache, private extraSymbolData: SymbolMap, public frameworkGlobals: fGlobals) {
         this.resCtrl = this.modelCache.resCtrl;
 
         this.relNameTable = createRelNameTable(extraSymbolData);
@@ -201,71 +201,12 @@ export class dGlobals {
     }
 }
 
-function gain(v: number, k: number): number {
-    const a = 0.5 * Math.pow(2*((v < 0.5) ? v : 1.0 - v), k);
-    return v < 0.5 ? a : 1.0 - a;
-}
-
-class DynToonTex {
-    public gfxTexture: GfxTexture;
-    public desiredPower: number = 0;
-    private texPower: number = 0;
-    private textureData: Uint8Array[] = [new Uint8Array(256*1*2)];
-
-    constructor(device: GfxDevice) {
-        this.gfxTexture = device.createTexture(makeTextureDescriptor2D(GfxFormat.U8_RG_NORM, 256, 1, 1));
-        device.setResourceName(this.gfxTexture, 'DynToonTex');
-    }
-
-    private fillTextureData(k: number): void {
-        let dstOffs = 0;
-        const dst = this.textureData[0];
-        for (let i = 0; i < 256; i++) {
-            const t = i / 255;
-            dst[dstOffs++] = gain(t, k) * 255;
-            // TODO(jstpierre): Lantern
-            dst[dstOffs++] = 0;
-        }
-    }
-
-    public prepareToRender(device: GfxDevice): void {
-        if (this.texPower !== this.desiredPower) {
-            this.texPower = this.desiredPower;
-
-            // Recreate toon texture.
-            this.fillTextureData(this.texPower);
-            device.uploadTextureData(this.gfxTexture, 0, this.textureData);
-        }
-    }
-
-    public destroy(device: GfxDevice): void {
-        device.destroyTexture(this.gfxTexture);
-    }
-}
-
 export class ZWWExtraTextures {
     public textureMapping: TextureMapping[] = nArray(2, () => new TextureMapping());
-    public dynToonTex: DynToonTex;
-
-    @dfRange(1, 15, 0.01)
-    public toonTexPower: number = 15;
 
     constructor(device: GfxDevice, ZAtoon: BTIData, ZBtoonEX: BTIData) {
         ZAtoon.fillTextureMapping(this.textureMapping[0]);
         ZBtoonEX.fillTextureMapping(this.textureMapping[1]);
-        this.dynToonTex = new DynToonTex(device);
-    }
-
-    public powerPopup(): void {
-        this.textureMapping[0].gfxTexture = this.dynToonTex.gfxTexture;
-        this.textureMapping[1].gfxTexture = this.dynToonTex.gfxTexture;
-
-        window.main.ui.debugFloaterHolder.bindPanel(this);
-    }
-
-    public prepareToRender(device: GfxDevice): void {
-        this.dynToonTex.desiredPower = this.toonTexPower;
-        this.dynToonTex.prepareToRender(device);
     }
 
     public fillExtraTextures(modelInstance: J3DModelInstance): void {
@@ -276,10 +217,6 @@ export class ZWWExtraTextures {
         const ZBtoonEX_map = modelInstance.getTextureMappingReference('ZBtoonEX');
         if (ZBtoonEX_map !== null)
             ZBtoonEX_map.copy(this.textureMapping[1]);
-    }
-
-    public destroy(device: GfxDevice): void {
-        this.dynToonTex.destroy(device);
     }
 }
 
@@ -309,14 +246,12 @@ class WindWakerRoom {
     public setVisible(v: boolean) { this.visible = v; }
 }
 
-const enum EffectDrawGroup {
+enum EffectDrawGroup {
     Main = 0,
     Indirect = 1,
 }
 
 const scratchMatrix = mat4.create();
-const scratchVec3a = vec3.create();
-const scratchVec3b = vec3.create();
 export class WindWakerRenderer implements Viewer.SceneGfx {
     private mainColorDesc = new GfxrRenderTargetDescription(GfxFormat.U8_RGBA_RT);
     private mainDepthDesc = new GfxrRenderTargetDescription(GfxFormat.D32F);
@@ -332,12 +267,25 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
     public time: number; // In milliseconds, affected by pause and time scaling
     public roomLayerMask: number = 0;
 
+    // Time of day control
+    private timeOfDayPanel: UI.TimeOfDayPanel | null = null;
+    private useSystemTime: boolean = true;
+    private readonly defaultTimeAdv: number = 0.02;
+
     public onstatechanged!: () => void;
 
     constructor(public device: GfxDevice, public globals: dGlobals) {
         this.renderHelper = new GXRenderHelperGfx(device);
 
         this.renderCache = this.renderHelper.renderInstManager.gfxRenderCache;
+
+        this.opaqueSceneTextureMapping.gfxSampler = this.renderCache.createSampler({
+            magFilter: GfxTexFilterMode.Bilinear,
+            minFilter: GfxTexFilterMode.Bilinear,
+            mipFilter: GfxMipFilterMode.Nearest,
+            wrapS: GfxWrapMode.Clamp,
+            wrapT: GfxWrapMode.Clamp,
+        });
     }
 
     private setVisibleLayerMask(m: number): void {
@@ -399,11 +347,25 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
             renderHacksPanel.contents.appendChild(wireframe.elem);
         }
 
-        return [roomsPanel, scenarioPanel, renderHacksPanel];
-    }
+        // Time of Day panel
+        this.timeOfDayPanel = new UI.TimeOfDayPanel();
+        this.timeOfDayPanel.setTime(this.globals.g_env_light.curTime / 360);
 
-    // For people to play around with.
-    public cameraFrozen = false;
+        this.timeOfDayPanel.onvaluechange = (t: number, useDynamicTime: boolean) => {
+            this.useSystemTime = useDynamicTime;
+            if (useDynamicTime) {
+                // Re-enable dynamic time: restore time advance rate and sync to current hour
+                this.globals.g_env_light.timeAdv = this.defaultTimeAdv;
+                this.globals.g_env_light.curTime = 15 * new Date().getHours();
+            } else {
+                // Freeze time at the selected value
+                this.globals.g_env_light.timeAdv = 0;
+                this.globals.g_env_light.curTime = t * 360;
+            }
+        };
+
+        return [roomsPanel, scenarioPanel, renderHacksPanel, this.timeOfDayPanel];
+    }
 
     private getRoomStatus(ac: fopAc_ac_c): dStage_roomStatus_c | null {
         if (ac.roomNo === -1)
@@ -425,16 +387,23 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
     }
 
     private executeDrawAll(device: GfxDevice, viewerInput: Viewer.ViewerRenderInput): void {
+        const globals = this.globals;
+
         this.time = viewerInput.time;
+
+        // Update time-of-day panel display
+        if (this.timeOfDayPanel !== null && this.useSystemTime) {
+            this.timeOfDayPanel.setTime(globals.g_env_light.curTime / 360);
+        }
 
         // noclip hack: if only one room is visible, make it the mStayNo
         const singleRoomVisibleNo = this.getSingleRoomVisible();
         if (singleRoomVisibleNo !== -1)
-            this.globals.mStayNo = singleRoomVisibleNo;
+            globals.mStayNo = singleRoomVisibleNo;
 
         // Update actor visibility from settings.
         // TODO(jstpierre): Figure out a better place to put this?
-        const fwGlobals = this.globals.frameworkGlobals;
+        const fwGlobals = globals.frameworkGlobals;
         for (let i = 0; i < fwGlobals.dwQueue.length; i++) {
             for (let j = 0; j < fwGlobals.dwQueue[i].length; j++) {
                 const ac = fwGlobals.dwQueue[i][j];
@@ -444,110 +413,70 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
 
                     ac.roomVisible = roomVisible && objectLayerVisible(this.roomLayerMask, ac.roomLayer);
 
-                    if (ac.roomVisible && !this.globals.renderHacks.objectsVisible && fpcIsObject(ac.processName))
+                    if (ac.roomVisible && !globals.renderHacks.objectsVisible && fpcIsObject(ac.processName))
                         ac.roomVisible = false;
                 }
             }
         }
 
-        // Near/far planes are decided by the stage data.
-        const stag = this.globals.dStage_dt.stag;
-
-        // Pull in the near plane to decrease Z-fighting, some stages set it far too close...
-        let nearPlane = Math.max(stag.nearPlane, 5);
-        let farPlane = stag.farPlane;
-
-        // noclip modification: if this is the sea map, push our far plane out a bit.
-        if (this.globals.stageName === 'sea')
-            farPlane *= 2;
-
-        viewerInput.camera.setClipPlanes(nearPlane, farPlane);
-
-        // noclip modification: if we're paused, allow noclip camera control during demos
-        const isPaused = viewerInput.deltaTime === 0;
-
-        // TODO: Determine the correct place for this
-        // dCamera_c::Store() sets the camera params if the demo camera is active
-        const demoCam = this.globals.scnPlay.demo.getSystem().getCamera();
-        if (demoCam && !isPaused) {
-            let viewPos = this.globals.cameraPosition;
-            let targetPos = vec3.add(scratchVec3a, this.globals.cameraPosition, this.globals.cameraFwd);
-            let upVec = vec3.set(scratchVec3b, 0, 1, 0);
-            let roll = 0.0;
-
-            if (demoCam.flags & EDemoCamFlags.HasTargetPos) { targetPos = demoCam.targetPosition; }
-            if (demoCam.flags & EDemoCamFlags.HasEyePos) { viewPos = demoCam.viewPosition; }
-            if (demoCam.flags & EDemoCamFlags.HasUpVec) { upVec = demoCam.upVector; }
-            if (demoCam.flags & EDemoCamFlags.HasFovY) { viewerInput.camera.fovY = demoCam.fovY * MathConstants.DEG_TO_RAD; }
-            if (demoCam.flags & EDemoCamFlags.HasRoll) { roll = demoCam.roll * MathConstants.DEG_TO_RAD; }
-            if (demoCam.flags & EDemoCamFlags.HasAspect) { debugger; /* Untested. Remove once confirmed working */ }
-            if (demoCam.flags & EDemoCamFlags.HasNearZ) { viewerInput.camera.near = demoCam.projNear; }
-            if (demoCam.flags & EDemoCamFlags.HasFarZ) { viewerInput.camera.far = demoCam.projFar; }
-
-            mat4.targetTo(viewerInput.camera.worldMatrix, viewPos, targetPos, upVec);
-            mat4.rotateZ(viewerInput.camera.worldMatrix, viewerInput.camera.worldMatrix, roll);
-            viewerInput.camera.setClipPlanes(viewerInput.camera.near, viewerInput.camera.far);
-            viewerInput.camera.worldMatrixUpdated();
-
-            this.globals.context.inputManager.isMouseEnabled = false;
-        } else {
-            this.globals.context.inputManager.isMouseEnabled = true;
-        }
-
-        // Save the camera/time state when play/pause is toggled
-        if( isPaused != this.isPaused ) {
-            this.isPaused = isPaused;
-            this.onstatechanged();
-        }
-
-        if (!this.cameraFrozen) {
-            mat4.getTranslation(this.globals.cameraPosition, viewerInput.camera.worldMatrix);
-            getMatrixAxisZ(this.globals.cameraFwd, viewerInput.camera.worldMatrix);
-            vec3.negate(this.globals.cameraFwd, this.globals.cameraFwd);
-            // Update the "player position" from the camera.
-            vec3.copy(this.globals.playerPosition, this.globals.cameraPosition);
-        }
-
-        this.globals.camera = viewerInput.camera;
-
         // Not sure exactly where this is ordered...
-        dKy_setLight(this.globals);
+        dKy_setLight(globals);
 
         const template = this.renderHelper.pushTemplateRenderInst();
         const renderInstManager = this.renderHelper.renderInstManager;
-        if (this.globals.renderHacks.wireframe)
+        if (globals.renderHacks.wireframe)
             template.setMegaStateFlags({ wireframe: true });
 
-        fillSceneParamsDataOnTemplate(template, viewerInput);
-        this.extraTextures.prepareToRender(device);
+        fpcM_Management(globals.frameworkGlobals, globals, renderInstManager, viewerInput);
 
-        fpcM_Management(this.globals.frameworkGlobals, this.globals, renderInstManager, viewerInput);
-
-        const dlst = this.globals.dlst;
+        const dlst = globals.dlst;
 
         renderInstManager.setCurrentList(dlst.alphaModel);
-        dlst.alphaModel0.draw(this.globals, renderInstManager, viewerInput);
+        dlst.alphaModel0.draw(globals, renderInstManager, viewerInput);
 
         renderInstManager.setCurrentList(dlst.bg[0]);
         {
-            this.globals.particleCtrl.calc(viewerInput);
+            globals.particleCtrl.calc(globals, viewerInput);
 
-            for (let group = EffectDrawGroup.Main; group <= EffectDrawGroup.Indirect; group++) {
+            for (let group = ParticleGroup.Normal; group <= ParticleGroup.Wind; group++) {
                 let texPrjMtx: mat4 | null = null;
 
-                if (group === EffectDrawGroup.Indirect) {
+                if (group === ParticleGroup.Projection) {
                     texPrjMtx = scratchMatrix;
-                    texProjCameraSceneTex(texPrjMtx, viewerInput.camera, 1);
+                    texProjCameraSceneTex(texPrjMtx, globals.camera.clipFromViewMatrix, 1);
                 }
 
-                this.globals.particleCtrl.setDrawInfo(viewerInput.camera.viewMatrix, viewerInput.camera.projectionMatrix, texPrjMtx, viewerInput.camera.frustum);
-                renderInstManager.setCurrentList(dlst.effect[group]);
-                this.globals.particleCtrl.draw(device, this.renderHelper.renderInstManager, group);
+                globals.particleCtrl.setDrawInfo(globals.camera.viewFromWorldMatrix, globals.camera.clipFromViewMatrix, texPrjMtx, globals.camera.frustum);
+                renderInstManager.setCurrentList(dlst.effect[group == ParticleGroup.Projection ? EffectDrawGroup.Indirect : EffectDrawGroup.Main]);
+                globals.particleCtrl.draw(device, this.renderHelper.renderInstManager, group);
             }
+
+            // From mDoGph_Painter(). Draw the 2D particle groups with different view/proj matrices.
+            {
+                const orthoCtx = this.globals.scnPlay.currentGrafPort;
+                const template = renderInstManager.pushTemplate();
+                orthoCtx.setOnRenderInst(template);
+
+                const viewMtx = scratchMatrix;
+                computeModelMatrixT(viewMtx, orthoCtx.aspectRatioCorrection * 320, 240, 0);
+                globals.particleCtrl.setDrawInfo(viewMtx, orthoCtx.sceneParams.u_Projection, null, null);
+
+                renderInstManager.setCurrentList(dlst.particle2DBack);
+                globals.particleCtrl.draw(device, this.renderHelper.renderInstManager, ParticleGroup.TwoDback);
+                globals.particleCtrl.draw(device, this.renderHelper.renderInstManager, ParticleGroup.TwoDmenuBack);
+
+                renderInstManager.setCurrentList(dlst.particle2DFore);
+                globals.particleCtrl.draw(device, this.renderHelper.renderInstManager, ParticleGroup.TwoDfore);
+                globals.particleCtrl.draw(device, this.renderHelper.renderInstManager, ParticleGroup.TwoDmenuFore);
+
+                renderInstManager.popTemplate();
+            }
+
+            globals.particleCtrl.prepareToRender(device);
         }
 
         this.renderHelper.renderInstManager.popTemplate();
-        this.globals.renderHacks.renderHacksChanged = false;
+        globals.renderHacks.renderHacksChanged = false;
     }
 
     private executeList(passRenderer: GfxRenderPass, list: GfxRenderInstList): void {
@@ -562,6 +491,10 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
     public render(device: GfxDevice, viewerInput: Viewer.ViewerRenderInput) {
         const dlst = this.globals.dlst;
         dlst.peekZ.beginFrame(device);
+
+        // From mDoGph_Painter,
+        this.globals.scnPlay.currentGrafPort.setOrtho(-9.0, -21.0, 650.0, 503.0, 100000.0, -100000.0);
+        this.globals.scnPlay.currentGrafPort.setPort(viewerInput.backbufferWidth, viewerInput.backbufferHeight);
 
         this.executeDrawAll(device, viewerInput);
 
@@ -583,6 +516,7 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
             const skyboxDepthTargetID = builder.createRenderTargetID(this.mainDepthDesc, 'Skybox Depth');
             pass.attachRenderTargetID(GfxrAttachmentSlot.DepthStencil, skyboxDepthTargetID);
             pass.exec((passRenderer) => {
+                this.globals.camera.applyScissor(passRenderer);
                 this.executeListSet(passRenderer, dlst.sky);
             });
         });
@@ -595,6 +529,8 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
             pass.attachRenderTargetID(GfxrAttachmentSlot.Color0, mainColorTargetID);
             pass.attachRenderTargetID(GfxrAttachmentSlot.DepthStencil, mainDepthTargetID);
             pass.exec((passRenderer) => {
+                this.globals.camera.applyScissor(passRenderer);
+
                 this.executeList(passRenderer, dlst.sea);
                 this.executeListSet(passRenderer, dlst.bg);
 
@@ -603,7 +539,11 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
 
                 this.executeList(passRenderer, dlst.effect[EffectDrawGroup.Main]);
                 this.executeList(passRenderer, dlst.wetherEffect);
+
+                this.executeList(passRenderer, dlst.particle2DBack);
                 this.executeListSet(passRenderer, dlst.ui);
+                this.executeListSet(passRenderer, dlst.ui2D);
+                this.executeList(passRenderer, dlst.particle2DFore);
             });
         });
 
@@ -633,7 +573,6 @@ export class WindWakerRenderer implements Viewer.SceneGfx {
 
     public destroy(device: GfxDevice): void {
         this.renderHelper.destroy();
-        this.extraTextures.destroy(device);
         this.globals.destroy(device);
         this.globals.frameworkGlobals.delete(this.globals);
     }
@@ -782,6 +721,10 @@ class d_s_play extends fopScn {
     public woodPacket: WoodPacket;
 
     public vrboxLoaded: boolean = false;
+    public placenameIndex: Placename;
+    public placenameState: PlacenameState;
+
+    public currentGrafPort: J2DGrafContext;
 
     public override load(globals: dGlobals, userData: any): cPhs__Status {
         super.load(globals, userData);
@@ -793,13 +736,18 @@ class d_s_play extends fopScn {
         this.grassPacket = new GrassPacket(globals);
         this.woodPacket = new WoodPacket(globals);
 
+        this.currentGrafPort = new J2DGrafContext(globals.modelCache.device, 0.0, 0.0, 640.0, 480.0, -1.0, 1.0);
+
         globals.scnPlay = this;
 
         return cPhs__Status.Complete;
     }
 
     public override execute(globals: dGlobals, deltaTimeFrames: number): void {
-        this.demo.update();
+        this.demo.update(deltaTimeFrames);
+
+        // From d_menu_window::dMs_placenameMove()
+        dPn__update(globals);
 
         // From executeEvtManager() -> SpecialProcPackage()
         if (this.demo.getMode() === EDemoMode.Ended) {
@@ -865,7 +813,7 @@ class SceneDesc {
         modelCache.fetchObjectData(`Always`);
         modelCache.fetchStageData(`Stage`);
 
-        modelCache.fetchFileData(`extra.crg1_arc`, 9);
+        modelCache.fetchFileData(`extra.crg1_arc`, 11);
         modelCache.fetchFileData(`f_pc_profiles.crg1_arc`);
 
         const particleArchives = [
@@ -887,10 +835,12 @@ class SceneDesc {
         const f_pc_profiles = BYML.parse<fpc_pc__ProfileList>(modelCache.getFileData(`f_pc_profiles.crg1_arc`), BYML.FileType.CRG1);
         const framework = new fGlobals(f_pc_profiles);
 
+        fpcPf__Register(framework, dProcName_e.d_camera, dCamera_c);
         fpcPf__Register(framework, dProcName_e.d_s_play, d_s_play);
         dKy__RegisterConstructors(framework);
         dKyw__RegisterConstructors(framework);
         d_a__RegisterConstructors(framework);
+        d_pn__RegisterConstructors(framework);
         LegacyActor__RegisterFallbackConstructor(framework);
 
         const symbolMap = new SymbolMap(modelCache.getFileData(`extra.crg1_arc`));
@@ -912,6 +862,10 @@ class SceneDesc {
         // Normally, all of this would be done in d_scn_play.
         fpcLy_SetCurrentLayer(globals.frameworkGlobals, globals.scnPlay.layer);
 
+        // TODO: Use the RCAM/CAMR data from the stage to set the initial camera position
+        const camId = fpcSCtRq_Request(framework, null, dProcName_e.d_camera, null);
+        assert(camId !== null);
+
         const resCtrl = modelCache.resCtrl;
 
         const sysRes = assertExists(resCtrl.findResInfo(`System`, resCtrl.resObj));
@@ -929,12 +883,9 @@ class SceneDesc {
 
         renderer.extraTextures = new ZWWExtraTextures(device, ZAtoon, ZBtoonEX);
 
-        const jpac: JPA.JPAC[] = [];
-        for (let i = 0; i < particleArchives.length; i++) {
-            const jpacData = modelCache.getFileData(particleArchives[i]);
-            jpac.push(JPA.parse(jpacData));
-        }
-        globals.particleCtrl = new dPa_control_c(renderer.renderCache, jpac);
+        globals.particleCtrl = new dPa_control_c(renderer.renderCache);
+        globals.particleCtrl.createCommon(globals, JPA.parse(modelCache.getFileData(particleArchives[0])));
+        globals.particleCtrl.createRoomScene(globals, JPA.parse(modelCache.getFileData(particleArchives[1])));
 
         // dStage_Create
         dKankyo_create(globals);
@@ -980,9 +931,9 @@ class DemoDesc extends SceneDesc implements Viewer.SceneDesc {
         public override stageDir: string,
         public override name: string,
         public override roomList: number[],
-        public stbFilename: string, 
+        public stbFilename: string,
         public layer: number,
-        public offsetPos?:vec3, 
+        public offsetPos?: vec3,
         public rotY: number = 0,
         public startCode: number = 0,
         public eventFlags: number = 0,
@@ -991,8 +942,8 @@ class DemoDesc extends SceneDesc implements Viewer.SceneDesc {
         super(stageDir, name, roomList);
         assert(this.roomList.length === 1);
 
-        // Use a distinct ID for demos so that we don't conflict with the non-demo version of this stage. 
-        // Without this, going to a scene like Outset Island and reloading will select the first Outset Island demo.  
+        // Use a distinct ID for demos so that we don't conflict with the non-demo version of this stage.
+        // Without this, going to a scene like Outset Island and reloading will select the first Outset Island demo.
         this.id = this.stbFilename.slice(0, -4);
     }
 
@@ -1007,7 +958,7 @@ class DemoDesc extends SceneDesc implements Viewer.SceneDesc {
 
         // TODO: Don't render until the camera has been placed for this demo. The cuts are jarring.
 
-        // noclip modification: This normally happens on room load. Do it here instead so that we don't waste time 
+        // noclip modification: This normally happens on room load. Do it here instead so that we don't waste time
         //                      loading .arcs for cutscenes that aren't going to be played
         const lbnk = globals.roomCtrl.status[this.roomList[0]].data.lbnk;
         if (lbnk) {
@@ -1021,33 +972,45 @@ class DemoDesc extends SceneDesc implements Viewer.SceneDesc {
                     // @TODO: Better error handling. This does not prevent a debugger break.
                     console.log(`Failed to load stage demo file: ${globals.roomCtrl.demoArcName}`, e);
                 })
-
-                await globals.modelCache.waitForLoad();
             }
         }
 
+        await globals.modelCache.waitForLoad();
+
+        // Most cutscenes expect the Link actor to be loaded
+        if (!fopAcM_searchFromName(globals, 'Link', 0, 0)) {
+            fopAcM_create(globals.frameworkGlobals, dProcName_e.d_a_py_lk, 0, null, globals.mStayNo, null, null, 0xFF, -1);
+        }
+
+        // From dStage_playerInit
+        if (this.stbFilename == 'title.stb') {
+            fopAcM_create(globals.frameworkGlobals, dProcName_e.d_a_title, 0, null, globals.mStayNo, null, null, 0xFF, -1);
+        }
+
         // noclip modification: ensure all the actors are created before we load the cutscene
-        await new Promise(resolve => { (function waitForActors(){
-            if (globals.frameworkGlobals.ctQueue.length === 0) return resolve(null);
-            setTimeout(waitForActors, 30);
-        })(); });
+        await new Promise(resolve => {
+            (function waitForActors() {
+                if (globals.frameworkGlobals.ctQueue.length === 0) return resolve(null);
+                setTimeout(waitForActors, 30);
+            })();
+        });
 
         // @TODO: Set noclip layer visiblity based on this.layer
 
         // From dEvDtStaff_c::specialProcPackage()
-        let demoData;
-        if(globals.roomCtrl.demoArcName)
+        let demoData: ArrayBufferSlice | null = null;
+        if (globals.roomCtrl.demoArcName)
             demoData = globals.modelCache.resCtrl.getObjectResByName(ResType.Stb, globals.roomCtrl.demoArcName, this.stbFilename);
-        if (!demoData)
+        if (demoData === null)
             demoData = globals.modelCache.resCtrl.getStageResByName(ResType.Stb, "Stage", this.stbFilename);
-        
-        if (demoData) { 
-            globals.scnPlay.demo.setFrame(this.startFrame + globals.context.viewerInput.time / 1000.0 * 30.0);
-            globals.scnPlay.demo.create(demoData, this.offsetPos, this.rotY / 180.0 * Math.PI); 
-        }
-        else { console.warn('Failed to load demo data:', this.stbFilename); }
 
-        return this.globals.renderer;
+        if (demoData !== null) {
+            globals.scnPlay.demo.create(this.id, demoData, this.offsetPos, this.rotY, this.startFrame);
+            globals.camera.setTrimHeight(this.id != 'title' ? CameraTrimHeight.Cinematic : CameraTrimHeight.Default)
+            globals.camera.snapToCinematic();
+        } else {
+            console.warn('Failed to load demo data:', this.stbFilename);
+        }
     }
 }
 
@@ -1056,10 +1019,8 @@ class DemoDesc extends SceneDesc implements Viewer.SceneDesc {
 // Most of this data comes from the PLAY action of the PACKAGE actor in an event from a Stage's event_list.dat. This
 // action has properties for the room and layer that these cutscenes are designed for. HOWEVER, this data is often missing.
 // It has been reconstructed by cross-referencing each Room's lbnk section (which points to a Demo*.arc file for each layer),
-// the .stb files contained in each of those Objects/Demo*.arc files, and the FileName attribute from the event action.   
+// the .stb files contained in each of those Objects/Demo*.arc files, and the FileName attribute from the event action.
 const demoDescs = [
-    new DemoDesc("sea", "Stolen Sister", [44], "stolensister.stb", 9, [0.0, 0.0, 20000.0], 0, 0, 0),
-    new DemoDesc("sea", "Departure", [44], "departure.stb", 10, [-200000.0, 0.0, 320000.0], 0.0, 204, 0),
     new DemoDesc("sea", "Pirate Zelda Fly", [44], "kaizoku_zelda_fly.stb", 0, [-200000.0, 0.0, 320000.0], 180.0, 0, 0),
     new DemoDesc("sea", "Zola Awakens", [13], "awake_zola.stb", 8, [200000.0, 0.0, -200000.0], 0, 227, 0),
     new DemoDesc("sea", "Get Komori Pearl", [13], "getperl_komori.stb", 9, [200000.0, 0.0, -200000.0], 0, 0, 0),
@@ -1109,7 +1070,7 @@ const demoDescs = [
     new DemoDesc("sea_T", "Departure", [0xFF], "departure.stb", 0, [-200000.0, 0.0, 320000.0], 0.0, 0, 0),
     new DemoDesc("sea_T", "PirateZeldaFly", [0xFF], "kaizoku_zelda_fly.stb", 0, [-200000.0, 0.0, 320000.0], 180.0, 0, 0),
 
-    // The game expects this STB file to be in Stage/Ocean/Stage.arc, but it is not. Must be a leftover. 
+    // The game expects this STB file to be in Stage/Ocean/Stage.arc, but it is not. Must be a leftover.
     new DemoDesc("Ocean", "counter.stb", [-1], "counter.stb", 0, [0, 0, 0], 0, 0, 0),
 ]
 
@@ -1138,6 +1099,8 @@ const sceneDescs = [
     "Cutscenes",
     new DemoDesc("sea_T", "Title Screen", [44], "title.stb", 0, [-220000.0, 0.0, 320000.0], 180.0, 0, 0),
     new DemoDesc("sea", "Awaken", [44], "awake.stb", 0, [-220000.0, 0.0, 320000.0], 0.0, 0, 0),
+    new DemoDesc("sea", "Stolen Sister", [44], "stolensister.stb", 9, [0.0, 0.0, 20000.0], 0, 0, 0),
+    new DemoDesc("sea", "Departure", [44], "departure.stb", 10, [-200000.0, 0.0, 320000.0], 0.0, 204, 0),
 
     "Outset Island",
     new SceneDesc("sea_T", "Title Screen", [44]),

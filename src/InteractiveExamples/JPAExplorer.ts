@@ -77,12 +77,12 @@ class BasicEffectSystem {
         return false;
     }
 
-    private getResourceData(device: GfxDevice, cache: GfxRenderCache, userIndex: number): JPA.JPAResourceData | null {
+    private getResourceData(cache: GfxRenderCache, userIndex: number): JPA.JPAResourceData | null {
         if (!this.resourceDatas.has(userIndex)) {
             const data = this.findResourceData(userIndex);
             if (data !== null) {
                 const [jpacData, jpaResRaw] = data;
-                const resData = new JPA.JPAResourceData(device, cache, jpacData, jpaResRaw);
+                const resData = new JPA.JPAResourceData(cache, jpacData, jpaResRaw);
                 this.resourceDatas.set(userIndex, resData);
             }
         }
@@ -104,12 +104,16 @@ class BasicEffectSystem {
         this.emitterManager.draw(device, renderInstManager, this.drawInfo, drawGroupId);
     }
 
+    public prepareToRender(device: GfxDevice): void {
+        this.emitterManager.prepareToRender(device);
+    }
+
     public forceDeleteEmitter(emitter: JPA.JPABaseEmitter): void {
         this.emitterManager.forceDeleteEmitter(emitter);
     }
 
-    public createBaseEmitter(device: GfxDevice, cache: GfxRenderCache, resourceId: number): JPA.JPABaseEmitter {
-        const resData = assertExists(this.getResourceData(device, cache, resourceId));
+    public createBaseEmitter(cache: GfxRenderCache, resourceId: number): JPA.JPABaseEmitter {
+        const resData = assertExists(this.getResourceData(cache, resourceId));
         const emitter = this.emitterManager.createEmitter(resData)!;
         return emitter;
     }
@@ -197,7 +201,7 @@ function makeDataList(strings: string[]): HTMLDataListElement {
     return datalist;
 }
 
-const enum EfGroup { Main, Indirect }
+enum EfGroup { Main, Indirect }
 
 const clearPass = makeAttachmentClearDescriptor(colorNewFromRGBA(0.2, 0.2, 0.2, 1.0));
 const scratchVec3 = vec3.create();
@@ -384,7 +388,7 @@ export class Explorer implements SceneGfx {
 
     private createEmitter(effectIndex = this.currentEffectIndex): void {
         const resourceId = this.jpac.effects[effectIndex].resourceId;
-        const newEmitter = this.effectSystem.createBaseEmitter(this.context.device, this.renderHelper.renderCache, resourceId);
+        const newEmitter = this.effectSystem.createBaseEmitter(this.renderHelper.renderCache, resourceId);
         newEmitter.drawGroupId = this.effectSystem.resourceDataUsesFB(newEmitter.resData) ? EfGroup.Indirect : EfGroup.Main;
         this.emitters.push(newEmitter);
     }
@@ -463,10 +467,12 @@ export class Explorer implements SceneGfx {
         {
             renderInstManager.setCurrentList(this.indirectList);
             const texPrjMtx = scratchMatrix;
-            texProjCameraSceneTex(texPrjMtx, viewerInput.camera, 1);
+            texProjCameraSceneTex(texPrjMtx, viewerInput.camera.projectionMatrix, 1);
             this.effectSystem.setDrawInfo(viewerInput.camera.viewMatrix, viewerInput.camera.projectionMatrix, texPrjMtx);
             this.effectSystem.draw(device, this.renderHelper.renderInstManager, EfGroup.Indirect);
         }
+
+        this.effectSystem.prepareToRender(device);
 
         renderInstManager.popTemplate();
 

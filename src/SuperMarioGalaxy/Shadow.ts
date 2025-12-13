@@ -35,9 +35,9 @@ function calcCameraDistanceZ(sceneObjHolder: SceneObjHolder, pos: vec3, scratch 
     return vec3.distance(scratch, pos);
 }
 
-const enum DropType { Normal, Surface }
-const enum CalcCollisionMode { Off, On, OneTime }
-const enum CalcDropGravityMode { Off, On, OneTime, PrivateOff, PrivateOn, PrivateOneTime }
+enum DropType { Normal, Surface }
+enum CalcCollisionMode { Off, On, OneTime }
+enum CalcDropGravityMode { Off, On, OneTime, PrivateOff, PrivateOn, PrivateOneTime }
 
 const scratchVec3a = vec3.create();
 const scratchVec3b = vec3.create();
@@ -361,7 +361,7 @@ class ShadowSurfaceCircle extends ShadowSurfaceDrawer {
 
         super.draw(sceneObjHolder, renderInstManager, viewerInput);
 
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
 
         const template = renderInstManager.pushTemplate();
         this.material.setOnRenderInst(cache, template);
@@ -771,7 +771,7 @@ class ShadowVolumeBox extends ShadowVolumeDrawer {
     protected drawShapes(sceneObjHolder: SceneObjHolder, renderInstManager: GfxRenderInstManager): void {
         this.makeVertexBuffer();
 
-        this.ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        this.ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
 
         this.ddraw.begin(GX.Command.DRAW_TRIANGLE_STRIP);
         this.ddraw.position3vec3(this.vtx[0]);
@@ -812,7 +812,7 @@ class ShadowVolumeBox extends ShadowVolumeDrawer {
         this.ddraw.position3vec3(this.vtx[1]);
         this.ddraw.end();
 
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
         this.ddraw.endDraw(renderInstManager);
 
         const front = renderInstManager.newRenderInst();
@@ -884,7 +884,7 @@ class ShadowVolumeLine extends ShadowVolumeDrawer {
         vec3.scaleAndAdd(this.vtx[7], this.vtx[5], dropDirTo, dropLengthTo);
 
         // Now send our points over.
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
         this.ddraw.beginDraw(cache);
 
         this.ddraw.begin(GX.Command.DRAW_QUADS);
@@ -1025,7 +1025,7 @@ class AlphaShadow extends NameObj {
     constructor(sceneObjHolder: SceneObjHolder) {
         super(sceneObjHolder, 'AlphaShadow');
 
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
 
         connectToScene(sceneObjHolder, this, MovementType.None, CalcAnimType.None, DrawBufferType.None, DrawType.AlphaShadow);
 
@@ -1051,7 +1051,7 @@ class AlphaShadow extends NameObj {
         this.orthoQuad.setVtxDesc(GX.Attr.POS, true);
         this.orthoQuad.setVtxDesc(GX.Attr.TEX0, true);
 
-        this.orthoQuad.beginDraw(sceneObjHolder.modelCache.cache);
+        this.orthoQuad.beginDraw(sceneObjHolder.modelCache.renderCache);
         this.orthoQuad.begin(GX.Command.DRAW_QUADS, 4);
         this.orthoQuad.position3f32(0, 0, 0);
         this.orthoQuad.texCoord2f32(GX.Attr.TEX0, 0, 0);
@@ -1082,8 +1082,8 @@ class AlphaShadow extends NameObj {
 
         // Blend onto main screen.
         const renderInst = renderInstManager.newRenderInst();
-        const sceneParamsOffs = renderInst.allocateUniformBuffer(GX_Program.ub_SceneParams, ub_SceneParamsBufferSize);
-        fillSceneParamsData(renderInst.mapUniformBufferF32(GX_Program.ub_SceneParams), sceneParamsOffs, this.orthoSceneParams);
+        const d = renderInst.allocateUniformBufferF32(GX_Program.ub_SceneParams, ub_SceneParamsBufferSize);
+        fillSceneParamsData(d, 0, this.orthoSceneParams);
         this.materialHelperDrawAlpha.setOnRenderInst(renderInstManager.gfxRenderCache, renderInst);
         this.materialHelperDrawAlpha.allocateMaterialParamsDataOnInst(renderInst, materialParams);
         renderInst.setSamplerBindingsFromTextureMappings(materialParams.m_TextureMapping);
@@ -1301,10 +1301,11 @@ function addShadowFromCSV(sceneObjHolder: SceneObjHolder, actor: LiveActor, info
 export function initShadowFromCSV(sceneObjHolder: SceneObjHolder, actor: LiveActor, filename: string = 'Shadow'): void {
     let shadowFile: ArrayBufferSlice | null;
 
+    const resourceHolder = actor.modelManager!.resourceHolder;
     if (sceneObjHolder.sceneDesc.gameBit === GameBits.SMG1)
-        shadowFile = actor.resourceHolder.arc.findFileData(`${filename}.bcsv`);
+        shadowFile = resourceHolder.arc.findFileData(`${filename}.bcsv`);
     else if (sceneObjHolder.sceneDesc.gameBit === GameBits.SMG2)
-        shadowFile = actor.resourceHolder.arc.findFileData(`ActorInfo/${filename}.bcsv`);
+        shadowFile = resourceHolder.arc.findFileData(`ActorInfo/${filename}.bcsv`);
     else
         throw "whoops";
 

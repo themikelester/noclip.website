@@ -11,7 +11,7 @@ import { transformVec3Mat4w1, transformVec3Mat4w0, isNearZero, isNearZeroVec3, g
 import { connectToScene, vecKillElement } from "./ActorUtil.js";
 import { JMapInfoIter } from "./JMapInfo.js";
 import { AABB } from "../Geometry.js";
-import { drawWorldSpaceLine, drawWorldSpacePoint, drawWorldSpaceText, getDebugOverlayCanvas2D } from "../DebugJunk.js";
+import { drawWorldSpaceLine, drawWorldSpacePoint, drawWorldSpaceText } from "../DebugJunk.js";
 import { Yellow, colorNewCopy, Magenta } from "../Color.js";
 
 export class Triangle {
@@ -82,7 +82,7 @@ export class HitInfo extends Triangle {
     }
 }
 
-export const enum CollisionKeeperCategory {
+export enum CollisionKeeperCategory {
     Map = 0,
     Sunshade = 1,
     WaterSurface = 2,
@@ -867,7 +867,7 @@ export function calcMapGround(sceneObjHolder: SceneObjHolder, dst: vec3, p0: Rea
     return getFirstPolyOnLineCategory(sceneObjHolder, dst, null, p0, scratchVec3d, null, null, CollisionKeeperCategory.Map);
 }
 
-export const enum CollisionScaleType {
+export enum CollisionScaleType {
     AutoEqualScale,
     AutoEqualScaleOne,
     AutoScale,
@@ -890,7 +890,7 @@ export function invalidateCollisionParts(sceneObjHolder: SceneObjHolder, parts: 
 }
 
 const scratchMatrix = mat4.create();
-export function createCollisionPartsFromLiveActor(sceneObjHolder: SceneObjHolder, actor: LiveActor, name: string, hitSensor: HitSensor, hostMtx: mat4 | null, scaleType: CollisionScaleType, resourceHolder: ResourceHolder = actor.resourceHolder!): CollisionParts {
+export function createCollisionPartsFromLiveActor(sceneObjHolder: SceneObjHolder, actor: LiveActor, name: string, hitSensor: HitSensor, hostMtx: mat4 | null, scaleType: CollisionScaleType, resourceHolder: ResourceHolder = actor.modelManager!.resourceHolder): CollisionParts {
     let initialHostMtx: mat4;
     if (hostMtx !== null) {
         initialHostMtx = hostMtx;
@@ -908,12 +908,13 @@ export function createCollisionPartsFromLiveActor(sceneObjHolder: SceneObjHolder
 }
 
 function tryCreateCollisionParts(sceneObjHolder: SceneObjHolder, actor: LiveActor, hitSensor: HitSensor, category: CollisionKeeperCategory, filenameBase: string): CollisionParts | null {
-    const res = actor.resourceHolder.arc.findFileData(`${filenameBase}.kcl`);
+    const resourceHolder = actor.modelManager!.resourceHolder;
+    const res = resourceHolder.arc.findFileData(`${filenameBase}.kcl`);
     if (res === null)
         return null;
 
     makeMtxTRSFromActor(scratchMatrix, actor);
-    const parts = createCollisionParts(sceneObjHolder, actor.zoneAndLayer, actor.resourceHolder, filenameBase, hitSensor, scratchMatrix, CollisionScaleType.AutoScale, category);
+    const parts = createCollisionParts(sceneObjHolder, actor.zoneAndLayer, resourceHolder, filenameBase, hitSensor, scratchMatrix, CollisionScaleType.AutoScale, category);
     if (parts !== null)
         validateCollisionParts(sceneObjHolder, parts);
 
@@ -962,7 +963,7 @@ function isWallPolygon(normal: vec3, gravityVector: vec3): boolean {
     return !isNearZeroVec3(normal, 0.001) && isWallPolygonAngle(vec3.dot(normal, gravityVector));
 }
 
-const enum BinderFindBindedPositionRet {
+enum BinderFindBindedPositionRet {
     NoCollide, Collide, MoveAlongHittedPlanes,
 }
 

@@ -3,7 +3,7 @@
 
 import { GfxSamplerFormatKind } from "./GfxPlatform.js";
 
-export const enum FormatTypeFlags {
+export enum FormatTypeFlags {
     U8 = 0x01,
     U16,
     U32,
@@ -36,7 +36,7 @@ export const enum FormatTypeFlags {
     D32FS8,
 };
 
-export const enum FormatCompFlags {
+export enum FormatCompFlags {
     R    = 0x01,
     RG   = 0x02,
     RGB  = 0x03,
@@ -48,7 +48,7 @@ export function getFormatCompFlagsComponentCount(n: FormatCompFlags): number {
     return n;
 }
 
-export const enum FormatFlags {
+export enum FormatFlags {
     None         = 0b00000000,
     Normalized   = 0b00000001,
     sRGB         = 0b00000010,
@@ -122,15 +122,15 @@ export enum GfxFormat {
     BC7_SRGB        = makeFormat(FormatTypeFlags.BC7,        FormatCompFlags.RGBA, FormatFlags.Normalized | FormatFlags.sRGB),
 
     // Depth/Stencil
-    D24             = makeFormat(FormatTypeFlags.D24,       FormatCompFlags.R,  FormatFlags.Depth),
-    D24_S8          = makeFormat(FormatTypeFlags.D24S8,     FormatCompFlags.RG, FormatFlags.Depth | FormatFlags.Stencil),
-    D32F            = makeFormat(FormatTypeFlags.D32F,      FormatCompFlags.R,  FormatFlags.Depth),
-    D32F_S8         = makeFormat(FormatTypeFlags.D32FS8,    FormatCompFlags.RG, FormatFlags.Depth | FormatFlags.Stencil),
+    D24             = makeFormat(FormatTypeFlags.D24,        FormatCompFlags.R,  FormatFlags.Depth),
+    D24_S8          = makeFormat(FormatTypeFlags.D24S8,      FormatCompFlags.RG, FormatFlags.Depth | FormatFlags.Stencil),
+    D32F            = makeFormat(FormatTypeFlags.D32F,       FormatCompFlags.R,  FormatFlags.Depth),
+    D32F_S8         = makeFormat(FormatTypeFlags.D32FS8,     FormatCompFlags.RG, FormatFlags.Depth | FormatFlags.Stencil),
 
     // Special RT formats for preferred backend support.
-    U8_RGB_RT       = makeFormat(FormatTypeFlags.U8,        FormatCompFlags.RGB,  FormatFlags.RenderTarget | FormatFlags.Normalized),
-    U8_RGBA_RT      = makeFormat(FormatTypeFlags.U8,        FormatCompFlags.RGBA, FormatFlags.RenderTarget | FormatFlags.Normalized),
-    U8_RGBA_RT_SRGB = makeFormat(FormatTypeFlags.U8,        FormatCompFlags.RGBA, FormatFlags.RenderTarget | FormatFlags.Normalized | FormatFlags.sRGB),
+    U8_RGB_RT       = makeFormat(FormatTypeFlags.U8,         FormatCompFlags.RGB,  FormatFlags.RenderTarget | FormatFlags.Normalized),
+    U8_RGBA_RT      = makeFormat(FormatTypeFlags.U8,         FormatCompFlags.RGBA, FormatFlags.RenderTarget | FormatFlags.Normalized),
+    U8_RGBA_RT_SRGB = makeFormat(FormatTypeFlags.U8,         FormatCompFlags.RGBA, FormatFlags.RenderTarget | FormatFlags.Normalized | FormatFlags.sRGB),
 }
 
 export function getFormatCompFlags(fmt: GfxFormat): FormatCompFlags {

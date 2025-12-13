@@ -1,6 +1,6 @@
 
 import { mat4, vec3 } from "gl-matrix";
-import { CameraController, computeViewMatrix, computeViewSpaceDepthFromWorldSpacePoint } from "../Camera.js";
+import { CameraController, computeViewSpaceDepthFromWorldSpacePoint } from "../Camera.js";
 import { GfxShaderLibrary } from "../gfx/helpers/GfxShaderLibrary.js";
 import { makeBackbufferDescSimple, standardFullClearRenderPassDescriptor } from "../gfx/helpers/RenderGraphHelpers.js";
 import { fillMatrix4x3, fillMatrix4x4, fillVec4v } from "../gfx/helpers/UniformBufferHelpers.js";
@@ -91,8 +91,7 @@ export class NfsRenderer implements SceneGfx {
         let offs = template.allocateUniformBuffer(NfsProgram.ub_SceneParams, 24);
         const sceneParamsMapped = template.mapUniformBufferF32(NfsProgram.ub_SceneParams);
         const worldProjMatrix = mat4.create();
-        computeViewMatrix(worldProjMatrix, viewerInput.camera);
-        mat4.mul(worldProjMatrix, viewerInput.camera.projectionMatrix, worldProjMatrix);
+        mat4.mul(worldProjMatrix, viewerInput.camera.projectionMatrix, viewerInput.camera.viewMatrix);
         offs += fillMatrix4x4(sceneParamsMapped, offs, worldProjMatrix);
         offs += fillVec4v(sceneParamsMapped, offs, [cameraPos[0], cameraPos[1], cameraPos[2], 0]);
         offs += fillVec4v(sceneParamsMapped, offs, [viewerInput.backbufferWidth, viewerInput.backbufferHeight, 0, 0]);
@@ -391,6 +390,8 @@ class NfsProgram extends DeviceProgram {
     public override both = `
 precision mediump float;
 
+${GfxShaderLibrary.MatrixLibrary}
+
 layout(std140) uniform ub_SceneParams {
     Mat4x4 u_WorldProjMat;
     vec4 u_CameraPos;
@@ -398,7 +399,7 @@ layout(std140) uniform ub_SceneParams {
 };
 
 layout(std140) uniform ub_ObjectParams {
-    Mat4x3 u_ObjectWorldMat;
+    Mat3x4 u_ObjectWorldMat;
     vec2 u_uvOffset;
     float u_FogIntensity;
 };
@@ -472,15 +473,16 @@ out float v_Gloss;
 out float v_Alpha;
 
 void main() {
-    vec3 worldPos = Mul(u_ObjectWorldMat, vec4(a_Position, 1.0));
-    gl_Position = Mul(u_WorldProjMat, vec4(worldPos, 1.0));
+    mat4x3 t_ObjectWorldMat = UnpackMatrix(u_ObjectWorldMat);
+    vec3 worldPos = t_ObjectWorldMat * vec4(a_Position, 1.0);
+    gl_Position = UnpackMatrix(u_WorldProjMat) * vec4(worldPos, 1.0);
     vec3 worldPosGame = toGameWorldSpace(worldPos);
 
     vec3 cameraPosWorld = toGameWorldSpace(u_CameraPos.xyz);
     vec3 vecToEye = cameraPosWorld - worldPosGame;
-    vec3 normal = toGameWorldSpace(MulNormalMatrix(u_ObjectWorldMat, a_Normal));
+    vec3 normal = toGameWorldSpace(MulNormalMatrix(t_ObjectWorldMat, a_Normal));
 #ifdef NORMALMAP
-    vec3 tangent = toGameWorldSpace(MulNormalMatrix(u_ObjectWorldMat, a_Tangent));
+    vec3 tangent = toGameWorldSpace(t_ObjectWorldMat * vec4(a_Tangent, 0.0));
     vec3 bitangent = normalize(cross(normal, tangent));
 
     vec3 tangentLightVec = toTangentSpace(-SunDirection, tangent, bitangent, normal);

@@ -2,8 +2,8 @@
 import { mat4, ReadonlyVec3, vec3 } from "gl-matrix";
 import ArrayBufferSlice from "../ArrayBufferSlice.js";
 import { J3DModelInstance } from "../Common/JSYSTEM/J3D/J3DGraphBase.js";
-import { LoopMode } from "../Common/JSYSTEM/J3D/J3DLoader.js";
-import { JStage, TActor, TCamera, TControl, TParse, TSystem } from "../Common/JSYSTEM/JStudio.js";
+import { LoopMode, TPT1, TTK1 } from "../Common/JSYSTEM/J3D/J3DLoader.js";
+import { JMessage, JStage, TActor, TCamera, TControl, TParse, TSystem } from "../Common/JSYSTEM/JStudio.js";
 import { getMatrixAxisY } from "../MathHelpers.js";
 import { assert } from "../util.js";
 import { ResType } from "./d_resorce.js";
@@ -99,37 +99,32 @@ class dDemo_camera_c extends TCamera {
         this.flags |= EDemoCamFlags.HasAspect;
     }
 
-
     public override JSGGetViewPosition(dst: vec3) {
-        vec3.copy(dst, this.globals.cameraPosition);
+        vec3.copy(dst, this.globals.camera.cameraPos);
     }
-
 
     public override JSGSetViewPosition(v: ReadonlyVec3) {
         vec3.copy(this.viewPosition, v);
         this.flags |= EDemoCamFlags.HasEyePos;
     }
 
-
     public override JSGGetViewUpVector(dst: vec3) {
         const camera = this.globals.camera;
         if (!camera)
             vec3.set(dst, 0, 1, 0);
-        getMatrixAxisY(dst, camera.viewMatrix); // @TODO: Double check that this is correct
+        getMatrixAxisY(dst, camera.viewFromWorldMatrix); // @TODO: Double check that this is correct
     }
-
 
     public override JSGSetViewUpVector(v: ReadonlyVec3) {
         vec3.copy(this.upVector, v);
         this.flags |= EDemoCamFlags.HasUpVec;
     }
 
-
     public override JSGGetViewTargetPosition(dst: vec3) {
         const camera = this.globals.camera;
         if (!camera)
             vec3.zero(dst);
-        vec3.add(dst, this.globals.cameraPosition, this.globals.cameraFwd);
+        vec3.add(dst, this.globals.camera.cameraPos, this.globals.camera.cameraFwd);
     }
 
 
@@ -153,7 +148,7 @@ class dDemo_camera_c extends TCamera {
     }
 }
 
-export const enum EDemoActorFlags {
+export enum EDemoActorFlags {
     HasData = 1 << 0,
     HasPos = 1 << 1,
     HasScale = 1 << 2,
@@ -183,9 +178,11 @@ export class dDemo_actor_c extends TActor {
     public stbDataId: number;
     public stbData: DataView;
     public bckId: number;
-    public btpIed: number;
+    public btpId: number;
     public btkId: number;
     public brkId: number;
+
+    debugGetAnimName?: (idx: number) => string;
 
     constructor(public actor: fopAc_ac_c) { super(); }
 
@@ -213,6 +210,73 @@ export class dDemo_actor_c extends TActor {
         } else {
             return this.animTransition;
         }
+    }
+
+    public getBtpData(globals: dGlobals, arcName: string): TPT1 | null {
+        let btpId = 0;
+
+        if (this.flags & EDemoActorFlags.HasTexAnim) {
+            btpId = this.texAnim;
+            debugger;
+            arcName = ""; // @TODO: How does this work?
+        } else {
+            if (!(this.flags & EDemoActorFlags.HasData)) {
+                return null;
+            }
+
+            switch(this.stbDataId) {
+                case 1: btpId = this.stbData.getInt16(1); break;
+                case 2: btpId = this.stbData.getInt16(2); break;
+                case 4: btpId = this.stbData.getInt32(1); break;
+                case 5: btpId = this.stbData.getInt32(2); break;
+                case 6: btpId = this.stbData.getInt32(2); break;
+                default:
+                    return null;
+            }
+        }
+
+        if (btpId == this.btpId) {
+            return null;
+        } else {
+            this.btpId = btpId;
+            if ((btpId & 0x10000) != 0) {
+                arcName = globals.roomCtrl.demoArcName!;
+            }
+
+            const btp = globals.resCtrl.getObjectIDRes(ResType.Btp, arcName, btpId);
+            this.textAnimFrameMax = this.stbData.getInt16(6);
+            return btp;
+        }
+    }
+
+    public getBrkData(globals: dGlobals, arcName: string) {
+        debugger;
+    }
+
+    public getBtkData(globals: dGlobals, arcName: string): TTK1 | null {
+        if (!(this.flags & EDemoActorFlags.HasData)) {
+            return null;
+        }
+
+        let btkId;
+        switch(this.stbDataId) {
+            case 2: btkId = this.stbData.getInt16(4); break;
+            case 5: btkId = this.stbData.getInt32(6); break;
+            case 6: btkId = this.stbData.getInt32(6); break;
+            default:
+                return null;
+        }
+
+        if (btkId == this.btkId) {
+            return null;
+        }
+
+        this.btkId = btkId;
+        if ((btkId & 0x10000) != 0) {
+            arcName = globals.roomCtrl.demoArcName!;
+        }
+
+        return globals.resCtrl.getObjectIDRes(ResType.Btk, arcName, btkId);
     }
 
     public override JSGGetName() { return this.name; }
@@ -259,7 +323,7 @@ export class dDemo_actor_c extends TActor {
 
     public override JSGSetShape(id: number): void {
         this.shapeId = id;
-        this.flags |= EDemoActorFlags.HasShape
+        this.flags |= EDemoActorFlags.HasShape;
     }
 
     public override JSGSetAnimation(id: number): void {
@@ -286,6 +350,11 @@ export class dDemo_actor_c extends TActor {
     public override JSGSetTextureAnimationFrame(x: number): void {
         this.texAnimFrame = x;
         this.flags |= EDemoActorFlags.HasTexFrame;
+    }
+
+    override JSGDebugGetAnimationName(x: number): string | null {
+        if( this.debugGetAnimName ) { return this.debugGetAnimName(x); }
+        else return null;
     }
 }
 
@@ -350,21 +419,25 @@ export class dDemo_manager_c {
     private frameNoMsg: number = 0;
     private mode = EDemoMode.None;
     private curFile: ArrayBufferSlice | null;
+    private name: string | null = null;
 
     private parser: TParse;
     private system = new dDemo_system_c(this.globals);
-    private control: TControl = new TControl(this.system);
+    private messageControl = new JMessage.TControl(); // TODO
+    private control: TControl = new TControl(this.system, this.messageControl);
 
     constructor(
         private globals: dGlobals
     ) { }
 
-    public getFrame() { return this.frameNoMsg; }
-    public setFrame(frame: number) { this.frame = frame; this.frameNoMsg = frame; }
+    public getName() { return this.name; }
+    public getFrame() { return this.frame; }
+    public getFrameNoMsg() { return this.frameNoMsg; }
     public getMode() { return this.mode; }
     public getSystem() { return this.system; }
 
-    public create(data: ArrayBufferSlice, originPos?: vec3, rotY?: number): boolean {
+    public create(name: string, data: ArrayBufferSlice, originPos?: vec3, rotYDeg?: number, startFrame?: number): boolean {
+        this.name = name;
         this.parser = new TParse(this.control);
 
         if (!this.parser.parse(data, 0)) {
@@ -374,9 +447,11 @@ export class dDemo_manager_c {
 
         this.control.forward(this.frame || 0);
         if (originPos) {
-            this.control.transformSetOrigin(originPos, rotY || 0);
+            this.control.transformSetOrigin(originPos, rotYDeg || 0);
         }
 
+        this.frame = startFrame || 0;
+        this.frameNoMsg = startFrame || 0;
         this.curFile = data;
         this.mode = EDemoMode.Playing;
 
@@ -387,23 +462,22 @@ export class dDemo_manager_c {
         this.control.destroyObject_all();
         this.system.remove();
         this.curFile = null;
+        this.name = null;
         this.mode = 0;
     }
 
-    public update(): boolean {
+    public update(deltaTimeFrames: number): boolean {
         if (!this.curFile) {
             return false;
         }
 
-        const dtFrames = this.globals.context.viewerInput.deltaTime / 1000.0 * 30;
-
         // noclip modification: If a demo is suspended (waiting for the user to interact with a message), just resume
         if (this.control.isSuspended()) { this.control.setSuspend(0); }
 
-        if (this.control.forward(dtFrames)) {
-            this.frame += dtFrames;
+        if (this.control.forward(deltaTimeFrames)) {
+            this.frame += deltaTimeFrames;
             if (!this.control.isSuspended()) {
-                this.frameNoMsg += dtFrames;
+                this.frameNoMsg += deltaTimeFrames;
             }
         } else {
             this.mode = EDemoMode.Ended;
@@ -413,7 +487,7 @@ export class dDemo_manager_c {
 }
 
 /**
- * Called by Actor update functions to update their data from the demo version of the actor. 
+ * Called by Actor update functions to update their data from the demo version of the actor.
  */
 export function dDemo_setDemoData(globals: dGlobals, dtFrames: number, actor: fopAc_ac_c, flagMask: number,
     morf: mDoExt_McaMorf | null = null, arcName: string | null = null) {

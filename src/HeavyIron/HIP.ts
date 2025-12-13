@@ -58,7 +58,8 @@ export interface HIPAsset {
     id: number;
     type: number;
     name: string;
-    data: ArrayBufferSlice;
+    rawData: ArrayBufferSlice;
+    runtimeData?: any;
 }
 
 export interface HIPLayer {
@@ -66,7 +67,7 @@ export interface HIPLayer {
     assets: HIPAsset[];
 }
 
-const enum HIPBlockID {
+enum HIPBlockID {
     HIPA = 0x48495041,
     PACK = 0x5041434B,
     PVER = 0x50564552,
@@ -152,9 +153,9 @@ export class HIPFile {
         const plus = stream.readLong();
         const flags = stream.readLong();
 
-        const data = stream.buffer.subarray(offset, size);
+        const rawData = stream.buffer.subarray(offset, size);
 
-        const asset: HIPAsset = { id, type, name: '', data };
+        const asset: HIPAsset = { id, type, name: '', rawData };
 
         let cid: number;
         while (cid = stream.enterBlock()) {

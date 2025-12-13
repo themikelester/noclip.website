@@ -1,14 +1,13 @@
 
 import { TextureMapping } from "../../TextureHolder.js";
 import { fillVec4 } from "../../gfx/helpers/UniformBufferHelpers.js";
-import { GfxMegaStateDescriptor } from "../../gfx/platform/GfxPlatform.js";
-import { GfxProgram } from "../../gfx/platform/GfxPlatformImpl.js";
-import { makeSortKey, GfxRendererLayer, setSortKeyProgramKey, GfxRenderInst } from "../../gfx/render/GfxRenderInstManager.js";
+import { GfxMegaStateDescriptor, GfxProgram } from "../../gfx/platform/GfxPlatform.js";
+import { GfxRendererLayer, GfxRenderInst, makeSortKey, setSortKeyProgramKey } from "../../gfx/render/GfxRenderInstManager.js";
 import { assert } from "../../util.js";
-import { SourceRenderContext } from "../Main.js";
-import { MaterialCache } from "./MaterialCache.js";
+import type { SourceRenderContext } from "../Main.js";
 import { UberShaderInstanceBasic } from "../UberShader.js";
-import { MaterialShaderTemplateBase, MaterialUtil, BaseMaterial, AlphaBlendMode } from "./MaterialBase.js";
+import { AlphaBlendMode, BaseMaterial, MaterialShaderTemplateBase, MaterialUtil } from "./MaterialBase.js";
+import type { MaterialCache } from "./MaterialCache.js";
 import * as P from "./MaterialParameters.js";
 
 //#region SpriteCard
@@ -41,9 +40,9 @@ layout(binding = 0) uniform sampler2D u_Texture;
 
 #if defined VERT
 void mainVS() {
-    Mat4x3 t_WorldFromLocalMatrix = CalcWorldFromLocalMatrix();
-    vec3 t_PositionWorld = Mul(t_WorldFromLocalMatrix, vec4(a_Position, 1.0));
-    gl_Position = Mul(u_ProjectionView, vec4(t_PositionWorld, 1.0));
+    mat4x3 t_WorldFromLocalMatrix = CalcWorldFromLocalMatrix();
+    vec3 t_PositionWorld = t_WorldFromLocalMatrix * vec4(a_Position, 1.0));
+    gl_Position = u_ProjectionView * vec4(t_PositionWorld, 1.0));
     v_TexCoord0.xy = CalcScaleBias(a_TexCoord01.xy, u_BaseTextureScaleBias[0]);
     v_TexCoord0.zw = CalcScaleBias(a_TexCoord01.xy, u_BaseTextureScaleBias[1]);
     v_TexCoord1.xy = CalcScaleBias(a_TexCoord01.xy, u_BaseTextureScaleBias[2]);

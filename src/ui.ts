@@ -3,13 +3,13 @@
 
 import * as Viewer from './viewer.js';
 import { assertExists, assert } from './util.js';
-import { CameraControllerClass, OrbitCameraController, FPSCameraController, OrthoCameraController } from './Camera.js';
+import { CameraControllerClass, OrbitCameraController, FPSCameraController, OrthoCameraController, CameraController, Camera } from './Camera.js';
 import { Color, colorToCSS } from './Color.js';
 import { GITHUB_REVISION_URL, GITHUB_URL, GIT_SHORT_REVISION, IS_DEVELOPMENT } from './BuildVersion.js';
 import { SaveManager, GlobalSaveManager } from "./SaveManager.js";
 import { RenderStatistics } from './RenderStatistics.js';
 import { GlobalGrabManager } from './GrabManager.js';
-import { clamp, invlerp, lerp } from './MathHelpers.js';
+import { clamp, invlerp, lerp, MathConstants } from './MathHelpers.js';
 import { DebugFloaterHolder } from './DebugFloaters.js';
 import { DraggingMode } from './InputManager.js';
 import { CLAPBOARD_ICON, StudioPanel } from './Studio.js';
@@ -27,7 +27,7 @@ export function createDOMFromString(s: string): DocumentFragment {
     return document.createRange().createContextualFragment(s);
 }
 
-const enum FontelloIcon {
+enum FontelloIcon {
     share = '\ue800',
     resize_full = '\ue801',
     pause = '\ue802',
@@ -56,6 +56,7 @@ export const RENDER_HACKS_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBo
 export const SAND_CLOCK_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" height="20" fill="white"><g><path d="M79.3,83.3h-6.2H24.9h-6.2c-1.7,0-3,1.3-3,3s1.3,3,3,3h60.6c1.7,0,3-1.3,3-3S81,83.3,79.3,83.3z"/><path d="M18.7,14.7h6.2h48.2h6.2c1.7,0,3-1.3,3-3s-1.3-3-3-3H18.7c-1.7,0-3,1.3-3,3S17,14.7,18.7,14.7z"/><path d="M73.1,66c0-0.9-0.4-1.8-1.1-2.4L52.8,48.5L72,33.4c0.7-0.6,1.1-1.4,1.1-2.4V20.7H24.9V31c0,0.9,0.4,1.8,1.1,2.4l19.1,15.1   L26,63.6c-0.7,0.6-1.1,1.4-1.1,2.4v11.3h48.2V66z"/></g></svg>';
 export const VR_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" height="20" fill="white"><g><path d="M29,8H3A1,1,0,0,0,2,9V23a1,1,0,0,0,1,1H13a1,1,0,0,0,1-.83l.66-4A1.36,1.36,0,0,1,16,18a1.38,1.38,0,0,1,1.36,1.26L18,23.17A1,1,0,0,0,19,24H29a1,1,0,0,0,1-1V9A1,1,0,0,0,29,8ZM8.5,19A3.5,3.5,0,1,1,12,15.5,3.5,3.5,0,0,1,8.5,19Zm15,0A3.5,3.5,0,1,1,27,15.5,3.5,3.5,0,0,1,23.5,19Z"/></g></svg>`;
 export const CUTSCENE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 142.448 142.448" height="20" fill="white"><g><path d="M142.411,68.9C141.216,31.48,110.968,1.233,73.549,0.038c-20.361-0.646-39.41,7.104-53.488,21.639 C6.527,35.65-0.584,54.071,0.038,73.549c1.194,37.419,31.442,67.667,68.861,68.861c0.779,0.025,1.551,0.037,2.325,0.037 c19.454,0,37.624-7.698,51.163-21.676C135.921,106.799,143.033,88.377,142.411,68.9z M111.613,110.336 c-10.688,11.035-25.032,17.112-40.389,17.112c-0.614,0-1.228-0.01-1.847-0.029c-29.532-0.943-53.404-24.815-54.348-54.348 c-0.491-15.382,5.122-29.928,15.806-40.958c10.688-11.035,25.032-17.112,40.389-17.112c0.614,0,1.228,0.01,1.847,0.029 c29.532,0.943,53.404,24.815,54.348,54.348C127.91,84.76,122.296,99.306,111.613,110.336z"></path> <path d="M94.585,67.086L63.001,44.44c-3.369-2.416-8.059-0.008-8.059,4.138v45.293 c0,4.146,4.69,6.554,8.059,4.138l31.583-22.647C97.418,73.331,97.418,69.118,94.585,67.086z"></path> </g></svg>`
+export const EYE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M15.0007 12C15.0007 13.6569 13.6576 15 12.0007 15C10.3439 15 9.00073 13.6569 9.00073 12C9.00073 10.3431 10.3439 9 12.0007 9C13.6576 9 15.0007 10.3431 15.0007 12Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.0012 5C7.52354 5 3.73326 7.94288 2.45898 12C3.73324 16.0571 7.52354 19 12.0012 19C16.4788 19 20.2691 16.0571 21.5434 12C20.2691 7.94291 16.4788 5 12.0012 5Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export function setChildren(parent: Element, children: Element[]): void {
     // We want to swap children around without removing them, since removing them will cause
@@ -232,7 +233,7 @@ export class TextEntry implements Widget {
     }
 }
 
-export const enum ScrollSelectItemType {
+export enum ScrollSelectItemType {
     Selectable, Header,
 }
 
@@ -939,7 +940,7 @@ class SceneSelect extends Panel {
     public loadProgress: number;
     public onscenedescselected: (sceneDesc: SceneDesc) => void;
 
-    constructor(public viewer: Viewer.Viewer) {
+    constructor() {
         super();
         this.setTitle(OPEN_ICON, 'Games');
 
@@ -1264,7 +1265,7 @@ class FrameDebouncer {
         if (this.timeoutId !== null)
             this.clear();
         if (this.callback !== null)
-            this.timeoutId = setTimeout(this.onframe, this.timeout);
+            this.timeoutId = window.setTimeout(this.onframe, this.timeout);
     }
 
     public clear() {
@@ -1287,6 +1288,7 @@ export class TextureViewer extends Panel {
         super();
 
         this.setTitle(TEXTURES_ICON, 'Textures');
+        this.setVisible(false);
 
         this.scrollList = new SingleSelect();
         this.scrollList.elem.style.height = `200px`;
@@ -1522,19 +1524,277 @@ export class Slider implements Widget {
     }
 }
 
+const SUN_ICON_PATH = `M12 2L13.09 8.26L18 5L14.74 9.91L21 11L14.74 12.09L18 17L13.09 13.74L12 20L10.91 13.74L6 17L9.26 12.09L3 11L9.26 9.91L6 5L10.91 8.26L12 2Z`;
+const MOON_ICON_PATH = `M12 3c.132 0 .263.004.393.012a7 7 0 1 0 8.595 8.595A8 8 0 1 1 12 3z`;
+
+export class CircularTimeSlider implements Widget {
+    public elem: HTMLElement;
+    public onvalue: ((value: number) => void) | null = null;
+    public onmanualchange: (() => void) | null = null;
+
+    private svg: SVGSVGElement;
+    private thumb: SVGCircleElement;
+    private timeLabel: HTMLElement;
+    private value: number = 0;
+    private isDragging: boolean = false;
+
+    // Dial dimensions
+    private readonly size = 120;
+    private readonly cx = 60;
+    private readonly cy = 60;
+    private readonly radius = 45;
+    private readonly thumbRadius = 8;
+
+    constructor() {
+        const toplevel = document.createElement('div');
+        toplevel.style.display = 'flex';
+        toplevel.style.flexDirection = 'column';
+        toplevel.style.alignItems = 'center';
+        toplevel.style.padding = '8px';
+        toplevel.style.userSelect = 'none';
+
+        // Create SVG dial
+        this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        this.svg.setAttribute('width', `${this.size}`);
+        this.svg.setAttribute('height', `${this.size}`);
+        this.svg.setAttribute('viewBox', `0 0 ${this.size} ${this.size}`);
+        this.svg.style.cursor = 'pointer';
+
+        // Background circle (track)
+        const track = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        track.setAttribute('cx', `${this.cx}`);
+        track.setAttribute('cy', `${this.cy}`);
+        track.setAttribute('r', `${this.radius}`);
+        track.setAttribute('fill', 'none');
+        track.setAttribute('stroke', '#333');
+        track.setAttribute('stroke-width', '12');
+        this.svg.appendChild(track);
+
+        // Day arc (top half)
+        const dayArc = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const dayPath = this.describeArc(this.cx, this.cy, this.radius, Math.PI, MathConstants.TAU);
+        dayArc.setAttribute('d', dayPath);
+        dayArc.setAttribute('fill', 'none');
+        dayArc.setAttribute('stroke', '#e8a430');
+        dayArc.setAttribute('stroke-width', '10');
+        dayArc.setAttribute('stroke-linecap', 'round');
+        this.svg.appendChild(dayArc);
+
+        // Night arc (bottom half)
+        const nightArc = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const nightPath = this.describeArc(this.cx, this.cy, this.radius, 0, Math.PI);
+        nightArc.setAttribute('d', nightPath);
+        nightArc.setAttribute('fill', 'none');
+        nightArc.setAttribute('stroke', '#2a3a5a');
+        nightArc.setAttribute('stroke-width', '10');
+        nightArc.setAttribute('stroke-linecap', 'round');
+        this.svg.appendChild(nightArc);
+
+        // Sun icon at top (noon position)
+        const sunGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        sunGroup.setAttribute('transform', `translate(${this.cx - 8}, ${this.cy - this.radius - 8}) scale(0.7)`);
+        const sunPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        sunPath.setAttribute('d', SUN_ICON_PATH);
+        sunPath.setAttribute('fill', '#ffd700');
+        sunGroup.appendChild(sunPath);
+        this.svg.appendChild(sunGroup);
+
+        // Moon icon at bottom (midnight position)
+        const moonGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        moonGroup.setAttribute('transform', `translate(${this.cx - 6}, ${this.cy + this.radius - 6}) scale(0.5)`);
+        const moonPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        moonPath.setAttribute('d', MOON_ICON_PATH);
+        moonPath.setAttribute('fill', '#aaccff');
+        moonGroup.appendChild(moonPath);
+        this.svg.appendChild(moonGroup);
+
+        // Thumb (draggable indicator)
+        this.thumb = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        this.thumb.setAttribute('r', `${this.thumbRadius}`);
+        this.thumb.setAttribute('fill', HIGHLIGHT_COLOR);
+        this.thumb.setAttribute('stroke', 'white');
+        this.thumb.setAttribute('stroke-width', '2');
+        this.thumb.style.cursor = 'grab';
+        this.svg.appendChild(this.thumb);
+
+        toplevel.appendChild(this.svg);
+
+        // Time label below dial
+        this.timeLabel = document.createElement('div');
+        this.timeLabel.style.marginTop = '8px';
+        this.timeLabel.style.fontSize = '14px';
+        this.timeLabel.style.fontWeight = 'bold';
+        this.timeLabel.style.color = 'white';
+        toplevel.appendChild(this.timeLabel);
+
+        this.elem = toplevel;
+
+        // Set up event handlers
+        this.svg.addEventListener('mousedown', this.onMouseDown.bind(this));
+        document.addEventListener('mousemove', this.onMouseMove.bind(this));
+        document.addEventListener('mouseup', this.onMouseUp.bind(this));
+
+        // Initial position
+        this.updateThumbPosition();
+        this.updateTimeLabel();
+    }
+
+    private describeArc(x: number, y: number, radius: number, startAngle: number, endAngle: number): string {
+        const start = this.polarToCartesian(x, y, radius, endAngle);
+        const end = this.polarToCartesian(x, y, radius, startAngle);
+        const largeArcFlag = (endAngle - startAngle) <= Math.PI ? '0' : '1';
+        return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
+    }
+
+    private polarToCartesian(cx: number, cy: number, radius: number, angle: number): { x: number, y: number } {
+        return {
+            x: cx + radius * Math.cos(angle),
+            y: cy + radius * Math.sin(angle),
+        };
+    }
+
+    // Convert normalized time (0-1) to angle in radians.
+    private timeToAngle(t: number): number {
+        return MathConstants.TAU * (t + 0.25);
+    }
+
+    // Convert angle in radians to normalized time (0-1).
+    private angleToTime(angle: number): number {
+        return (angle / MathConstants.TAU + 0.75) % 1;
+    }
+
+    private updateThumbPosition(): void {
+        const angle = this.timeToAngle(this.value);
+        const pos = this.polarToCartesian(this.cx, this.cy, this.radius, angle);
+        this.thumb.setAttribute('cx', `${pos.x}`);
+        this.thumb.setAttribute('cy', `${pos.y}`);
+    }
+
+    private updateTimeLabel(): void {
+        const totalHours = this.value * 24;
+        const hours24 = Math.floor(totalHours) % 24;
+        const minutes = Math.floor((totalHours - Math.floor(totalHours)) * 60);
+
+        const hours12 = hours24 % 12 || 12;
+        const ampm = hours24 < 12 ? 'AM' : 'PM';
+        const minuteStr = minutes.toString().padStart(2, '0');
+
+        this.timeLabel.textContent = `${hours12}:${minuteStr} ${ampm}`;
+    }
+
+    private onMouseDown(e: MouseEvent): void {
+        this.isDragging = true;
+        this.thumb.style.cursor = 'grabbing';
+        this.updateValueFromMouse(e);
+        e.preventDefault();
+    }
+
+    private onMouseMove(e: MouseEvent): void {
+        if (!this.isDragging) return;
+        this.updateValueFromMouse(e);
+    }
+
+    private onMouseUp(): void {
+        if (this.isDragging) {
+            this.isDragging = false;
+            this.thumb.style.cursor = 'grab';
+        }
+    }
+
+    private updateValueFromMouse(e: MouseEvent): void {
+        const rect = this.svg.getBoundingClientRect();
+        const x = e.clientX - rect.left - this.cx;
+        const y = e.clientY - rect.top - this.cy;
+
+        // Calculate angle from center to mouse position
+        const angle = Math.atan2(y, x);
+        const newValue = this.angleToTime(angle);
+
+        if (newValue !== this.value) {
+            this.value = newValue;
+            this.updateThumbPosition();
+            this.updateTimeLabel();
+
+            if (this.onmanualchange !== null)
+                this.onmanualchange();
+
+            if (this.onvalue !== null)
+                this.onvalue(this.value);
+        }
+    }
+
+    public getValue(): number {
+        return this.value;
+    }
+
+    public setValue(v: number, triggerCallback: boolean = false): void {
+        this.value = clamp(v, 0, 1);
+        this.updateThumbPosition();
+        this.updateTimeLabel();
+
+        if (triggerCallback && this.onvalue !== null)
+            this.onvalue(this.value);
+    }
+}
+
+export class TimeOfDayPanel extends Panel {
+    public onvaluechange: ((time: number, useDynamicTime: boolean) => void) | null = null;
+
+    private slider: CircularTimeSlider;
+    private dynamicTimeCheckbox: Checkbox;
+    private useDynamicTime: boolean = true;
+
+    constructor() {
+        super();
+
+        this.setTitle(TIME_OF_DAY_ICON, 'Time of Day');
+        this.customHeaderBackgroundColor = COOL_BLUE_COLOR;
+        this.syncHeaderStyle();
+
+        // "Dynamic Time" checkbox
+        this.dynamicTimeCheckbox = new Checkbox('Dynamic Time', true);
+        this.dynamicTimeCheckbox.onchanged = () => {
+            this.useDynamicTime = this.dynamicTimeCheckbox.checked;
+            if (this.onvaluechange !== null)
+                this.onvaluechange(this.slider.getValue(), this.useDynamicTime);
+        };
+        this.contents.appendChild(this.dynamicTimeCheckbox.elem);
+
+        // Circular time slider
+        this.slider = new CircularTimeSlider();
+
+        // When user manually changes the slider, disable dynamic time
+        this.slider.onmanualchange = () => {
+            if (this.useDynamicTime) {
+                this.useDynamicTime = false;
+                this.dynamicTimeCheckbox.setChecked(false);
+            }
+        };
+
+        this.slider.onvalue = (value: number) => {
+            if (this.onvaluechange !== null)
+                this.onvaluechange(value, this.useDynamicTime);
+        };
+
+        this.contents.appendChild(this.slider.elem);
+    }
+
+    // Set normalized time (0-1)
+    public setTime(time: number): void {
+        this.slider.setValue(time);
+    }
+}
+
 export class RadioButtons implements Widget {
     public elem: HTMLElement;
     public selectedIndex: number = -1;
     public onselectedchange: ((() => void) | null) = null;
     public options: HTMLElement[] = [];
 
-    constructor(title: string, optionNames: string[]) {
+    constructor(private title: string, optionNames: string[]) {
         this.elem = document.createElement('div');
 
         this.elem.style.display = 'grid';
-
-        const fr = (title.length ? `${optionNames.length}fr ` : ``) + `${optionNames.map(() => '1fr').join(' ')}`;
-        this.elem.style.gridTemplateColumns = fr;
         this.elem.style.alignItems = 'center';
 
         if (title.length) {
@@ -1543,6 +1803,13 @@ export class RadioButtons implements Widget {
             header.textContent = title;
             this.elem.appendChild(header);
         }
+
+        this.setOptions(optionNames);
+    }
+
+    public setOptions(optionNames: string[]): void {
+        const fr = (this.title.length ? `${optionNames.length}fr ` : ``) + `${optionNames.map(() => '1fr').join(' ')}`;
+        this.elem.style.gridTemplateColumns = fr;
 
         optionNames.forEach((optionName, i) => {
             const option = document.createElement('div');
@@ -1590,8 +1857,9 @@ class ViewerSettings extends Panel {
     private invertYCheckbox: Checkbox;
     private invertXCheckbox: Checkbox;
     private antialiasingRadioButtons: RadioButtons;
+    private viewer: Viewer.Viewer;
 
-    constructor(private ui: UI, private viewer: Viewer.Viewer) {
+    constructor(private ui: UI) {
         super();
 
         this.setTitle(FRUSTUM_ICON, 'Viewer Settings');
@@ -1611,7 +1879,6 @@ class ViewerSettings extends Panel {
         this.fovSlider = new Slider();
         this.fovSlider.setLabel("Field of View");
         this.fovSlider.setRange(1, 100);
-        this.fovSlider.setValue(Viewer.Viewer.FOV_Y_DEFAULT / Math.PI * 100);
         this.fovSlider.onvalue = this.onFovSliderChange.bind(this);
         this.contents.appendChild(this.fovSlider.elem);
 
@@ -1621,16 +1888,7 @@ class ViewerSettings extends Panel {
         this.camSpeedSlider.onvalue = this.updateCameraSpeedFromSlider.bind(this);
         this.contents.appendChild(this.camSpeedSlider.elem);
 
-        this.viewer.addKeyMoveSpeedListener(this.onKeyMoveSpeedChanged.bind(this));
-        this.viewer.inputManager.addScrollListener(this.onScrollWheel.bind(this));
-
-        const limits = this.viewer.gfxDevice.queryLimits();
-
-        const aaModes = ['None', 'FXAA'];
-        if (limits.supportedSampleCounts.includes(4))
-            aaModes.push('4x MSAA');
-
-        this.antialiasingRadioButtons = new RadioButtons('Antialiasing', aaModes);
+        this.antialiasingRadioButtons = new RadioButtons('Antialiasing', []);
         this.antialiasingRadioButtons.onselectedchange = () => { GlobalSaveManager.saveSetting(`AntialiasingMode`, this.antialiasingRadioButtons.selectedIndex); };
         this.contents.appendChild(this.antialiasingRadioButtons.elem);
         GlobalSaveManager.addSettingListener('AntialiasingMode', this.antialiasingChanged.bind(this));
@@ -1646,6 +1904,18 @@ class ViewerSettings extends Panel {
         GlobalSaveManager.addSettingListener('InvertX', this.invertXChanged.bind(this));
     }
 
+    public setViewer(viewer: Viewer.Viewer): void {
+        this.viewer = viewer;
+        this.viewer.addKeyMoveSpeedListener(this.onKeyMoveSpeedChanged.bind(this));
+        this.viewer.inputManager.addScrollListener(this.onScrollWheel.bind(this));
+
+        const limits = this.viewer.gfxDevice.queryLimits();
+
+        const aaModes = ['None', 'FXAA'];
+        if (limits.supportedSampleCounts.includes(4))
+            aaModes.push('4x MSAA');
+    }
+
     public setCameraControllerIndex(idx: number) {
         const index = this.camRadioButtons.selectedIndex;
         const cameraControllerClass = this.camControllerClasses[index];
@@ -1654,7 +1924,7 @@ class ViewerSettings extends Panel {
 
     private onFovSliderChange(): void {
         const value = this.fovSlider.getT();
-        this.viewer.fovY = value * (Math.PI * 0.995);
+        this.viewer.camera.fovY = value * (Math.PI * 0.995);
     }
 
     private onKeyMoveSpeedChanged(): void {
@@ -1668,8 +1938,11 @@ class ViewerSettings extends Panel {
         }
     }
 
-    public setInitialKeyMoveSpeed(v: number): void {
-        this.camSpeedSlider.setValue(v);
+    public setupFromCamera(cameraController: CameraController, camera: Camera): void {
+        const keyMoveSpeed = cameraController.getKeyMoveSpeed();
+        if (keyMoveSpeed !== null)
+            this.camSpeedSlider.setValue(keyMoveSpeed);
+        this.fovSlider.setValue(camera.fovY / Math.PI * 100);
     }
 
     private setCameraControllerClass(cameraControllerClass: CameraControllerClass) {
@@ -1832,7 +2105,7 @@ class StatisticsPanel extends Panel {
     private fpsPoints: number[] = [];
     private fpsColor: Color = { r: 0.4, g: 0.9, b: 0.6, a: 1.0 };
 
-    constructor(private viewer: Viewer.Viewer) {
+    constructor() {
         super();
         this.setTitle(STATISTICS_ICON, 'Statistics');
 
@@ -1939,8 +2212,6 @@ class StudioSidePanel extends Panel {
 }
 
 class About extends Panel {
-    public onfaq: (() => void) | null = null;
-
     constructor() {
         super();
         this.setTitle(ABOUT_ICON, 'About');
@@ -1978,237 +2249,17 @@ class About extends Panel {
 <h1> <img src="${logoURL}"> <span> noclip.website </span> </h1>
 <h2> A digital museum of video game levels </h2>
 
-<a href="#" class="FAQLink"> What is this? / FAQ </a>
-
 <p> <strong>CLICK AND DRAG</strong> to look around and use <strong>WASD</strong> to move the camera </p>
 <p> Hold <strong>SHIFT</strong> to go faster, and use <strong>MOUSE WHEEL</strong> to fine tune the speed
 <strong>Z</strong> toggles the UI. </p>
 
 <p><a href="https://discord.gg/bkJmKKv"><strong>JOIN THE DISCORD</strong> by clicking here</a></p>
 
-<p><strong>CODE PRIMARILY WRITTEN</strong> by <a href="https://twitter.com/JasperRLZ">Jasper</a></p>
-
 <p><strong>OPEN SOURCE</strong> at <a href="${GITHUB_URL}">GitHub</a></p>
 
 <p class="BuildVersion"><a href="${GITHUB_REVISION_URL}">build ${GIT_SHORT_REVISION}</a></p>
 </div>
 `;
-        const faqLink = this.contents.querySelector('.FAQLink') as HTMLAnchorElement;
-        faqLink.onclick = () => {
-            if (this.onfaq !== null)
-                this.onfaq();
-        };
-    }
-}
-
-class FAQPanel implements Widget {
-    private toplevel: HTMLElement;
-    private panel: HTMLElement;
-
-    public elem: HTMLElement;
-
-    constructor() {
-        this.toplevel = document.createElement('div');
-        this.toplevel.classList.add('FAQPanel');
-        this.toplevel.style.position = 'absolute';
-        this.toplevel.style.left = '0';
-        this.toplevel.style.top = '0';
-        this.toplevel.style.right = '0';
-        this.toplevel.style.bottom = '0';
-        this.toplevel.style.background = 'rgba(0, 0, 0, 0.8)';
-        this.toplevel.onclick = () => {
-            this.elem.style.display = 'none';
-        };
-
-        const styleFrag = createDOMFromString(`
-<style>
-.FAQPanel a:link, .FAQPanel a:visited { color: #ddd; }
-.FAQPanel a:hover { color: #fff; }
-</style>
-`);
-        this.toplevel.appendChild(styleFrag);
-
-        this.panel = document.createElement('div');
-        this.panel.style.boxSizing = 'border-box';
-        this.panel.style.width = '50vw';
-        this.panel.style.margin = '5vh auto';
-        this.panel.style.height = '90vh';
-        this.panel.style.backgroundColor = 'black';
-        this.panel.style.padding = '2em';
-        this.panel.style.font = '11pt monospace';
-        this.panel.style.overflow = 'auto';
-        this.panel.style.color = '#ddd';
-        this.panel.style.textAlign = 'justify';
-        this.panel.onclick = (e) => {
-            e.stopPropagation();
-        };
-
-        const qa = document.createElement('div');
-        this.panel.appendChild(qa);
-
-        const faq = `
-## What is noclip.website?
-
-<p>noclip.website is a celebration of video game level design and art. It's a chance to
-explore and deepen your appreciation for some of your favorite games.</p>
-
-## Why did you make this?
-
-<p>I've always had an appreciation for the incredible worlds that game developers make.
-Sometimes staring closely at levels might help you understand the challenges the designers
-were facing, and what problems and techniques they used to solve them. You can learn a lot
-about a game by looking in the places they <em>don't</em> show in the game itself. It's
-also a ton of fun to test your memory, seeing if you can remember how a level is laid
-out, or where two rooms might connect to each other.</p>
-
-## It doesn't work!
-
-<p>Oops, sorry about that. Please let me know through either the <a href="https://discord.gg/bkJmKKv">official noclip.website Discord</a>
-or <a href="https://twitter.com/JasperRLZ/">Twitter</a>. Try to let me know what
-OS/browser/GPU you were using, and what game you tried to view, and I'll investigate.</p>
-
-## Can I request a game?
-
-<p>Maybe. Check around to see if anybody has looked at the game files before. If there's
-existing community documentation, that helps a lot. And if you're around to help answer
-questions or provide map names, I'm even more inclined.</p>
-
-<p>Even having documentation, games can take months of my time to add. So I have to be
-very careful with which games I choose to spend my time with.</p>
-
-<p>If you have some programming skills and want to try to add a game yourself, I fully
-welcome that. Join the Discord and I will be happy to help you get set up with a
-development environment and walk you through the code.</p>
-
-## Why do some levels look broken?
-
-<p>In order to put a game on the website, I first need to take apart the game, extract
-the data, and then figure out how to put it back together. Some of these games, especially
-the newer ones, are really complex with their levels and their models, and that often means
-it takes more work to make it look correct. The line between "game engine" and "game data"
-is only getting blurrier and blurrier.</p>
-
-<p>My dream is that the site contains fully accurate versions of each game, and I try
-to get closer to that goal when I can, but the effort and time involved to make an accurate
-recreation can sometimes be far too much, or would push me more into recreating large
-parts of the original game's engine, which I'm less interested in doing myself.</p>
-
-## How do I export models from the site?
-
-<p>You can't. From the technical side, there is no one consistent file format that has
-all of the features that an accurate model would require. From a personal perspective,
-I'm not ready to take on the support burden of writing an export tool.</p>
-
-<p>That said, if you would like to use my work as a base to build your own tools, the website
-is open-source and source code can be found at <a href="https://github.com/magcius/noclip.website">GitHub</a>.</p>
-
-<p>If you are looking for art for your own projects, there are some fantastic artists
-out there in the community that are always looking for work. Hire them instead of
-using art assets from other games.</p>
-
-## This is cool! Any way I can help you out!
-
-<p>Absolutely. Join <a href="https://discord.gg/bkJmKKv">the official Discord</a> and ask around if you would like to help out.
-The easiest things to help out with are providing savestates and naming maps, and can
-be done even if you do not know how to code. There's also some work that would be
-appreciated to help me improve accuracy, like running games in certain modes to help
-me compare the two.</p>
-
-<p>If you have a more tech-y background, there's always coding work to be done. All
-the source code to the site is available at <a href="https://github.com/magcius/noclip.website">GitHub</a>,
-whether you want to browse around, use it for your own purposes, or help contribute.</p>
-
-## Are you afraid of being taken down?
-
-<p>Less than you might think. Companies take down fan projects when they're competing
-with their in-house projects. I don't see noclip.website as competing with any game
-out there &mdash; it's more of a museum, not a game. The worlds on display are incredible
-and I hope they encourage you to go out and buy a copy of the game itself.</p>
-
-<p>That said, I have enormous respect for the developers and dev teams and if I received
-a take-down request, I would honor it. It is their work on display, after all.</p>
-
-<p>Developers are only able to make these fantastic worlds if we collectively support
-them. noclip would not exist without their hard work and dedication. To ensure that they
-remain healthy, please try to buy games instead of pirating them. I also put in extra effort
-to ensure that all assets available on this site cannot be used to pirate the game itself.</p>
-
-## Do you accept donations?
-
-<p>No. Use the money to buy some games instead.</p>
-
-## Any affiliation to noclip, the documentary people?
-
-<p>I chatted with them once, but the name is a coincidence. The name comes from an old Quake
-command that would let you fly through the levels here, just like in the game.</p>
-
-## Have you seen the YouTube show Boundary Break?
-
-<p>Of course! I love that show. I'm ecstatic to see that exploring video game levels from
-different angles has captured the imaginations of such a wide audience. And I hope that this
-site encourages that same curiosity that's visible all throughout Boundary Break, trekking
-through these levels on your own adventures!</p>
-
-## Who made this site?
-
-<p>In my opinion? The artists and game developers. They made everything you actually see here
-on display.</p>
-
-<p>All icons you see are from <a href="https://thenounproject.com/">The Noun Project</a>,
-used under Creative Commons CC-BY:</p>
-<ul>
-<li> Truncated Pyramid <span>by</span> Bohdan Burmich
-<li> Images <span>by</span> Creative Stall
-<li> Help <span>by</span> Gregor Cresnar
-<li> Open <span>by</span> Landan Lloyd
-<li> Nightshift <span>by</span> mikicon
-<li> Layer <span>by</span> Chameleon Design
-<li> Sand Clock <span>by</span> James
-<li> Line Chart <span>by</span> Shastry
-<li> Search <span>by</span> Alain W.
-<li> Save <span>by</span> Prime Icons
-<li> Overlap <span>by</span> Zach Bogart
-<li> VR <span>by</span> Fauzan Adaiima
-<li> Play Clapboard <span>by</span> Yoyon Pujiyono
-<li> Undo <span>by</span> Numero Uno
-<li> Redo <span>by</span> Numero Uno
-<li> Zoom In <span>by</span> Tanvir Islam
-<li> Zoom Out <span>by</span> Tanvir Islam
-
-</ul>
-`;
-
-        const qas = faq.split('##').slice(1).map((qa) => {
-            const firstNewline = qa.indexOf('\n');
-            const question = qa.slice(0, firstNewline).trim();
-            const answer = qa.slice(firstNewline).trim();
-
-            return { question, answer };
-        });
-
-        for (let i = 0; i < qas.length; i++) {
-            const block = document.createElement('div');
-
-            const title = qas[i].question;
-
-            const q = document.createElement('p');
-            q.style.color = '#ccc';
-            q.style.fontWeight = 'bold';
-            q.style.marginTop = '0';
-            q.style.fontSize = '12pt';
-            q.textContent = title;
-            block.appendChild(q);
-            const a = document.createElement('p');
-            a.style.marginBottom = '1.6em';
-            a.innerHTML = qas[i].answer;
-            block.appendChild(a);
-
-            qa.appendChild(block);
-        }
-
-        this.toplevel.appendChild(this.panel);
-
-        this.elem = this.toplevel;
     }
 }
 
@@ -2301,7 +2352,7 @@ class CameraSpeedIndicator implements BottomBarWidget {
     }
 }
 
-const enum BottomBarArea { Left, Center, Right }
+enum BottomBarArea { Left, Center, Right }
 
 function setAreaAnchor(elem: HTMLElement, area: BottomBarArea) {
     if (area === BottomBarArea.Left) {
@@ -2688,14 +2739,13 @@ export class UI {
     public statisticsPanel: StatisticsPanel;
     public panels: Panel[];
     private about: About;
-    private faqPanel: FAQPanel;
     private studioSidePanel: StudioSidePanel;
     private studioPanel: StudioPanel;
     private recordingBranding = new RecordingBranding();
 
     public cameraSpeedIndicator = new CameraSpeedIndicator();
     private bottomBar = new BottomBar();
-    private playPauseButton = new PlayPauseButton();
+    public playPauseButton = new PlayPauseButton();
     private shareButton = new ShareButton();
     private fullscreenButton = new FullscreenButton();
 
@@ -2704,10 +2754,9 @@ export class UI {
     private isDragging: boolean = false;
     private lastMouseActiveTime: number = -1;
 
-    public isPlaying: boolean = true;
-
     public isEmbedMode: boolean = false;
     public isVisible: boolean = true;
+    public hasScene: boolean = false;
 
     public studioModeEnabled: boolean = false;
 
@@ -2766,29 +2815,19 @@ export class UI {
         this.bottomBar.addWidgets(BottomBarArea.Right, this.shareButton);
         this.bottomBar.addWidgets(BottomBarArea.Right, this.fullscreenButton);
 
-        this.sceneSelect = new SceneSelect(viewer);
+        this.sceneSelect = new SceneSelect();
         this.textureViewer = new TextureViewer();
-        this.viewerSettings = new ViewerSettings(this, viewer);
+        this.viewerSettings = new ViewerSettings(this);
         this.xrSettings = new XRSettings(this, viewer);
-        this.statisticsPanel = new StatisticsPanel(viewer);
+        this.statisticsPanel = new StatisticsPanel();
         this.about = new About();
 
-        this.faqPanel = new FAQPanel();
-        this.faqPanel.elem.style.display = 'none';
-        this.toplevel.appendChild(this.faqPanel.elem);
-
         this.studioSidePanel = new StudioSidePanel(this);
-        this.studioPanel = new StudioPanel(this, viewer);
+        this.studioPanel = new StudioPanel(this);
         this.toplevel.appendChild(this.studioPanel.elem);
 
-        this.playPauseButton.onplaypause = (shouldBePlaying) => {
-            this.togglePlayPause(shouldBePlaying);
-        };
-        this.playPauseButton.setIsPlaying(this.isPlaying);
-
-        this.about.onfaq = () => {
-            this.faqPanel.elem.style.display = 'block';
-        };
+        this.viewerSettings.setViewer(viewer);
+        this.studioPanel.setViewer(viewer);
 
         window.onmousemove = () => {
             this.setMouseActive();
@@ -2800,9 +2839,19 @@ export class UI {
         this.elem = this.toplevel;
     }
 
-    public togglePlayPause(shouldBePlaying: boolean = !this.isPlaying): void {
-        this.isPlaying = shouldBePlaying;
-        this.playPauseButton.setIsPlaying(this.isPlaying);
+    public setViewer(viewer: Viewer.Viewer): void {
+        if (this.viewer === viewer)
+            return;
+
+        this.viewer = viewer;
+        this.viewerSettings.setViewer(this.viewer);
+        this.studioPanel.setViewer(this.viewer);
+
+        this.xrSettings = new XRSettings(this, this.viewer);
+    }
+
+    public setIsPlaying(v: boolean): void {
+        this.playPauseButton.setIsPlaying(v);
     }
 
     public toggleWebXRCheckbox(shouldBeChecked: boolean = !this.xrSettings.enableXRCheckBox.checked) {
@@ -2825,9 +2874,7 @@ export class UI {
     public sceneChanged() {
         const cameraControllerClass = this.viewer.cameraController!.constructor as CameraControllerClass;
         this.viewerSettings.cameraControllerSelected(cameraControllerClass);
-        const keyMoveSpeed = this.viewer.cameraController!.getKeyMoveSpeed();
-        if (keyMoveSpeed !== null)
-            this.viewerSettings.setInitialKeyMoveSpeed(keyMoveSpeed);
+        this.viewerSettings.setupFromCamera(this.viewer.cameraController!, this.viewer.camera);
 
         // Textures
         if (this.viewer.scene !== null) {
@@ -2853,7 +2900,17 @@ export class UI {
         this.debugFloaterHolder.destroyScene();
     }
 
+    private setHasScene(v: boolean): void {
+        if (this.hasScene === v)
+            return;
+
+        this.hasScene = v;
+        this.syncVisibilityState();
+    }
+
     public setScenePanels(scenePanels: Panel[] | null): void {
+        this.setHasScene(scenePanels !== null);
+
         if (scenePanels !== null) {
             this.setPanels([this.sceneSelect, ...scenePanels, this.textureViewer, this.viewerSettings, this.xrSettings, this.statisticsPanel, this.studioSidePanel, this.about]);
         } else {
@@ -2907,9 +2964,11 @@ export class UI {
         this.bottomBar.setVisible(bottomBarVisible);
         this.bottomBar.setActive(this.shouldBottomBarBeFadeIn());
 
+        this.playPauseButton.setVisible(this.hasScene);
+
         const extraButtonsVisible = !this.isEmbedMode;
         this.cameraSpeedIndicator.setVisible(extraButtonsVisible);
-        this.shareButton.setVisible(extraButtonsVisible);
+        this.shareButton.setVisible(extraButtonsVisible && this.hasScene);
     }
 
     public setEmbedMode(v: boolean): void {

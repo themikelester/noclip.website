@@ -1,5 +1,7 @@
-use deku::bitvec::BitSlice;
-use deku::{DekuContainerRead, DekuRead};
+use std::io::Cursor;
+
+use deku::reader::Reader;
+use deku::{DekuContainerRead, DekuReader};
 use wasm_bindgen::prelude::*;
 
 use crate::unity::types::wasm::WasmFriendlyPPtr;
@@ -39,10 +41,12 @@ impl AssetFile {
 
     pub fn append_metadata_chunk(&mut self, data: &[u8]) -> Result<(), String> {
         // data will be the file from bytes 0..data_offset, so skip to where the metadata starts
-        let bitslice = BitSlice::from_slice(data);
-        let (rest, _) = SerializedFileHeader::read(&bitslice, ()).unwrap();
-        match SerializedFileMetadata::read(rest, self.header.version) {
-            Ok((_, metadata)) => self.metadata = Some(metadata),
+        let mut cursor = Cursor::new(data);
+        let mut reader = Reader::new(&mut cursor);
+        let _header = SerializedFileHeader::from_reader_with_ctx(&mut reader, ())
+            .map_err(|err| format!("failed to parse metadata file header: {:?}", err))?;
+        match SerializedFileMetadata::from_reader_with_ctx(&mut reader, self.header.version) {
+            Ok(metadata) => self.metadata = Some(metadata),
             Err(err) => return Err(format!("failed to parse metadata: {:?}", err)),
         }
         Ok(())
@@ -77,7 +81,7 @@ impl AssetFile {
                 ClassID::MonoBehavior
             };
             result.push(AssetFileObject {
-                file_id:obj.file_id,
+                file_id: obj.file_id,
                 byte_start,
                 byte_size: obj.byte_size as usize,
                 class_id,
@@ -115,7 +119,7 @@ mod tests {
 
     #[test]
     fn test() {
-        let base_path = PathBuf::from_str("C:\\Users\\ifnsp\\dev\\noclip.website\\data\\AShortHike").unwrap();
+        let base_path = PathBuf::from_str("../data/AShortHike").unwrap();
         let data = std::fs::read(&base_path.join("resources.assets")).unwrap();
         let version = UnityVersion::V2021_3_27f1;
         let mut asset_file = AssetFile::initialize_with_header_chunk(&data).unwrap();

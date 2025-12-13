@@ -1,61 +1,68 @@
-// @ts-ignore
-import program_glsl from './program.glsl';
+import * as CRC32 from "crc-32";
 import { mat3, mat4, vec2, vec3 } from "gl-matrix";
 import { CameraController, computeViewMatrix, computeViewSpaceDepthFromWorldSpaceAABB } from "../Camera.js";
 import { colorCopy, colorLerp, colorNewCopy, White } from "../Color.js";
 import { AABB } from "../Geometry.js";
-import { makeStaticDataBuffer } from "../gfx/helpers/BufferHelpers.js";
+import { GfxShaderLibrary } from "../gfx/helpers/GfxShaderLibrary.js";
 import {
     makeBackbufferDescSimple,
     standardFullClearRenderPassDescriptor
 } from "../gfx/helpers/RenderGraphHelpers.js";
+import { makeSolidColorTexture2D } from '../gfx/helpers/TextureHelpers.js';
 import { fillColor, fillMatrix4x2, fillMatrix4x3, fillMatrix4x4, fillVec3v, fillVec4 } from "../gfx/helpers/UniformBufferHelpers.js";
 import {
     GfxBindingLayoutDescriptor,
     GfxBlendFactor,
     GfxBlendMode,
+    GfxBuffer,
+    GfxBufferFrequencyHint,
     GfxBufferUsage,
     GfxChannelWriteMask,
     GfxCullMode,
     GfxDevice,
     GfxFormat,
     GfxFrontFaceMode,
-    GfxRenderProgramDescriptor,
     GfxIndexBufferDescriptor,
+    GfxInputLayout,
     GfxInputLayoutBufferDescriptor,
     GfxMegaStateDescriptor,
     GfxMipFilterMode,
+    GfxProgram,
+    GfxRenderProgramDescriptor,
+    GfxSampler,
     GfxTexFilterMode,
+    GfxTexture,
     GfxVertexAttributeDescriptor,
     GfxVertexBufferDescriptor,
     GfxVertexBufferFrequency,
     GfxWrapMode,
 } from "../gfx/platform/GfxPlatform.js";
-import { GfxBuffer, GfxInputLayout, GfxProgram, GfxSampler, GfxTexture } from "../gfx/platform/GfxPlatformImpl.js";
+import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
 import { GfxrAttachmentSlot } from "../gfx/render/GfxRenderGraph.js";
 import { GfxRenderHelper } from "../gfx/render/GfxRenderHelper.js";
 import { GfxRendererLayer, GfxRenderInstList, GfxRenderInstManager, makeSortKey, setSortKeyDepth } from "../gfx/render/GfxRenderInstManager.js";
 import { preprocessProgramObj_GLSL } from "../gfx/shaderc/GfxShaderCompiler.js";
 import { hashCodeNumberFinish, hashCodeNumberUpdate, HashMap } from "../HashMap.js";
 import { CalcBillboardFlags, calcBillboardMatrix, getMatrixTranslation, lerp } from "../MathHelpers.js";
+import { DeviceProgram } from '../Program.js';
 import { TextureMapping } from "../TextureHolder.js";
+import * as UI from '../ui.js';
 import { nArray } from "../util.js";
 import * as Viewer from '../viewer.js';
 import { FileType, TotemArchive } from "./archive.js";
 import {
-    BillboardMode, Texture, MaterialFlags,
-    getMaterialFlag, interpTrack, interpTrackInPlace, iterWarpSkybox, precompute_lerp_vec2, precompute_lerp_vec3, precompute_surface_vec3,
+    BillboardMode,
+    getMaterialFlag, interpTrack, interpTrackInPlace, iterWarpSkybox,
+    MaterialFlags,
+    precompute_lerp_vec2, precompute_lerp_vec3, precompute_surface_vec3,
     readBitmap, readHFog, readLight, readLod, readMaterial, readMaterialAnim, readMesh,
     readNode, readOmni, readRotshape, readSkin, readSurface, readWarp,
+    Texture,
     TotemBitmap, TotemHFog, TotemLight, TotemLod, TotemMaterial, TotemMaterialAnim, TotemMesh,
     TotemNode, TotemOmni, TotemRotshape, TotemSkin, TotemSurfaceObject, TotemWarp
 } from "./types/index.js";
 import { colorCopyKeepAlpha, colorLerpKeepAlpha, DataStream, SIZE_VEC2, SIZE_VEC3 } from "./util.js";
-import * as CRC32 from "crc-32";
-import { DeviceProgram } from '../Program.js';
-import * as UI from '../ui.js';
-import { makeSolidColorTexture2D } from '../gfx/helpers/TextureHelpers.js';
-import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
+import { createBufferFromData } from "../gfx/helpers/BufferHelpers.js";
 
 class RotfdProgram extends DeviceProgram {
     public static ub_SceneParams = 0;
@@ -65,11 +72,111 @@ class RotfdProgram extends DeviceProgram {
     public static MATERIALPARAM_SIZE = 4*3 + 4*3 + 4 + 4 + 4*2;
     public static INSTANCEPARAM_SIZE = 4 + 4 + 4 + 4*4 + 4 + 4 * (4 + 4 + 4);
 
-    public override both = program_glsl;
+    public override both = `
+struct DirectionalLight {
+    vec3 direction;
+    vec3 color;
+    vec3 ambient;
+};
 
-    constructor() {
-        super();
+struct OmniLight {
+    vec4 position;
+    vec4 color;
+    vec4 attenuation;
+};
+
+struct HFog {
+    mat4 transform;
+    vec4 color;
+};
+
+#define NUM_OMNI_LIGHTS 4
+
+${GfxShaderLibrary.MatrixLibrary}
+
+layout(std140) uniform ub_SceneParams {
+    Mat4x4 u_Projection;
+};
+
+layout(std140) uniform ub_MaterialParams {
+    Mat3x4 u_Model;
+    Mat3x4 u_ModelView;
+    vec4 u_Color;
+    vec4 u_Emit;
+    Mat2x4 u_TexTransform;
+};
+
+layout(std140) uniform ub_InstanceParams {
+    DirectionalLight u_light;
+    HFog u_hFog;
+    OmniLight u_omni[NUM_OMNI_LIGHTS];
+};
+
+uniform sampler2D u_Texture;
+uniform sampler2D u_TextureReflection;
+
+varying vec2 v_TexCoord;
+varying vec3 v_WorldPosition;
+varying vec3 v_LightColor;
+varying vec3 v_ClipNormal;
+
+#ifdef VERT
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec2 a_TexCoord;
+layout(location = 2) in vec3 a_Normal;
+
+void main() {
+    v_WorldPosition = UnpackMatrix(u_Model) * vec4(a_Position, 1.0);
+    vec3 t_PositionView = UnpackMatrix(u_ModelView) * vec4(a_Position, 1.0);
+    gl_Position = UnpackMatrix(u_Projection) * vec4(t_PositionView, 1.0);
+
+    v_TexCoord = UnpackMatrix(u_TexTransform) * vec4(a_TexCoord.xy, 1.0, 1.0);
+    vec3 worldNormal = normalize(UnpackMatrix(u_Model) * vec4(a_Normal, 0.0));
+    v_ClipNormal = UnpackMatrix(u_ModelView) * vec4(a_Normal, 0.0);
+
+    // AMBIENT
+    v_LightColor = u_light.ambient;
+    // DIFFUSE
+    float lightDot = max(0.0, dot(worldNormal, u_light.direction));
+    v_LightColor += lightDot * u_light.color;
+    // OMNI
+    for (int i = 0; i < 4; i++) {
+        OmniLight omni = u_omni[i];
+        if (omni.color.a > 0.0) {
+            vec3 diff = omni.position.xyz - v_WorldPosition.xyz;
+            vec3 lightDirection = normalize(diff);
+            float minrange = omni.attenuation[0];
+            float maxrange = omni.attenuation[1] - minrange;
+            float dist = max(0.0, length(diff) - minrange);
+            vec4 color = omni.color;
+            float att = clamp(maxrange/dist, 0.0, 1.0);
+            v_LightColor += color.rgb * att * max(0.0, dot(worldNormal, lightDirection));
+        }
     }
+}
+#endif
+
+#ifdef FRAG
+void main() {
+    vec4 texcol = texture(SAMPLER_2D(u_Texture), v_TexCoord);
+    vec3 surfacecol = texcol.rgb * u_Color.rgb;
+    float alpha = texcol.a * u_Color.a;
+    // SPECULAR
+    vec3 reflectLight = normalize(reflect(u_light.direction, v_ClipNormal));
+    vec4 reflectionColor = texture(SAMPLER_2D(u_TextureReflection), reflectLight.xy);
+    // APPLY
+    gl_FragColor = vec4(surfacecol * v_LightColor + reflectionColor.rgb, alpha);
+    // FOG
+    if (u_hFog.color.a > 0.0) {
+        vec4 fogPos = u_hFog.transform * vec4(v_WorldPosition, 1.0);
+        float fogAmount = clamp(1.0 - fogPos.y, 0.0, 1.0);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, u_hFog.color.rgb, fogAmount * u_hFog.color.a);
+    }
+    // EMIT
+    gl_FragColor.rgb += texcol.rgb * u_Emit.rgb;
+}
+#endif
+`;
 }
 
 const bindingLayouts: GfxBindingLayoutDescriptor[] = [
@@ -283,8 +390,8 @@ class VertexData {
         public bbox: AABB,
         public material_id: number,
     ) {
-        this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, new Uint16Array(indices).buffer);
-        this.vertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, new Float32Array(vertices).buffer);
+        this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, new Uint16Array(indices).buffer);
+        this.vertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, new Float32Array(vertices).buffer);
         this.indexCount = indices.length;
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
@@ -299,9 +406,9 @@ class VertexData {
         const indexBufferFormat = GfxFormat.U16_R;
         this.inputLayout = cache.createInputLayout({ vertexAttributeDescriptors, vertexBufferDescriptors, indexBufferFormat });
         this.vertexBufferDescriptors = [
-            { buffer: this.vertexBuffer, byteOffset: 0, },
+            { buffer: this.vertexBuffer },
         ];
-        this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+        this.indexBufferDescriptor = { buffer: this.indexBuffer };
     }
 
     public destroy(device: GfxDevice): void {

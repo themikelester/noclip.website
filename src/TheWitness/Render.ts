@@ -1,29 +1,28 @@
 
 import { mat4, ReadonlyMat4, vec3 } from "gl-matrix";
 import { CameraController } from "../Camera.js";
-import { Color, colorCopy, colorNewCopy, colorNewFromRGBA, Magenta, White } from "../Color.js";
+import { Color, colorCopy, colorNewCopy, colorNewFromRGBA, White } from "../Color.js";
 import { AABB } from "../Geometry.js";
 import { fullscreenMegaState, setAttachmentStateSimple } from "../gfx/helpers/GfxMegaStateDescriptorHelpers.js";
-import { makeBackbufferDescSimple, standardFullClearRenderPassDescriptor } from "../gfx/helpers/RenderGraphHelpers.js";
 import { GfxShaderLibrary } from "../gfx/helpers/GfxShaderLibrary.js";
+import { makeBackbufferDescSimple, standardFullClearRenderPassDescriptor } from "../gfx/helpers/RenderGraphHelpers.js";
 import { fillColor, fillMatrix4x3, fillMatrix4x4, fillVec3v, fillVec4, fillVec4v } from "../gfx/helpers/UniformBufferHelpers.js";
-import { GfxBindingLayoutDescriptor, GfxBlendFactor, GfxBlendMode, GfxCullMode, GfxDevice, GfxFormat, GfxRenderProgramDescriptor, GfxMegaStateDescriptor, GfxMipFilterMode, GfxTexFilterMode, GfxWrapMode } from "../gfx/platform/GfxPlatform.js";
-import { GfxProgram, GfxSampler } from "../gfx/platform/GfxPlatformImpl.js";
+import { GfxBindingLayoutDescriptor, GfxBlendFactor, GfxBlendMode, GfxCullMode, GfxDevice, GfxFormat, GfxMegaStateDescriptor, GfxMipFilterMode, GfxProgram, GfxRenderProgramDescriptor, GfxSampler, GfxTexFilterMode, GfxWrapMode } from "../gfx/platform/GfxPlatform.js";
+import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
 import { GfxrAttachmentSlot, GfxrRenderTargetDescription } from "../gfx/render/GfxRenderGraph.js";
 import { GfxRenderHelper } from "../gfx/render/GfxRenderHelper.js";
 import { GfxRendererLayer, GfxRenderInst, GfxRenderInstList, GfxRenderInstManager, makeSortKey, setSortKeyDepth } from "../gfx/render/GfxRenderInstManager.js";
+import { preprocessShader_GLSL } from "../gfx/shaderc/GfxShaderCompiler.js";
+import { hashCodeNumberUpdate, HashMap } from "../HashMap.js";
 import { setMatrixTranslation } from "../MathHelpers.js";
 import { DeviceProgram } from "../Program.js";
+import { UberShaderInstance, UberShaderTemplate } from "../SourceEngine/UberShader.js";
 import { TextureMapping } from "../TextureHolder.js";
 import { nArray } from "../util.js";
 import { SceneGfx, ViewerRenderInput } from "../viewer.js";
 import { Asset_Type, Material_Flags, Material_Type, Mesh_Asset, Render_Material, Texture_Asset } from "./Assets.js";
 import { Entity_World, Lightmap_Table } from "./Entity.js";
 import { TheWitnessGlobals } from "./Globals.js";
-import { UberShaderInstance, UberShaderTemplate } from "../SourceEngine/UberShader.js";
-import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
-import { preprocessShader_GLSL } from "../gfx/shaderc/GfxShaderCompiler.js";
-import { hashCodeNumberUpdate, HashMap } from "../HashMap.js";
 
 class DepthCopyProgram extends DeviceProgram {
     public override vert = GfxShaderLibrary.fullscreenVS;
@@ -77,6 +76,8 @@ class TheWitnessShaderTemplate extends UberShaderTemplate<Render_Material> {
         return `
 precision mediump float;
 
+${GfxShaderLibrary.MatrixLibrary}
+
 layout(std140) uniform ub_SceneParams {
     Mat4x4 u_ViewProjection;
     vec4 u_CameraPosWorld;
@@ -92,7 +93,7 @@ layout(std140) uniform ub_SceneParams {
 #define u_SceneTime (u_KeyLightColor.w)
 
 layout(std140) uniform ub_ObjectParams {
-    Mat4x3 u_ModelMatrix;
+    Mat3x4 u_ModelMatrix;
     vec4 u_MaterialColorAndEmission;
     vec4 u_FoliageParams;
     vec4 u_SpecularParams;
@@ -128,6 +129,7 @@ uniform sampler2D u_TerrainColor;
 
 ${GfxShaderLibrary.saturate}
 ${GfxShaderLibrary.CalcScaleBias}
+${GfxShaderLibrary.MulNormalMatrix}
 
 vec3 UnpackNormalMap(in vec4 t_NormalMapSample) {
     vec3 t_Normal;
@@ -224,20 +226,21 @@ void mainVS() {
         t_PositionLocal += (t_NormalLocal * t_ShellExtrude);
     }
 
-    v_PositionWorld = Mul(_Mat4x4(u_ModelMatrix), vec4(t_PositionLocal, 1.0)).xyz;
+    mat4x3 t_ModelMatrix = UnpackMatrix(u_ModelMatrix);
+    v_PositionWorld = t_ModelMatrix * vec4(t_PositionLocal, 1.0);
 
-    vec3 t_NormalWorld = Mul(_Mat4x4(u_ModelMatrix), vec4(t_NormalLocal, 0.0)).xyz;
+    vec3 t_NormalWorld = MulNormalMatrix(t_ModelMatrix, t_NormalLocal);
     vec3 t_TangentSWorld = a_TangentS.xyz;
     vec3 t_TangentTWorld = cross(t_NormalWorld, t_TangentSWorld);
 
     bool use_wind = ${this.is_flag(m, Material_Flags.Wind_Animation)};
     if (use_wind) {
         vec4 t_WindParam = a_Color0.xyzw;
-        vec3 t_ObjectPos = Mat4x3GetCol3(u_ModelMatrix);
+        vec3 t_ObjectPos = t_ModelMatrix[3];
         CalcTrunkWind(v_PositionWorld, a_Color0, t_ObjectPos);
     }
 
-    gl_Position = Mul(u_ViewProjection, vec4(v_PositionWorld, 1.0));
+    gl_Position = UnpackMatrix(u_ViewProjection) * vec4(v_PositionWorld, 1.0);
     v_TexCoord0 = a_TexCoord0.xy;
 
     bool use_scroll_speed = ${this.is_type(m, Material_Type.Refract) || this.is_type(m, Material_Type.Decal)};
@@ -664,7 +667,7 @@ class Device_Material {
     public megaStateFlags: Partial<GfxMegaStateDescriptor> = {};
 
     constructor(globals: TheWitnessGlobals, public render_material: Render_Material) {
-        const wrap_sampler = globals.cache.createSampler({
+        const wrap_sampler = globals.renderCache.createSampler({
             minFilter: GfxTexFilterMode.Bilinear,
             magFilter: GfxTexFilterMode.Bilinear,
             mipFilter: GfxMipFilterMode.Linear,
@@ -672,7 +675,7 @@ class Device_Material {
             wrapT: GfxWrapMode.Repeat,
         });
 
-        const clamp_sampler = globals.cache.createSampler({
+        const clamp_sampler = globals.renderCache.createSampler({
             minFilter: GfxTexFilterMode.Bilinear,
             magFilter: GfxTexFilterMode.Bilinear,
             mipFilter: GfxMipFilterMode.Linear,
@@ -700,7 +703,7 @@ class Device_Material {
         this.load_texture(globals, 10, 'white', clamp_sampler);
 
         this.shader_instance = globals.device_material_cache.create_shader_instance(this.render_material);
-        this.gfx_program = this.shader_instance.getGfxProgram(globals.cache);
+        this.gfx_program = this.shader_instance.getGfxProgram(globals.renderCache);
 
         // Disable invisible material types.
         if (material_type === Material_Type.Collision_Only || material_type === Material_Type.Occluder)
@@ -883,7 +886,7 @@ export class Cached_Shadow_Map {
     constructor(globals: TheWitnessGlobals, world: Entity_World) {
         const texture_name = `${globals.entity_manager.universe_name}_shadow_map_${this.shadow_map_size}`;
 
-        const clamp_sampler = globals.cache.createSampler({
+        const clamp_sampler = globals.renderCache.createSampler({
             minFilter: GfxTexFilterMode.Bilinear,
             magFilter: GfxTexFilterMode.Bilinear,
             mipFilter: GfxMipFilterMode.Linear,

@@ -7,7 +7,7 @@ import { DrawBufferType } from "./NameObj.js";
 import { GfxRenderInstExecutionOrder, GfxRenderInstList, GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
 import { range } from "../MathHelpers.js";
 
-export const enum LightType {
+export enum LightType {
     None   = -1,
     Player = 0x00,
     Strong = 0x01,
@@ -17,7 +17,7 @@ export const enum LightType {
     Coin   = 0x04,
 }
 
-export const enum DrawCameraType {
+export enum DrawCameraType {
     DrawCameraType_3D     = 0x00,
     DrawCameraType_2D     = 0x01,
     DrawCameraType_Mirror = 0x02,
@@ -147,7 +147,7 @@ class DrawBufferExecuter {
         for (let i = 0; i < materialOrder.length; i++) {
             const materialIndex = materialOrder[i];
             const materialInstance = this.modelInstance!.materialInstances[materialIndex];
-            materialInstance.prepareToRenderShapes(device, renderInstManager, depth, camera, this.modelInstance.modelData, this.modelInstance.materialInstanceState, this.modelInstance.shapeInstanceState);
+            materialInstance.prepareToRenderShapes(renderInstManager, depth, camera.projectionMatrix, this.modelInstance.modelData, this.modelInstance.materialInstanceState, this.modelInstance.shapeInstanceState);
         }
     }
 
@@ -157,7 +157,7 @@ class DrawBufferExecuter {
     }
 
     public drawXlu(device: GfxDevice, renderInstManager: GfxRenderInstManager, camera: Camera): void {
-        const depth = this.modelInstance.computeDepth(camera);
+        const depth = this.modelInstance.computeDepth();
         this.draw(device, renderInstManager, camera, this.materialOrderXlu, depth);
     }
 }

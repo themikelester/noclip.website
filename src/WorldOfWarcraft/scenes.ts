@@ -1,22 +1,22 @@
 import { mat4, ReadonlyMat4, vec3, vec4 } from "gl-matrix";
+import type { ConvexHull } from "../../rust/pkg/noclip_support";
 import { CameraController } from "../Camera.js";
 import { AABB, Frustum } from "../Geometry.js";
-import { getMatrixTranslation, invlerp, lerp, projectionMatrixForFrustum, saturate, setMatrixTranslation, transformVec3Mat4w1 } from "../MathHelpers.js";
+import { getMatrixTranslation, invlerp, lerp, projectionMatrixForFrustum, setMatrixTranslation, transformVec3Mat4w1 } from "../MathHelpers.js";
 import { SceneContext } from "../SceneBase.js";
 import { makeBackbufferDescSimple, standardFullClearRenderPassDescriptor } from "../gfx/helpers/RenderGraphHelpers.js";
-import { GfxClipSpaceNearZ, GfxCullMode, GfxDevice } from "../gfx/platform/GfxPlatform.js";
-import { GfxProgram } from "../gfx/platform/GfxPlatformImpl.js";
+import { GfxClipSpaceNearZ, GfxCullMode, GfxDevice, GfxProgram } from "../gfx/platform/GfxPlatform.js";
 import { GfxrAttachmentSlot } from "../gfx/render/GfxRenderGraph.js";
 import { GfxRenderHelper } from "../gfx/render/GfxRenderHelper.js";
-import { GfxRenderInstList } from "../gfx/render/GfxRenderInstManager.js";
+import { gfxRenderInstCompareNone, GfxRenderInstExecutionOrder, GfxRenderInstList } from "../gfx/render/GfxRenderInstManager.js";
 import { rust } from "../rustlib.js";
 import { assert } from "../util.js";
+import * as UI from "../ui.js";
 import * as Viewer from "../viewer.js";
 import { AdtCoord, AdtData, Database, DoodadData, LazyWorldData, ModelData, WmoData, WmoDefinition, WorldData, WowCache } from "./data.js";
 import { BaseProgram, LoadingAdtProgram, ModelProgram, ParticleProgram, SkyboxProgram, TerrainProgram, WaterProgram, WmoProgram } from "./program.js";
 import { LoadingAdtRenderer, ModelRenderer, SkyboxRenderer, TerrainRenderer, WaterRenderer, WmoRenderer } from "./render.js";
 import { TextureCache } from "./tex.js";
-import type { ConvexHull } from "../../rust/pkg/noclip_support";
 
 export const MAP_SIZE = 17066;
 
@@ -51,6 +51,8 @@ export class View {
     public clipFromWorldMatrix = mat4.create();
     // aka projectionMatrix
     public clipFromViewMatrix = mat4.create();
+    public backbufferWidth: number;
+    public backbufferHeight: number;
     public interiorSunDirection = vec4.fromValues(-0.30822, -0.30822, -0.9, 0);
     public exteriorDirectColorDirection = vec4.fromValues(-0.30822, -0.30822, -0.9, 0);
     public clipSpaceNearZ: GfxClipSpaceNearZ;
@@ -65,6 +67,7 @@ export class View {
     public secondsPerGameDay = 90;
     public fogEnabled = true;
     public freezeTime = false;
+    public frozenTime = 800;
 
     constructor() {}
 
@@ -101,6 +104,9 @@ export class View {
     }
 
     public setupFromViewerInput(viewerInput: Viewer.ViewerRenderInput): void {
+        this.backbufferWidth = viewerInput.backbufferWidth;
+        this.backbufferHeight = viewerInput.backbufferHeight;
+
         this.cullingNearPlane = viewerInput.camera.near;
         this.clipSpaceNearZ = viewerInput.camera.clipSpaceNearZ;
         mat4.mul(this.viewFromWorldMatrix, viewerInput.camera.viewMatrix, noclipSpaceFromAdtSpace);
@@ -122,7 +128,7 @@ export class View {
         this.cullingFrustum.updateClipFrustum(clipFromWorldMatrixCull, GfxClipSpaceNearZ.NegativeOne);
 
         if (this.freezeTime) {
-            this.time = 800;
+            this.time = this.frozenTime;
         } else {
             this.time = (viewerInput.time / this.secondsPerGameDay + this.timeOffset) % 2880;
         }
@@ -133,13 +139,13 @@ export class View {
     }
 }
 
-const enum CullingState {
+enum CullingState {
     Running,
     Paused,
     OneShot,
 };
 
-const enum CameraState {
+enum CameraState {
     Frozen,
     Running,
 };
@@ -283,7 +289,7 @@ export class WdtScene implements Viewer.SceneGfx {
     private skyboxRenderer: SkyboxRenderer;
     private loadingAdtRenderer: LoadingAdtRenderer;
     private renderInstListMain = new GfxRenderInstList();
-    private renderInstListSky = new GfxRenderInstList();
+    private renderInstListSky = new GfxRenderInstList(gfxRenderInstCompareNone, GfxRenderInstExecutionOrder.Forwards);
 
     public ADT_LOD0_DISTANCE = 1000;
 
@@ -304,7 +310,6 @@ export class WdtScene implements Viewer.SceneGfx {
     public currentAdtCoords: [number, number] = [0, 0];
     public loadingAdts: [number, number][] = [];
 
-    public debug = false;
     public enableFog = true;
     public enableParticles = true;
     public cullingState = CullingState.Running;
@@ -314,6 +319,8 @@ export class WdtScene implements Viewer.SceneGfx {
     private frozenFrameData: FrameData | null = null;
     private modelCamera = vec3.create();
     private modelFrustum: ConvexHull;
+
+    private timeOfDayPanel: UI.TimeOfDayPanel | null = null;
 
     constructor(private device: GfxDevice, public world: WorldData | LazyWorldData, public renderHelper: GfxRenderHelper, private db: Database) {
         console.time("WdtScene construction");
@@ -653,9 +660,11 @@ export class WdtScene implements Viewer.SceneGfx {
         const renderInstManager = this.renderHelper.renderInstManager;
 
         const template = this.renderHelper.pushTemplateRenderInst();
+        template.setBindingLayouts(BaseProgram.bindingLayouts);
         template.setMegaStateFlags({ cullMode: GfxCullMode.Back });
         template.setGfxProgram(this.skyboxProgram);
-        template.setBindingLayouts(SkyboxProgram.bindingLayouts);
+
+        this.renderHelper.debugDraw.beginFrame(this.mainView.clipFromViewMatrix, this.mainView.viewFromWorldMatrix, this.mainView.backbufferWidth, this.mainView.backbufferHeight);
 
         const lightingData = this.db.getGlobalLightingData(this.world.lightdbMapId, this.mainView.cameraPos, this.mainView.time);
         BaseProgram.layoutUniformBufs(template, this.mainView, lightingData);
@@ -663,7 +672,6 @@ export class WdtScene implements Viewer.SceneGfx {
         this.skyboxRenderer.prepareToRenderSkybox(renderInstManager);
 
         template.setGfxProgram(this.loadingAdtProgram);
-        template.setBindingLayouts(LoadingAdtProgram.bindingLayouts);
         renderInstManager.setCurrentList(this.renderInstListMain);
         this.loadingAdtRenderer.update(this.mainView);
         this.loadingAdtRenderer.prepareToRenderLoadingBox(renderInstManager, this.loadingAdts);
@@ -671,19 +679,16 @@ export class WdtScene implements Viewer.SceneGfx {
         const frame = this.frozenFrameData !== null ? this.frozenFrameData : this.cull();
 
         template.setGfxProgram(this.terrainProgram);
-        template.setBindingLayouts(TerrainProgram.bindingLayouts);
         for (let renderer of this.terrainRenderers.values()) {
             renderer.prepareToRenderTerrain(renderInstManager, frame);
         }
 
         template.setGfxProgram(this.wmoProgram);
-        template.setBindingLayouts(WmoProgram.bindingLayouts);
         for (let renderer of this.wmoRenderers.values()) {
             renderer.prepareToRenderWmo(renderInstManager, frame);
         }
 
         template.setGfxProgram(this.waterProgram);
-        template.setBindingLayouts(WaterProgram.bindingLayouts);
         for (let [adtFileId, renderer] of this.adtWaterRenderers.entries()) {
             renderer.update(this.mainView);
             renderer.prepareToRenderAdtWater(renderInstManager, frame, adtFileId);
@@ -693,7 +698,6 @@ export class WdtScene implements Viewer.SceneGfx {
             renderer.prepareToRenderWmoWater(renderInstManager, frame, wmoId);
         }
 
-        template.setBindingLayouts(ModelProgram.bindingLayouts);
         template.setGfxProgram(this.modelProgram);
         renderInstManager.setCurrentList(this.renderInstListSky);
         if (frame.activeWmoSkybox !== null) {
@@ -733,13 +737,11 @@ export class WdtScene implements Viewer.SceneGfx {
                 });
             if (doodads.length === 0) continue;
 
-            template.setBindingLayouts(ModelProgram.bindingLayouts);
             template.setGfxProgram(this.modelProgram);
             renderer.update(this.mainView);
             renderer.prepareToRenderModel(renderInstManager, doodads);
 
             if (this.enableParticles && renderer.model.particleEmitters.length > 0) {
-                template.setBindingLayouts(ParticleProgram.bindingLayouts);
                 template.setGfxProgram(this.particleProgram);
                 renderer.prepareToRenderParticles(renderInstManager, doodads);
             }
@@ -819,6 +821,10 @@ export class WdtScene implements Viewer.SceneGfx {
         this.mainView.setupFromViewerInput(viewerInput);
         this.updateCurrentAdt();
 
+        if (this.timeOfDayPanel !== null && !this.mainView.freezeTime) {
+            this.timeOfDayPanel.setTime(this.mainView.time / 2880);
+        }
+
         const mainColorDesc = makeBackbufferDescSimple(GfxrAttachmentSlot.Color0, viewerInput, standardFullClearRenderPassDescriptor);
         const mainDepthDesc = makeBackbufferDescSimple(GfxrAttachmentSlot.DepthStencil, viewerInput, standardFullClearRenderPassDescriptor);
 
@@ -844,6 +850,7 @@ export class WdtScene implements Viewer.SceneGfx {
                 this.renderInstListMain.drawOnPassRenderer(this.renderHelper.renderCache, passRenderer);
             });
         });
+        this.renderHelper.debugDraw.pushPasses(builder, mainColorTargetID, mainDepthTargetID);
         this.renderHelper.antialiasingSupport.pushPasses(builder, viewerInput, mainColorTargetID);
         builder.resolveRenderTargetToExternalTexture(mainColorTargetID, viewerInput.onscreenTexture);
 
@@ -851,6 +858,27 @@ export class WdtScene implements Viewer.SceneGfx {
         this.renderHelper.renderGraph.execute(builder);
         this.renderInstListMain.reset();
         this.renderInstListSky.reset();
+    }
+
+    public createPanels(): UI.Panel[] {
+        // Don't show time panel for interior WMO scenes
+        if (this.mainView.freezeTime) {
+            return [];
+        }
+
+        this.timeOfDayPanel = new UI.TimeOfDayPanel();
+        this.timeOfDayPanel.setTime(this.mainView.time / 2880);
+
+        this.timeOfDayPanel.onvaluechange = (t: number, useDynamicTime: boolean) => {
+            if (useDynamicTime) {
+                this.mainView.freezeTime = false;
+            } else {
+                this.mainView.freezeTime = true;
+                this.mainView.frozenTime = t * 2880;
+            }
+        };
+
+        return [this.timeOfDayPanel];
     }
 
     public destroy(device: GfxDevice): void {
@@ -867,6 +895,9 @@ export class WdtScene implements Viewer.SceneGfx {
             renderer.destroy(device);
         }
         for (let renderer of this.wmoWaterRenderers.values()) {
+            renderer.destroy(device);
+        }
+        for (let renderer of this.skyboxModelRenderers.values()) {
             renderer.destroy(device);
         }
         this.loadingAdtRenderer.destroy(device);
@@ -1041,6 +1072,24 @@ const vanillaSceneDescs = [
 ];
 
 const bcSceneDescs = [
+    "Outland",
+    new ContinentSceneDesc("The Dark Portal, Hellfire Peninsula", 828395, 29, 32, 530),
+    new ContinentSceneDesc("Cenarion Refuge, Zangarmarsh", 828395, 21, 32, 530),
+    new ContinentSceneDesc("Area 52, Netherstorm", 828395, 25, 26, 530),
+    new ContinentSceneDesc("Telaar, Nagrand", 828395, 18, 36, 530),
+    new ContinentSceneDesc("Black Temple, Shadowmoon Valley", 828395, 30, 38, 530),
+    new ContinentSceneDesc("Shattrath, Terokkar Forest", 828395, 22, 35, 530),
+
+    "Quel'thalas",
+    new ContinentSceneDesc("Silvermoon City, Eversong Woods", 828395, 45, 14, 530),
+    new ContinentSceneDesc("Tranquillien, Ghostlands", 828395, 44, 17, 530),
+    new ContinentSceneDesc("Sunspire, Sunstrider Isle", 828395, 43, 12, 530),
+
+    "Azuremist Isles",
+    new ContinentSceneDesc("Exodar, Azuremist Isles", 828395, 54, 39, 530),
+    new ContinentSceneDesc("Ammen Vale, Azuremist Isles", 828395, 58, 39, 530),
+    new ContinentSceneDesc("Blood Watch, Azuremist Isles", 828395, 54, 35, 530),
+
     "Instances",
     new WdtSceneDesc("Hellfire Citadel: The Shattered Halls", 831277, 540),
     new WdtSceneDesc("Hellfire Citadel: The Blood Furnace", 830642, 542),
@@ -1073,15 +1122,24 @@ const bcSceneDescs = [
     new WdtSceneDesc("Eye of the Storm", 788893, 566),
     new WdtSceneDesc("Arena: Nagrand", 790469, 559),
     new WdtSceneDesc("Arena: Blade's Edge", 780261, 562),
-
-    "Outland",
-    new ContinentSceneDesc("The Dark Portal", 828395, 29, 32, 530),
-    new ContinentSceneDesc("Shattrath", 828395, 22, 35, 530),
-    new ContinentSceneDesc("Silvermoon City, Eversong Woods", 828395, 45, 14, 530),
-    new ContinentSceneDesc("Exodar, Azuremist Isle", 828395, 54, 39, 530),
 ];
 
 const wotlkSceneDescs = [
+    "Northrend",
+    new ContinentSceneDesc("Icecrown Citadel, Icecrown", 822688, 27, 20, 571),
+    new ContinentSceneDesc("Dalaran, Crystalsong Forest", 822688, 31, 21, 571),
+    new ContinentSceneDesc("Grizzlemaw, Grizzly Hills", 822688, 39, 24, 571),
+    new ContinentSceneDesc("Gundrak, Zul'Drak", 822688, 40, 19, 571),
+    new ContinentSceneDesc("River's Heart, Sholazar Basin", 822688, 22, 21, 571),
+    new ContinentSceneDesc("Terrace of the Makers, The Storm Peaks", 822688, 34, 17, 571),
+    new ContinentSceneDesc("The Nexus, Coldarra", 822688, 19, 25, 571),
+    new ContinentSceneDesc("Ulduar, The Storm Peaks", 822688, 33, 15, 571),
+    new ContinentSceneDesc("Utgarde Keep, Howling Fjord", 822688, 41, 30, 571),
+    new ContinentSceneDesc("Valiance Keep, Borean Tundra", 822688, 21, 27, 571),
+    new ContinentSceneDesc("Warsong Hold, Borean Tundra", 822688, 20, 27, 571),
+    new ContinentSceneDesc("Wintergrasp Fortress, Wintergrasp", 822688, 26, 22, 571),
+    new ContinentSceneDesc("Wyrmrest Temple, Dragonblight", 822688, 31, 24, 571),
+
     "Instances",
     new WdtSceneDesc("Ebon Hold", 818210, 609),
     new WdtSceneDesc("Utgarde Keep", 825743, 574),
@@ -1105,7 +1163,7 @@ const wotlkSceneDescs = [
     new WdtSceneDesc("Icecrown Citadel", 820428, 0), // map id is actually 631
     new WdtSceneDesc("Ulduar", 825015, 603),
     new WdtSceneDesc("The Obsidian Sanctum", 820448, 615),
-    new WdtSceneDesc("The Ruby Sanctum", 821024, 724),
+    // new WdtSceneDesc("The Ruby Sanctum", 821024, 724),
     new WdtSceneDesc("Vault of Archavon", 826589, 624),
     new WdtSceneDesc("Trial of the Crusader", 818173, 649),
     new WdtSceneDesc("The Eye of Eternity", 822560, 616),
@@ -1115,11 +1173,6 @@ const wotlkSceneDescs = [
     new WdtSceneDesc("Isle of Conquest", 821811, 0), // map id is actually 628
     new WdtSceneDesc("Arena: Dalaran Sewers", 780309, 617),
     new WdtSceneDesc("Arena: The Ring of Valor", 789925, 618),
-
-    "Northrend",
-    new ContinentSceneDesc("Icecrown Citadel, Icecrown", 822688, 27, 20, 571),
-    new ContinentSceneDesc("Dalaran, Crystalsong Forest", 822688, 30, 20, 571),
-    new ContinentSceneDesc("Wyrmrest Temple, Dragonblight", 822688, 31, 24, 571),
 ];
 
 export const vanillaSceneGroup: Viewer.SceneGroup = {
@@ -1139,5 +1192,4 @@ export const wotlkSceneGroup: Viewer.SceneGroup = {
     id: "WorldOfWarcraftWOTLK",
     name: "World of Warcraft: Wrath of the Lich King",
     sceneDescs: wotlkSceneDescs,
-    hidden: true,
 };

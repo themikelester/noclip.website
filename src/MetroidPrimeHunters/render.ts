@@ -230,7 +230,7 @@ class ShapeInstance {
 
 const bindingLayouts: GfxBindingLayoutDescriptor[] = [{ numUniformBuffers: 3, numSamplers: 1 }];
 
-const enum BillboardMode {
+enum BillboardMode {
     NONE, BB, BBY,
 }
 
@@ -312,7 +312,6 @@ export class MPHRenderer {
     }
 
     public destroy(device: GfxDevice): void {
-        device.destroyProgram(this.gfxProgram);
         for (let i = 0; i < this.materialInstances.length; i++)
             this.materialInstances[i].destroy(device);
         for (let i = 0; i < this.shapeInstances.length; i++)

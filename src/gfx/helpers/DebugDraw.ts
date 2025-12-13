@@ -15,6 +15,7 @@ import { branchlessONB } from "../../DebugJunk.js";
 import { MathConstants, Vec3UnitX, Vec3UnitY, Vec3UnitZ, getMatrixAxisX, getMatrixAxisY, getMatrixAxisZ, getMatrixTranslation, vec3FromBasis2 } from "../../MathHelpers.js";
 import { IsDepthReversed } from "./ReversedDepthHelpers.js";
 import { assert } from "../platform/GfxPlatformUtil.js";
+import { GfxShaderLibrary } from "./GfxShaderLibrary.js";
 
 // TODO(jstpierre):
 //  - Integrate text renderer?
@@ -25,7 +26,7 @@ interface DebugDrawOptions {
     flags?: DebugDrawFlags;
 };
 
-export const enum DebugDrawFlags {
+export enum DebugDrawFlags {
     WorldSpace = 0,
     ViewSpace = 1 << 0,
     ScreenSpace = 1 << 1,
@@ -42,9 +43,11 @@ const bindingLayouts: GfxBindingLayoutDescriptor[] = [
 ];
 
 const debugDrawVS = `
+${GfxShaderLibrary.MatrixLibrary}
+
 layout(std140) uniform ub_BaseData {
     Mat4x4 u_ClipFromView;
-    Mat4x3 u_ViewFromWorld;
+    Mat3x4 u_ViewFromWorld;
     vec4 u_Misc[1];
 };
 
@@ -60,7 +63,7 @@ flat out uint v_Flags;
 
 void main() {
     uint t_Flags = uint(a_Color.a);
-    gl_Position = Mul(u_ClipFromView, Mul(_Mat4x4(u_ViewFromWorld), vec4(a_Position.xyz, 1.0)));
+    gl_Position = UnpackMatrix(u_ClipFromView) * vec4(UnpackMatrix(u_ViewFromWorld) * vec4(a_Position.xyz, 1.0), 1.0);
 
     if (gl_InstanceID >= 1) {
         uint t_LineIndex = uint(gl_InstanceID - 1);
@@ -95,7 +98,7 @@ void main() {
     vec4 t_Color = v_Color;
 
     if ((v_Flags & uint(${DebugDrawFlags.DepthTint})) != 0u) {
-        float t_DepthSample = texelFetch(SAMPLER_2D(u_TextureFramebufferDepth), ivec2(gl_FragCoord.xy), 0).r;
+        float t_DepthSample = texelFetch(TEXTURE(u_TextureFramebufferDepth), ivec2(gl_FragCoord.xy), 0).r;
         if (IsSomethingInFront(t_DepthSample))
             t_Color.rgba *= 0.15;
     }
@@ -111,7 +114,7 @@ function fillVec3p(d: Float32Array, offs: number, v: ReadonlyVec3): number {
     return 3;
 }
 
-const enum BehaviorType {
+enum BehaviorType {
     Lines,
     Opaque,
     Transparent,
@@ -136,10 +139,10 @@ class BufferPage {
         const device = cache.device;
 
         this.vertexData = new Float32Array(vertexCount * this.vertexStride);
-        this.vertexBuffer = device.createBuffer(this.vertexData.length, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Dynamic);
+        this.vertexBuffer = device.createBuffer(this.vertexData.byteLength, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Dynamic);
 
         this.indexData = new Uint16Array(align(indexCount, 2));
-        this.indexBuffer = device.createBuffer(this.indexData.length >>> 1, GfxBufferUsage.Index, GfxBufferFrequencyHint.Dynamic);
+        this.indexBuffer = device.createBuffer(this.indexData.byteLength, GfxBufferUsage.Index, GfxBufferFrequencyHint.Dynamic);
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
             { location: 0, format: GfxFormat.F32_RGB, bufferIndex: 0, bufferByteOffset: 0 },
@@ -193,8 +196,8 @@ class BufferPage {
 
         this.renderInst.setPrimitiveTopology(this.behaviorType === BehaviorType.Lines ? GfxPrimitiveTopology.Lines : GfxPrimitiveTopology.Triangles);
         this.renderInst.setVertexInput(this.inputLayout, [
-            { buffer: this.vertexBuffer, byteOffset: 0 },
-        ], { buffer: this.indexBuffer, byteOffset: 0 });
+            { buffer: this.vertexBuffer },
+        ], { buffer: this.indexBuffer });
 
         setAttachmentStateSimple(this.renderInst.getMegaStateFlags(), { blendMode: GfxBlendMode.Add, blendSrcFactor: GfxBlendFactor.One, blendDstFactor: GfxBlendFactor.OneMinusSrcAlpha });
         if (this.behaviorType === BehaviorType.Lines) {
@@ -231,11 +234,11 @@ export class DebugDraw {
 
     public static scratchVec3 = nArray(4, () => vec3.create());
 
-    constructor(private cache: GfxRenderCache, uniformBuffer: GfxRenderDynamicUniformBuffer) {
-        const device = cache.device;
-        this.debugDrawProgram = cache.createProgramSimple(preprocessProgram_GLSL(device.queryVendorInfo(), debugDrawVS, debugDrawFS));
+    constructor(private renderCache: GfxRenderCache, uniformBuffer: GfxRenderDynamicUniformBuffer) {
+        const device = renderCache.device;
+        this.debugDrawProgram = renderCache.createProgramSimple(preprocessProgram_GLSL(device.queryVendorInfo(), debugDrawVS, debugDrawFS));
 
-        this.depthSampler = cache.createSampler({
+        this.depthSampler = renderCache.createSampler({
             minFilter: GfxTexFilterMode.Point,
             magFilter: GfxTexFilterMode.Point,
             mipFilter: GfxMipFilterMode.Nearest,
@@ -285,7 +288,7 @@ export class DebugDraw {
 
         vertexCount = align(vertexCount, this.defaultPageVertexCount);
         indexCount = align(indexCount, this.defaultPageIndexCount);
-        const page = new BufferPage(this.cache, behaviorType, vertexCount, indexCount, this.lineThickness);
+        const page = new BufferPage(this.renderCache, behaviorType, vertexCount, indexCount, this.lineThickness);
         this.pages.push(page);
         return page;
     }
@@ -336,7 +339,7 @@ export class DebugDraw {
 
     public drawDiscLineN(center: ReadonlyVec3, n: ReadonlyVec3, r: number, color: Color, sides = 32, options: DebugDrawOptions = { flags: DebugDrawFlags.Default }): void {
         branchlessONB(DebugDraw.scratchVec3[0], DebugDraw.scratchVec3[1], n);
-        this.drawDiscSolidRU(center, DebugDraw.scratchVec3[0], DebugDraw.scratchVec3[1], r, color, sides, options);
+        this.drawDiscLineRU(center, DebugDraw.scratchVec3[0], DebugDraw.scratchVec3[1], r, color, sides, options);
     }
 
     public drawDiscLineRU(center: ReadonlyVec3, right: ReadonlyVec3, up: ReadonlyVec3, r: number, color: Color, sides = 32, options: DebugDrawOptions = { flags: DebugDrawFlags.Default }): void {
@@ -458,7 +461,7 @@ export class DebugDraw {
     }
 
     private endFrame(): boolean {
-        const device = this.cache.device;
+        const device = this.renderCache.device;
         let hasAnyDraws = false;
         for (let i = 0; i < this.pages.length; i++) {
             const page = this.pages[i];
@@ -489,7 +492,7 @@ export class DebugDraw {
                     const page = this.pages[i];
                     if (page.renderInst.getDrawCount() > 0) {
                         page.renderInst.setSamplerBindings(0, [{ gfxTexture: scope.getResolveTextureForID(depthResolveTextureID), gfxSampler: this.depthSampler, lateBinding: null }]);
-                        page.renderInst.drawOnPass(this.cache, passRenderer);
+                        page.renderInst.drawOnPass(this.renderCache, passRenderer);
                     }
                 }
             });
@@ -497,7 +500,7 @@ export class DebugDraw {
     }
 
     public destroy(): void {
-        const device = this.cache.device;
+        const device = this.renderCache.device;
         for (let i = 0; i < this.pages.length; i++)
             this.pages[i].destroy(device);
     }

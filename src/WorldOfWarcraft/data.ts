@@ -1,15 +1,12 @@
 import {
     ReadonlyMat4,
     ReadonlyVec3,
-    mat3,
     mat4,
     quat,
-    vec2,
     vec3,
-    vec4,
+    vec4
 } from "gl-matrix";
 import {
-    ConvexHull,
     WowAABBox,
     WowAdt,
     WowAdtChunkDescriptor,
@@ -28,7 +25,6 @@ import {
     WowM2BoneFlags,
     WowM2MaterialFlags,
     WowM2ParticleEmitter,
-    WowM2ParticleShaderType,
     WowMapFileDataIDs,
     WowModelBatch,
     WowSkin,
@@ -37,7 +33,6 @@ import {
     WowVec3,
     WowWmo,
     WowWmoGroupDescriptor,
-    WowWmoGroupFlags,
     WowWmoGroupInfo,
     WowWmoHeaderFlags,
     WowWmoLiquidResult,
@@ -45,7 +40,7 @@ import {
     WowWmoMaterialBatch,
     WowWmoMaterialFlags,
     WowWmoMaterialPixelShader,
-    WowWmoMaterialVertexShader,
+    WowWmoMaterialVertexShader
 } from "../../rust/pkg/noclip_support";
 import { DataFetcher } from "../DataFetcher.js";
 import { AABB, Frustum } from "../Geometry.js";
@@ -53,25 +48,18 @@ import {
     Mat4Identity,
     MathConstants,
     computeModelMatrixSRT,
-    randomRange,
-    saturate,
     scaleMatrix,
-    setMatrixTranslation,
-    transformVec3Mat4w0,
+    setMatrixTranslation
 } from "../MathHelpers.js";
-import { getDerivativeBezier, getPointBezier } from "../Spline.js";
-import { makeStaticDataBuffer } from "../gfx/helpers/BufferHelpers.js";
 import { reverseDepthForCompareMode } from "../gfx/helpers/ReversedDepthHelpers.js";
 import {
-    fillMatrix4x4,
-    fillVec3v,
-    fillVec4,
-    fillVec4v,
+    fillMatrix4x2,
+    fillVec4
 } from "../gfx/helpers/UniformBufferHelpers.js";
 import {
     GfxBlendFactor,
     GfxBlendMode,
-    GfxBuffer,
+    GfxBufferFrequencyHint,
     GfxBufferUsage,
     GfxChannelWriteMask,
     GfxCompareMode,
@@ -79,16 +67,11 @@ import {
     GfxDevice,
     GfxFormat,
     GfxIndexBufferDescriptor,
-    GfxInputLayout,
-    GfxInputLayoutBufferDescriptor,
     GfxMegaStateDescriptor,
     GfxTexture,
-    GfxVertexAttributeDescriptor,
     GfxVertexBufferDescriptor,
-    GfxVertexBufferFrequency,
-    makeTextureDescriptor2D,
+    makeTextureDescriptor2D
 } from "../gfx/platform/GfxPlatform.js";
-import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
 import {
     GfxRenderInst,
     GfxRendererLayer,
@@ -98,7 +81,7 @@ import {
 } from "../gfx/render/GfxRenderInstManager.js";
 import { rust } from "../rustlib.js";
 import { assert } from "../util.js";
-import { ModelProgram, WmoProgram } from "./program.js";
+import { ModelProgram } from "./program.js";
 import {
     MapArray,
     View,
@@ -108,6 +91,7 @@ import {
     placementSpaceFromModelSpace,
 } from "./scenes.js";
 import { Sheepfile } from "./util.js";
+import { createBufferFromData } from "../gfx/helpers/BufferHelpers";
 
 export class Database {
     private inner: WowDatabase;
@@ -119,12 +103,16 @@ export class Database {
             lightParamsDbData,
             liquidTypes,
             lightSkyboxData,
+            zoneLights,
+            zoneLightPoints,
         ] = await Promise.all([
             cache.fetchDataByFileID(1375579), // lightDbData
             cache.fetchDataByFileID(1375580), // lightDataDbData
             cache.fetchDataByFileID(1334669), // lightParamsDbData
             cache.fetchDataByFileID(1371380), // liquidTypes
             cache.fetchDataByFileID(1308501), // lightSkyboxData
+            cache.fetchDataByFileID(1310253), // zoneLights
+            cache.fetchDataByFileID(1310256), // zoneLightPoints
         ]);
 
         this.inner = rust.WowDatabase.new(
@@ -133,6 +121,8 @@ export class Database {
             lightParamsDbData,
             liquidTypes,
             lightSkyboxData,
+            zoneLights,
+            zoneLightPoints,
         );
     }
 
@@ -295,13 +285,13 @@ export class WowCache {
     }
 }
 
-export const enum ProceduralTexture {
+export enum ProceduralTexture {
     River = 0,
     Ocean = 0,
     Wmo = 0,
 }
 
-export const enum LiquidCategory {
+export enum LiquidCategory {
     Water = 0,
     Ocean = 1,
     Lava = 2,
@@ -434,6 +424,7 @@ export class SkyboxData {
             );
         }
         this.modelData = await cache.loadModel(this.modelFileId);
+        this.modelData.isSkybox = true;
     }
 }
 
@@ -514,6 +505,7 @@ export class ParticleEmitter {
 
 export class ModelData {
     private scratchMat4 = mat4.create();
+    public isSkybox = false;
     public skins: SkinData[] = [];
     public blps: BlpData[] = [];
     public vertexBuffer: Uint8Array;
@@ -547,6 +539,7 @@ export class ModelData {
     public lightBones: Int16Array;
     public lightPositions: Float32Array;
     public particleEmitters: ParticleEmitter[] = [];
+    public boundingSphereRadius: number;
 
     constructor(public fileId: number) {}
 
@@ -596,6 +589,7 @@ export class ModelData {
 
         this.vertexBuffer = m2.take_vertex_data();
         this.modelAABB = convertWowAABB(m2.get_bounding_box());
+        this.boundingSphereRadius = m2.get_bounding_radius();
 
         this.textureLookupTable = m2.take_texture_lookup();
         this.boneLookupTable = m2.take_bone_lookup();
@@ -610,7 +604,6 @@ export class ModelData {
         m2Materials.forEach((mat) => mat.free());
 
         this.blps = await this.loadTextures(cache, m2);
-        this.skins = await this.loadSkins(cache, m2);
 
         this.particleEmitters = m2
             .take_particle_emitters()
@@ -630,10 +623,9 @@ export class ModelData {
         this.boneScalings = new Float32Array(this.numBones * 3);
         this.numColors = this.animationManager.get_num_colors();
         this.numLights = this.animationManager.get_num_lights();
-        assert(
-            this.numLights <= 4,
-            `model ${this.fileId} has ${this.numLights} lights`,
-        );
+        if (this.numLights > 4) {
+            console.warn(`model ${this.fileId} has ${this.numLights} lights`);
+        }
         this.vertexColors = new Float32Array(this.numColors * 4);
         this.ambientLightColors = new Float32Array(this.numLights * 4);
         this.diffuseLightColors = new Float32Array(this.numLights * 4);
@@ -661,6 +653,8 @@ export class ModelData {
 
             bonePivot.free();
         }
+
+        this.skins = await this.loadSkins(cache, m2);
 
         m2.free();
     }
@@ -964,7 +958,25 @@ export class SkinData {
 
     constructor(public skin: WowSkin, model: ModelData) {
         this.submeshes = skin.submeshes;
-        this.batches = skin.batches.map((batch) => new ModelBatch(batch, this.skin, model));
+        const batches = skin.batches.slice();
+        this.batches = batches.map(batch => new ModelBatch(batch, this.skin, model));
+        this.batches.sort((a, b) => {
+            const aIsOpaque = a.blendMode < 2;
+            const bIsOpaque = b.blendMode < 2;
+            if (aIsOpaque !== bIsOpaque) {
+                return aIsOpaque ? -1 : 1;
+            }
+
+            if (a.priorityPlane !== b.priorityPlane) {
+                return a.priorityPlane - b.priorityPlane;
+            }
+            if (a.sortDist !== b.sortDist) {
+                return b.sortDist - a.sortDist;
+            }
+
+            return 0;
+        });
+        this.batches.forEach((batch, i) => batch.sortKeyBase = makeSortKeyBase(batch.blendMode, i))
         this.indexBuffer = skin.take_indices();
     }
 }
@@ -975,30 +987,68 @@ export class ModelBatch {
     public blendMode: WowM2BlendingMode;
     public materialFlags: WowM2MaterialFlags;
     public submesh: WowSkinSubmesh;
-    public layer: number;
+    public sortDist = 0;
+    public flags: number;
+    public priorityPlane: number;
     public tex0: BlpData;
     public tex1: BlpData | null;
     public tex2: BlpData | null;
     public tex3: BlpData | null;
-    private sortKeyBase = 0;
+    public sortKeyBase = 0;
+    public visible = true;
 
     constructor(public batch: WowModelBatch, public skin: WowSkin, public model: ModelData) {
         this.fragmentShaderId = batch.get_pixel_shader();
         this.vertexShaderId = batch.get_vertex_shader();
-        this.submesh = skin.submeshes[batch.skin_submesh_index];
+        this.flags = batch.flags;
         [this.blendMode, this.materialFlags] = model.materials[this.batch.material_index];
-        this.layer = this.batch.material_layer;
+        this.submesh = skin.submeshes[batch.skin_submesh_index];
+        let sortCenter = convertWowVec3(this.submesh.sort_center_position);
+        let bone = model.boneData[this.submesh.center_bone_index];
+        vec3.transformMat4(sortCenter, sortCenter, bone.transform);
+        let sortRadius = this.submesh.sort_radius;
+
+        if ((model.flags & 0x80) === 0) {
+            // never really happens?
+            this.sortDist = model.boundingSphereRadius;
+        } else {
+            this.sortDist = vec3.squaredLength(sortCenter);
+            if ((this.flags & 3) !== 0) {
+                if (this.sortDist > 2.384186e-07) {
+                    let invDist = 1.0 / Math.sqrt(this.sortDist);
+                    this.sortDist *= invDist;
+                    vec3.scale(sortCenter, sortCenter, invDist);
+                }
+                let boneXComp = vec3.fromValues(
+                    bone.transform[0],
+                    bone.transform[1],
+                    bone.transform[2],
+                );
+                let boneXScale = vec3.len(boneXComp) * sortRadius;
+                if ((this.flags & 1) === 0) {
+                    vec3.scaleAndAdd(sortCenter, sortCenter, sortCenter, boneXScale);
+                } else {
+                    vec3.scaleAndAdd(sortCenter, sortCenter, sortCenter, -boneXScale);
+                }
+                this.sortDist = vec3.squaredLength(sortCenter);
+            }
+        }
+
+        this.priorityPlane = batch.priority_plane;
         this.tex0 = this.getBlp(0)!;
         this.tex1 = this.getBlp(1);
         this.tex2 = this.getBlp(2);
         this.tex3 = this.getBlp(3);
-        this.sortKeyBase = makeSortKeyBase(this.blendMode, this.layer);
     }
 
-    public setMegaStateFlags(renderInst: GfxRenderInst) {
+    public setMegaStateFlags(renderInst: GfxRenderInst, forceTransparent: boolean) {
+        let blendMode = this.blendMode;
+        if (forceTransparent && this.blendMode == WowM2BlendingMode.Opaque) {
+            blendMode = WowM2BlendingMode.Alpha;
+        }
         setM2BlendModeMegaState(
             renderInst,
-            this.blendMode,
+            blendMode,
             this.materialFlags.two_sided,
             this.materialFlags.depth_write,
             this.materialFlags.depth_tested,
@@ -1014,6 +1064,9 @@ export class ModelBatch {
     }
 
     private getCurrentVertexColor(): vec4 {
+        if (this.batch.color_index === -1) {
+            return vec4.fromValues(1, 1, 1, 1);
+        }
         return this.model.getVertexColor(this.batch.color_index);
     }
 
@@ -1043,11 +1096,9 @@ export class ModelBatch {
     }
 
     public setModelParams(renderInst: GfxRenderInst) {
-        const numVec4s = 4;
-        const numMat4s = 3;
         let offset = renderInst.allocateUniformBuffer(
             ModelProgram.ub_MaterialParams,
-            numVec4s * 4 + numMat4s * 16,
+            4 * 4 + 8 * 4,
         );
         const uniformBuf = renderInst.mapUniformBufferF32(
             ModelProgram.ub_MaterialParams,
@@ -1076,23 +1127,22 @@ export class ModelBatch {
             color[2],
             this.getVertexColorAlpha(),
         );
-        offset += fillMatrix4x4(
+        offset += fillMatrix4x2(
             uniformBuf,
             offset,
             this.getTextureTransform(0),
         );
-        offset += fillMatrix4x4(
+        offset += fillMatrix4x2(
             uniformBuf,
             offset,
             this.getTextureTransform(1),
         );
-        const textureWeight: vec4 = [
+        offset += fillVec4(uniformBuf, offset,
             this.getTextureWeight(0),
             this.getTextureWeight(1),
             this.getTextureWeight(2),
             this.getTextureWeight(3),
-        ];
-        offset += fillVec4v(uniformBuf, offset, textureWeight);
+        );
     }
 }
 
@@ -1350,10 +1400,14 @@ export class WmoDefinition {
                 doodad.worldAABB.centerPoint(p);
                 vec3.transformMat4(p, p, this.invModelMatrix);
 
+                const groupIds = this.doodadIndexToGroupIds.get(ref)!;
+                if (groupIds.length === 0) {
+                    console.warn(`doodad has 0 group ids: ${doodad.modelId}/${doodad.uniqueId}`)
+                    continue;
+                }
                 // for some reason, the same doodad can exist in multiple groups. if
                 // that's the case, select the closest group (by AABB centerpoint) for
                 // lighting purposes
-                const groupIds = this.doodadIndexToGroupIds.get(ref)!;
                 let group: WowWmoGroupDescriptor;
                 if (groupIds.length > 1) {
                     let closestGroupId;
@@ -1510,23 +1564,23 @@ export class LiquidInstance {
 
     public takeVertices(device: GfxDevice): GfxVertexBufferDescriptor {
         return {
-            buffer: makeStaticDataBuffer(
+            buffer: createBufferFromData(
                 device,
                 GfxBufferUsage.Vertex,
+                GfxBufferFrequencyHint.Static,
                 this.vertices!.buffer,
             ),
-            byteOffset: 0,
         };
     }
 
     public takeIndices(device: GfxDevice): GfxIndexBufferDescriptor {
         return {
-            buffer: makeStaticDataBuffer(
+            buffer: createBufferFromData(
                 device,
                 GfxBufferUsage.Index,
+                GfxBufferFrequencyHint.Static,
                 this.indices!.buffer,
             ),
-            byteOffset: 0,
         };
     }
 }
@@ -1658,22 +1712,22 @@ export class AdtData {
         return this.lodData[this.lodLevel].wmoDefs;
     }
 
-    public getBufsAndChunks(device: GfxDevice): [GfxVertexBufferDescriptor, GfxIndexBufferDescriptor] {
+    public getBuffers(device: GfxDevice): [GfxVertexBufferDescriptor, GfxIndexBufferDescriptor] {
         const vertexBuffer = {
-            buffer: makeStaticDataBuffer(
+            buffer: createBufferFromData(
                 device,
                 GfxBufferUsage.Vertex,
+                GfxBufferFrequencyHint.Static,
                 this.vertexBuffer.buffer,
             ),
-            byteOffset: 0,
         };
         const indexBuffer = {
-            buffer: makeStaticDataBuffer(
+            buffer: createBufferFromData(
                 device,
                 GfxBufferUsage.Index,
+                GfxBufferFrequencyHint.Static,
                 this.indexBuffer.buffer,
             ),
-            byteOffset: 0,
         };
         return [vertexBuffer, indexBuffer];
     }
@@ -1867,6 +1921,9 @@ export class LazyWorldData {
         this.adtFileIds = wdt.get_all_map_data();
         const [centerX, centerY] = this.startAdtCoords;
 
+        this.hasBigAlpha = wdt.adt_has_big_alpha();
+        this.hasHeightTexturing = wdt.adt_has_height_texturing();
+
         const promises = [];
         for (
             let x = centerX - this.initialAdtRadius;
@@ -1892,8 +1949,6 @@ export class LazyWorldData {
         );
         await Promise.all(promises);
 
-        this.hasBigAlpha = wdt.adt_has_big_alpha();
-        this.hasHeightTexturing = wdt.adt_has_height_texturing();
         wdt.free();
     }
 

@@ -13,6 +13,7 @@ import { dGlobals } from "./Main.js";
 import { cPhs__Status } from "./framework.js";
 import { cBgD_t } from "./d_bg.js";
 import { NamedArrayBufferSlice } from "../DataFetcher.js";
+import { BLO, JUTResType, ResourceResolver, SCRN } from "../Common/JSYSTEM/J2Dv1.js";
 
 export interface DZSChunkHeader {
     type: string;
@@ -42,15 +43,15 @@ function parseDZSHeaders(buffer: ArrayBufferSlice): DZS {
     return { headers: chunkHeaders, buffer };
 }
 
-export const enum ResType {
-    Model, Bmt, Bck, Bpk, Brk, Btp, Btk, Bti, Dzb, Dzs, Bva, Stb, Raw,
+export enum ResType {
+    Model, Bmt, Bck, Bpk, Brk, Btp, Btk, Bti, Dzb, Dzs, Bva, Blo, Stb, Raw,
 }
 
 export type ResAssetType<T extends ResType> =
     T extends ResType.Model ? J3DModelData :
     T extends ResType.Bmt ? J3DModelMaterialData :
     T extends ResType.Bck ? ANK1 :
-    T extends ResType.Bpk ? TPT1 :
+    T extends ResType.Bpk ? TRK1 :
     T extends ResType.Brk ? TRK1 :
     T extends ResType.Btp ? TPT1 :
     T extends ResType.Btk ? TTK1 :
@@ -58,6 +59,7 @@ export type ResAssetType<T extends ResType> =
     T extends ResType.Dzb ? cBgD_t :
     T extends ResType.Dzs ? DZS :
     T extends ResType.Bva ? VAF1 :
+    T extends ResType.Blo ? SCRN :
     T extends ResType.Stb ? NamedArrayBufferSlice :
     T extends ResType.Raw ? NamedArrayBufferSlice :
     unknown;
@@ -111,7 +113,18 @@ export class dRes_control_c {
     public getResByID<T extends ResType>(resType: T, arcName: string, resID: number, resList: dRes_info_c[]): ResAssetType<T> {
         const resInfo = assertExists(this.findResInfo(arcName, resList));
         return resInfo.getResByID(resType, resID);
-    }    
+    }
+
+    public getResResolver(arcName: string): ResourceResolver<JUTResType> {
+        return (resType: JUTResType, resName: string) => {
+            switch(resType) {
+                case JUTResType.TIMG: return this.getObjectResByName(ResType.Bti, arcName, resName);
+                case JUTResType.TLUT: console.warn('TLUT resource references not yet supported'); debugger; return null;
+                case JUTResType.FONT: console.warn('FONT resource references not yet supported'); debugger; return null;
+                default: return null;
+            }
+        }
+    }
 
     public mountRes(device: GfxDevice, cache: GfxRenderCache, arcName: string, archive: JKRArchive, resList: dRes_info_c[]): void {
         if (this.findResInfo(arcName, resList) !== null)
@@ -162,6 +175,8 @@ export class dRes_info_c {
                 resEntry.res = BTK.parse(file.buffer) as ResAssetType<T>;
             } else if (resType === ResType.Bva) {
                 resEntry.res = BVA.parse(file.buffer) as ResAssetType<T>;
+            } else if (resType === ResType.Blo) {
+                resEntry.res = BLO.parse(file.buffer) as ResAssetType<T>;
             } else if (resType === ResType.Dzs) {
                 resEntry.res = parseDZSHeaders(file.buffer) as ResAssetType<T>;
             } else if (resType === ResType.Raw || resType === ResType.Stb) {

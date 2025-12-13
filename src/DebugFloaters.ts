@@ -87,7 +87,7 @@ class FloaterControlHandlerValue {
             },
         };
 
-        this.updateInterval = setInterval(() => {
+        this.updateInterval = window.setInterval(() => {
             if (this.obj[this.paramName] !== this.lastValue)
                 this.update();
         }, 10);
@@ -335,7 +335,7 @@ export class FloatingPanel implements Widget {
             } else {
                 valueStr = value.toFixed(fracDig);
             }
-    
+
             slider.setLabel(`${labelName} = ${valueStr}`);
 
             let changedCallback = Reflect.getMetadata('df:changedcallback', obj, paramName);

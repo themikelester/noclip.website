@@ -7,13 +7,12 @@ import * as Textures from './textures.js';
 import { mat4, vec3 } from "gl-matrix";
 import ArrayBufferSlice from '../ArrayBufferSlice.js';
 import { F3DEX_Program } from "../BanjoKazooie/render.js";
-import { computeViewMatrix } from '../Camera.js';
+import { computeViewMatrix, computeViewMatrixSkybox } from '../Camera.js';
 import { ImageFormat, ImageSize, getSizBitsPerPixel } from "../Common/N64/Image.js";
 import { CalcBillboardFlags, calcBillboardMatrix } from '../MathHelpers.js';
 import { DeviceProgram } from "../Program.js";
 import { TextureMapping } from '../TextureHolder.js';
-import { makeStaticDataBuffer } from '../gfx/helpers/BufferHelpers.js';
-import { fillMatrix4x2, fillMatrix4x3, fillVec4 } from '../gfx/helpers/UniformBufferHelpers.js';
+import { fillMatrix4x2, fillMatrix4x3, fillVec3v, fillVec4 } from '../gfx/helpers/UniformBufferHelpers.js';
 import { GfxBindingLayoutDescriptor, GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxCullMode, GfxDevice, GfxFormat, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMegaStateDescriptor, GfxProgram, GfxSampler, GfxTexture, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency } from "../gfx/platform/GfxPlatform.js";
 import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
 import { GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
@@ -22,8 +21,9 @@ import { align, assert, assertExists, nArray } from "../util.js";
 import { Color, colorNewCopy, colorNewFromRGBA } from "../Color.js";
 
 import { GloverObjbank } from './parsers/index.js';
+import { createBufferFromData } from '../gfx/helpers/BufferHelpers.js';
 
-export const enum GloverRendererLayer {
+export enum GloverRendererLayer {
     OPAQUE,
     OPAQUE_BILLBOARD,
     XLU,
@@ -130,15 +130,7 @@ export class DrawCallRenderData {
         }
 
         this.vertexBufferData = makeVertexBufferData(drawCall.vertices);
-        if (drawCall.dynamicGeometry) {
-            this.vertexBuffer = device.createBuffer(
-                align(this.vertexBufferData.byteLength, 4) / 4,
-                GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Dynamic,
-                new Uint8Array(this.vertexBufferData.buffer),
-            );
-        } else {
-            this.vertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, this.vertexBufferData.buffer);
-        }
+        this.vertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, drawCall.dynamicGeometry ? GfxBufferFrequencyHint.Dynamic : GfxBufferFrequencyHint.Static, this.vertexBufferData.buffer);
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
             { location: F3DEX_Program.a_Position, bufferIndex: 0, format: GfxFormat.F32_RGBA, bufferByteOffset: 0*0x04, },
@@ -157,7 +149,7 @@ export class DrawCallRenderData {
         });
 
         this.vertexBufferDescriptors = [
-            { buffer: this.vertexBuffer, byteOffset: 0, },
+            { buffer: this.vertexBuffer },
         ];
     }
 
@@ -196,7 +188,7 @@ export class GloverRSPState implements F3DEX.RSPStateInterface {
     private stateChanged: boolean = false;
 
     public textureCache: RDP.TextureCache = new RDP.TextureCache();
-    private vertexCache: F3DEX.Vertex[] = [];
+    private vertexCache: F3DEX.Vertex[] = nArray(64, () => new F3DEX.Vertex());
 
     private SP_GeometryMode: number = 0;
     private SP_TextureState = new F3DEX.TextureState();
@@ -212,9 +204,6 @@ export class GloverRSPState implements F3DEX.RSPStateInterface {
     private DP_TMemTracker = new Map<number, number>();
 
     constructor(public segmentBuffers: ArrayBufferSlice[], private textures: Textures.GloverTextureHolder) {
-        for (let i = 0; i < 64; i++) {
-            this.vertexCache.push(new F3DEX.Vertex());
-        }
     }
 
     public finish(): GloverRSPOutput | null {
@@ -527,6 +516,7 @@ export class DrawCall {
     }
 }
 
+const vec3Scratch: vec3 = vec3.create();
 export class DrawCallInstance {
     static viewMatrixScratch = mat4.create();
     static modelViewScratch = mat4.create();
@@ -652,7 +642,15 @@ export class DrawCallInstance {
         renderInst.setMegaStateFlags(this.megaStateFlags);
         renderInst.setDrawCount(this.drawCall.vertexCount);
 
-        let offs = renderInst.allocateUniformBuffer(F3DEX_Program.ub_DrawParams, 12*2 + 8*2);
+        let offs;
+
+        if(this.sceneLights !== null) {
+            offs = renderInst.allocateUniformBuffer(F3DEX_Program.ub_DrawParams, (12*2 + 8*2 + this.sceneLights.diffuseColor.length * 8 + 4))
+        }
+        else {
+            offs = renderInst.allocateUniformBuffer(F3DEX_Program.ub_DrawParams, 12*2 + 8*2)
+        }
+
         const mappedF32 = renderInst.mapUniformBufferF32(F3DEX_Program.ub_DrawParams);
 
         if (!isSkybox) {
@@ -674,12 +672,29 @@ export class DrawCallInstance {
         this.computeTextureMatrix(DrawCallInstance.texMatrixScratch, 1);
         offs += fillMatrix4x2(mappedF32, offs, DrawCallInstance.texMatrixScratch);
 
+        if(this.sceneLights !== null) {
+            const n_lights = this.sceneLights.diffuseColor.length;
+            computeViewMatrixSkybox(DrawCallInstance.viewMatrixScratch, viewerInput.camera);
+            
+            for (let i = 0; i < n_lights; i++) {
+                offs += fillVec3v(mappedF32, offs, this.sceneLights.diffuseColor[i]);
+            }
+            
+            for (let i = 0; i < n_lights; i++) {
+                vec3.transformMat4(vec3Scratch, this.sceneLights.diffuseDirection[i], DrawCallInstance.viewMatrixScratch);
+                offs += fillVec3v(mappedF32, offs, vec3Scratch);
+            }
+
+            offs += fillVec3v(mappedF32, offs, this.sceneLights.ambientColor);
+        }
+
         const primColor = this.drawCall.DP_PrimColor;
         offs = renderInst.allocateUniformBuffer(F3DEX_Program.ub_CombineParams, 8);
         const comb = renderInst.mapUniformBufferF32(F3DEX_Program.ub_CombineParams);
         offs += fillVec4(comb, offs, primColor.r, primColor.g, primColor.b, primColor.a);
         // TODO: set this properly:
         offs += fillVec4(comb, offs, 1, 1, 1, this.envAlpha);   // environment color
+
         renderInstManager.submitRenderInst(renderInst);
     }
 }

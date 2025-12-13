@@ -3,12 +3,12 @@ import ArrayBufferSlice from "./ArrayBufferSlice.js";
 import { assert, readString, align } from "./util.js";
 import { Endianness } from "./endian.js";
 
-export const enum FileType {
+export enum FileType {
     BYML,
     CRG1, // Jasper's BYML variant with extensions.
 }
 
-const enum NodeType {
+enum NodeType {
     String       = 0xA0,
     Path         = 0xA1,
     Array        = 0xC0,
@@ -278,8 +278,8 @@ export function parse<T>(buffer: ArrayBufferSlice, fileType: FileType = FileType
 }
 
 class GrowableBuffer {
-    public buffer: ArrayBuffer;
-    public view: DataView;
+    public buffer = new ArrayBuffer();
+    public view = new DataView(this.buffer);
     public userSize: number = 0;
     public bufferSize: number = 0;
 
@@ -293,19 +293,13 @@ class GrowableBuffer {
 
         if (newBufferSize > this.bufferSize) {
             this.bufferSize = align(newBufferSize, this.growAmount);
-            const newBuffer = new ArrayBuffer(this.bufferSize);
-            // memcpy
-            new Uint8Array(newBuffer).set(new Uint8Array(this.buffer));
-            this.buffer = newBuffer;
+            this.buffer = this.buffer.transfer(this.bufferSize);
             this.view = new DataView(this.buffer);
         }
     }
 
     public finalize(): ArrayBuffer {
-        const buffer = this.buffer;
-        // Clear out to avoid GC.
-        (this as any).buffer = null;
-        return buffer.slice(0x00, this.userSize);
+        return this.buffer.transfer(this.userSize);
     }
 }
 

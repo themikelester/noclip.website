@@ -230,7 +230,7 @@ function computeRotationZAroundPoint(dst: mat4, theta: number, x: number, y: num
 
 const drawParams = new DrawParams();
 
-const enum WaterCameraFilterNrv { Air, AirToWater, Water, WaterToAir }
+enum WaterCameraFilterNrv { Air, AirToWater, Water, WaterToAir }
 export class WaterCameraFilter extends LiveActor<WaterCameraFilterNrv> {
     private angle: number = 0;
     private fade: number = 0;
@@ -331,7 +331,7 @@ export class WaterCameraFilter extends LiveActor<WaterCameraFilterNrv> {
             return;
 
         // Captured already.
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
         const ddraw = this.ddraw;
 
         ddraw.beginDraw(cache);
@@ -380,6 +380,7 @@ export class WaterCameraFilter extends LiveActor<WaterCameraFilterNrv> {
 
     public override destroy(device: GfxDevice): void {
         this.filterTexture.destroy(device);
+        this.ddraw.destroy(device);
     }
 
     public static override requestArchives(sceneObjHolder: SceneObjHolder): void {

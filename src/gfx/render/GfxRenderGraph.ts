@@ -1,6 +1,6 @@
 
-import { GfxColor, GfxRenderTarget, GfxDevice, GfxFormat, GfxRenderPass, GfxRenderPassDescriptor, GfxTexture, GfxTextureDimension, GfxTextureUsage, GfxComputePass, GfxRenderAttachmentView } from "../platform/GfxPlatform.js";
-import { GfxQueryPool } from "../platform/GfxPlatformImpl.js";
+import type { GfxColor, GfxRenderTarget, GfxDevice, GfxFormat, GfxRenderPass, GfxRenderPassDescriptor, GfxTexture, GfxComputePass, GfxRenderAttachmentView, GfxQueryPool } from "../platform/GfxPlatform.js";
+import { GfxTextureDimension, GfxTextureUsage } from "../platform/GfxPlatform.js";
 import { assert, assertExists } from "../platform/GfxPlatformUtil.js";
 
 // GfxrRenderGraph is a simple, automatically managed "frame graph".
@@ -47,7 +47,7 @@ export class GfxrRenderTargetDescription {
     }
 }
 
-export const enum GfxrAttachmentSlot {
+export enum GfxrAttachmentSlot {
     Color0 = 0,
     Color1 = 1,
     Color2 = 2,
@@ -82,7 +82,7 @@ interface GfxrPassBase {
     /**
      * Set the debug name of a given pass. Strongly encouraged.
      */
-     setDebugName(debugName: string): void;
+    setDebugName(debugName: string): void;
 
     /**
      * Attach the resolve texture ID to the given pass. All resolve textures used within the pass

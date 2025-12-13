@@ -7,7 +7,7 @@ use nalgebra_glm::{make_vec3, vec3, Vec2, Vec3};
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    geometry::{project_vec3_to_vec2, point_inside_polygon, Axis, ConvexHull, Plane, AABB},
+    geometry::{project_vec3_to_vec2, point_inside_convex_polygon, Axis, ConvexHull, Plane, AABB},
     wow::common::{parse, parse_array, ChunkedData},
 };
 
@@ -278,7 +278,7 @@ impl Wmo {
         closest_group_id
     }
 
-    fn group_portals(&self, group: &WmoGroup) -> PortalIter {
+    fn group_portals(&self, group: &WmoGroup) -> PortalIter<'_> {
         PortalIter::new(group, self)
     }
 
@@ -300,7 +300,7 @@ impl Wmo {
             let test_point = p + t * neg_z;
             let (projected_verts, axis) = portal.project_vertices_to_2d();
             let projected_test_point = project_vec3_to_vec2(&test_point, axis);
-            if point_inside_polygon(&projected_test_point, &projected_verts) {
+            if point_inside_convex_polygon(&projected_test_point, &projected_verts) {
                 return Some(t);
             }
         }
@@ -1068,6 +1068,10 @@ impl WmoLiquid {
         let mut last_tile_liquid: Option<u8> = None;
         for y in 0..height {
             for x in 0..width {
+                // if we're reaching the limit of u16 indices, stop
+                if index >= u16::MAX - 4 {
+                    break;
+                }
                 let tile_i = y * width + x;
                 let tile = &self.tiles[tile_i];
                 if !tile.is_visible() {

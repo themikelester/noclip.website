@@ -6,17 +6,17 @@ import { fullscreenMegaState } from "../gfx/helpers/GfxMegaStateDescriptorHelper
 import { GfxShaderLibrary } from "../gfx/helpers/GfxShaderLibrary.js";
 import { fillVec4, fillVec4v } from "../gfx/helpers/UniformBufferHelpers.js";
 import { GfxBufferFrequencyHint, GfxBufferUsage, GfxDevice, GfxFormat, GfxQueryPoolType, GfxShadingLanguage } from "../gfx/platform/GfxPlatform.js";
-import { GfxBuffer, GfxComputePipeline, GfxProgram, GfxQueryPool, GfxReadback } from "../gfx/platform/GfxPlatformImpl.js";
+import type { GfxBuffer, GfxComputePipeline, GfxProgram, GfxQueryPool, GfxReadback } from "../gfx/platform/GfxPlatform.js";
 import { gfxDeviceGetImpl_WebGPU } from "../gfx/platform/GfxPlatformWebGPU.js";
-import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
+import type { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
 import { GfxrAttachmentSlot, GfxrGraphBuilder, GfxrRenderTargetDescription, GfxrRenderTargetID } from "../gfx/render/GfxRenderGraph.js";
-import { GfxRenderInst, GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
+import type { GfxRenderInst, GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
 import { clamp, invlerp, lerp, saturate } from "../MathHelpers.js";
 import { DeviceProgram } from "../Program.js";
 import { TextureMapping } from "../TextureHolder.js";
 import { align, nArray } from "../util.js";
-import { SourceRenderContext } from "./Main.js";
-import { ToneMapParams } from "./Materials/MaterialBase.js";
+import type { SourceRenderContext } from "./Main.js";
+import type { ToneMapParams } from "./Materials/MaterialBase.js";
 
 const scratchVec4 = vec4.create();
 
@@ -403,9 +403,9 @@ class ImplCompute {
         this.computePipeline = device.createComputePipeline({ program, pipelineLayout });
 
         const bucketCount = this.histogram.bucketCount;
-        this.bucketBuffer = device.createBuffer(bucketCount, GfxBufferUsage.Storage | GfxBufferUsage.CopySrc, GfxBufferFrequencyHint.Dynamic);
-
         this.results = new Uint32Array(bucketCount);
+
+        this.bucketBuffer = device.createBuffer(this.results.byteLength, GfxBufferUsage.Storage | GfxBufferUsage.CopySrc, GfxBufferFrequencyHint.Dynamic);
     }
 
     public debugDraw(ctx: CanvasRenderingContext2D): void {
@@ -527,8 +527,8 @@ class ImplCompute {
 
                 pass.setPipeline(this.computePipeline);
                 pass.setBindings(0, bindGroup, dynamicByteOffsets);
-                const dispatchX = align(desc.width, 8) / 8;
-                const dispatchY = align(desc.height, 8) / 8;
+                const dispatchX = align(this.viewport[2], 8) / 8;
+                const dispatchY = align(this.viewport[3], 8) / 8;
                 pass.dispatch(dispatchX, dispatchY, 1);
             });
 

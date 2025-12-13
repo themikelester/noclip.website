@@ -2,7 +2,7 @@
 import { OrbitCameraController } from '../Camera.js';
 
 import { SceneDesc, SceneContext, GraphObjBase } from "../SceneBase.js";
-import { GfxDevice, GfxTexture, GfxBuffer, GfxBufferUsage, GfxFormat, GfxVertexBufferFrequency, GfxInputLayout, GfxBindingLayoutDescriptor, GfxProgram, GfxBlendMode, GfxBlendFactor, GfxCullMode, makeTextureDescriptor2D, GfxChannelWriteMask, GfxVertexBufferDescriptor, GfxIndexBufferDescriptor } from "../gfx/platform/GfxPlatform.js";
+import { GfxDevice, GfxTexture, GfxBuffer, GfxBufferUsage, GfxFormat, GfxVertexBufferFrequency, GfxInputLayout, GfxBindingLayoutDescriptor, GfxProgram, GfxBlendMode, GfxBlendFactor, GfxCullMode, makeTextureDescriptor2D, GfxChannelWriteMask, GfxVertexBufferDescriptor, GfxIndexBufferDescriptor, GfxBufferFrequencyHint } from "../gfx/platform/GfxPlatform.js";
 import { SceneGfx, ViewerRenderInput } from "../viewer.js";
 import { DataFetcher } from "../DataFetcher.js";
 import { makeBackbufferDescSimple, makeAttachmentClearDescriptor } from "../gfx/helpers/RenderGraphHelpers.js";
@@ -10,19 +10,19 @@ import { TransparentBlack, colorNewCopy, colorLerp, colorNewFromRGBA } from '../
 import { GfxRenderInstList, GfxRenderInstManager } from '../gfx/render/GfxRenderInstManager.js';
 import { TextureMapping } from '../TextureHolder.js';
 import { nArray } from '../util.js';
-import { makeStaticDataBuffer } from '../gfx/helpers/BufferHelpers.js';
 import { DeviceProgram } from '../Program.js';
 import { fillMatrix4x3, fillMatrix4x4, fillColor, fillVec4 } from '../gfx/helpers/UniformBufferHelpers.js';
 import { mat4 } from 'gl-matrix';
 import { computeModelMatrixSRT, clamp } from '../MathHelpers.js';
 import { GfxRenderHelper } from '../gfx/render/GfxRenderHelper.js';
-import { captureSceneToZip } from '../CaptureHelpers.js';
 import { downloadBuffer } from '../DownloadUtils.js';
 import { makeZipFile } from '../ZipFile.js';
 import { GridPlane } from './GridPlane.js';
 import { dfRange, dfShow } from '../DebugFloaters.js';
 import { GfxrAttachmentSlot } from '../gfx/render/GfxRenderGraph.js';
 import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
+import { createBufferFromData } from '../gfx/helpers/BufferHelpers.js';
+import { GfxShaderLibrary } from '../gfx/helpers/GfxShaderLibrary.js';
 
 const pathBase = `FoxFur`;
 
@@ -126,9 +126,11 @@ class FurProgram extends DeviceProgram {
     public static ub_ShapeParams = 0;
 
     public override both = `
+${GfxShaderLibrary.MatrixLibrary}
+
 layout(std140) uniform ub_ShapeParams {
     Mat4x4 u_Projection;
-    Mat4x3 u_BoneMatrix[1];
+    Mat3x4 u_BoneMatrix[1];
     vec4 u_Misc[3];
     vec4 u_TintColor;
 };
@@ -158,8 +160,9 @@ layout(location = 2) in vec2 a_TexCoord;
 out vec2 v_TexCoord;
 
 void main() {
-    vec3 t_Position = a_Position.xyz + (a_Normal.xyz * u_LayerMagnitude);
-    gl_Position = Mul(u_Projection, Mul(_Mat4x4(u_BoneMatrix[0]), vec4(t_Position, 1.0)));
+    vec3 t_PositionLocal = a_Position.xyz + (a_Normal.xyz * u_LayerMagnitude);
+    vec3 t_PositionView = UnpackMatrix(u_BoneMatrix[0]) * vec4(t_PositionLocal, 1.0);
+    gl_Position = UnpackMatrix(u_Projection) * vec4(t_PositionView, 1.0);
     v_TexCoord = a_TexCoord.xy;
 }
 `;
@@ -308,8 +311,8 @@ class FurObj {
         this.textureMapping[2].gfxTexture = this.indTex;
 
         const obj = parseObjFile(objText);
-        this.vertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, obj.vertexBuffer.buffer);
-        this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, obj.indexBuffer.buffer);
+        this.vertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, obj.vertexBuffer.buffer);
+        this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, obj.indexBuffer.buffer);
         this.indexCount = obj.indexBuffer.length;
 
         this.inputLayout = cache.createInputLayout({
@@ -396,7 +399,11 @@ class FurObj {
     }
 
     public destroy(device: GfxDevice): void {
-        // ayy lmao
+        device.destroyTexture(this.bodyTex);
+        device.destroyTexture(this.indTex);
+        device.destroyTexture(this.poreTex);
+        device.destroyBuffer(this.indexBuffer);
+        device.destroyBuffer(this.vertexBuffer);
     }
 }
 
@@ -431,8 +438,6 @@ class SceneRenderer implements SceneGfx {
     }
 
     public render(device: GfxDevice, viewerInput: ViewerRenderInput) {
-        const renderInstManager = this.renderHelper.renderInstManager;
-
         const mainColorDesc = makeBackbufferDescSimple(GfxrAttachmentSlot.Color0, viewerInput, clearPass);
         const mainDepthDesc = makeBackbufferDescSimple(GfxrAttachmentSlot.DepthStencil, viewerInput, clearPass);
 
@@ -456,33 +461,8 @@ class SceneRenderer implements SceneGfx {
         this.renderInstListMain.reset();
     }
 
-    public async film() {
-        const width = 1920, height = 1080;
-        const scene0 = await captureSceneToZip(window.main.viewer, {
-            width, height,
-            opaque: false,
-            frameCount: 12,
-            filenamePrefix: 'scene0/scene0',
-            setupCallback: (viewer, t, i) => {
-                const orbit = (viewer.cameraController as OrbitCameraController);
-                orbit.shouldOrbit = false;
-                orbit.x = -Math.PI / 2;
-                orbit.y = 2;
-                orbit.z = -150;
-
-                const obj = this.fur;
-                obj.magnitude = t;
-                return true;
-            },
-        });
-
-        const zipFile = makeZipFile([
-            ... scene0,
-        ]);
-        downloadBuffer('FoxFur.zip', zipFile);
-    }
-
     public destroy(device: GfxDevice) {
+        this.renderHelper.destroy();
         for (let i = 0; i < this.obj.length; i++)
             this.obj[i].destroy(device);
     }

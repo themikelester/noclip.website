@@ -1,40 +1,38 @@
 
 import { mat4, ReadonlyMat4, ReadonlyVec3, vec3 } from "gl-matrix";
-import * as GX from "../gx/gx_enum.js";
 import { GXMaterialBuilder } from "../gx/GXMaterialBuilder.js";
-import { ColorKind, GXMaterialHelperGfx, MaterialParams, DrawParams } from "../gx/gx_render.js";
+import * as GX from "../gx/gx_enum.js";
+import { ColorKind, DrawParams, GXMaterialHelperGfx, MaterialParams } from "../gx/gx_render.js";
 
+import { Camera } from "../Camera.js";
+import { colorFromRGBA8, colorNewFromRGBA8 } from "../Color.js";
 import { J3DModelData } from "../Common/JSYSTEM/J3D/J3DGraphBase.js";
+import { invlerp, saturate, setMatrixTranslation, Vec3Zero } from "../MathHelpers.js";
+import { DeviceProgram } from "../Program.js";
+import { TextureMapping } from "../TextureHolder.js";
+import { fullscreenMegaState, makeMegaState, setAttachmentStateSimple } from "../gfx/helpers/GfxMegaStateDescriptorHelpers.js";
+import { GfxShaderLibrary, glslGenerateFloat } from "../gfx/helpers/GfxShaderLibrary.js";
+import { reverseDepthForDepthOffset } from "../gfx/helpers/ReversedDepthHelpers.js";
+import { fillColor, fillVec4 } from "../gfx/helpers/UniformBufferHelpers.js";
+import { GfxBindingLayoutDescriptor, GfxBlendFactor, GfxBlendMode, GfxCompareMode, GfxDevice, GfxMegaStateDescriptor, GfxMipFilterMode, GfxProgram, GfxTexFilterMode, GfxWrapMode } from "../gfx/platform/GfxPlatform.js";
+import { GfxFormat } from "../gfx/platform/GfxPlatformFormat.js";
 import { GfxrAttachmentSlot, GfxrGraphBuilder, GfxrRenderTargetDescription, GfxrRenderTargetID } from "../gfx/render/GfxRenderGraph.js";
 import { GfxRenderInst, GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
+import { GXShaderLibrary } from "../gx/gx_material.js";
 import { fallback, mod, nArray } from "../util.js";
 import { ViewerRenderInput } from "../viewer.js";
-import { calcNerveEaseInOutValue, calcRailPointPos, connectToScene, drawSimpleModel, getCamZdir, getEaseInOutValue, getEaseOutValue, getRailPointArg0, getRailPointNum, initDefaultPos, isOnSwitchAppear, isOnSwitchB, isRailReachedGoal, isValidSwitchAppear, isValidSwitchB, listenStageSwitchOnOffAppear, listenStageSwitchOnOffAppearCtrl, moveCoordAndTransToRailStartPoint, moveTransToCurrentRailPos, useStageSwitchReadAppear, useStageSwitchWriteB } from "./ActorUtil.js";
+import { calcNerveEaseInOutValue, calcRailPointPos, connectToScene, drawSimpleModel, getCamZdir, getEaseOutValue, getRailPointArg0, getRailPointNum, initDefaultPos, isOnSwitchAppear, isOnSwitchB, isRailReachedGoal, isValidSwitchAppear, isValidSwitchB, listenStageSwitchOnOffAppearCtrl, moveCoordAndTransToRailStartPoint, moveTransToCurrentRailPos, useStageSwitchReadAppear, useStageSwitchWriteB } from "./ActorUtil.js";
+import { TDDraw } from "./DDraw.js";
+import { emitEffectHitPos } from "./EffectSystem.js";
+import { addHitSensorMapObj } from "./HitSensor.js";
 import { getJMapInfoArg0, getJMapInfoBool, JMapInfoIter } from "./JMapInfo.js";
 import { dynamicSpawnZoneAndLayer, LiveActor, LiveActorGroup, makeMtxTRFromActor, ZoneAndLayer } from "./LiveActor.js";
 import { getObjectName, SceneObj, SceneObjHolder } from "./Main.js";
-import { CalcAnimType, DrawBufferType, DrawType, MovementType, NameObj } from "./NameObj.js";
-import { colorFromRGBA8, colorNewFromRGBA8 } from "../Color.js";
-import { Camera } from "../Camera.js";
-import { isFirstStep, isGreaterStep, isLessStep } from "./Spine.js";
-import { invlerp, saturate, setMatrixTranslation, Vec3Zero } from "../MathHelpers.js";
-import { DeviceProgram } from "../Program.js";
-import { GfxShaderLibrary, glslGenerateFloat } from "../gfx/helpers/GfxShaderLibrary.js";
-import { GfxProgram } from "../gfx/platform/GfxPlatformImpl.js";
-import { GfxFormat } from "../gfx/platform/GfxPlatformFormat.js";
-import { GfxBindingLayoutDescriptor, GfxBlendFactor, GfxBlendMode, GfxCompareMode, GfxDevice, GfxMegaStateDescriptor, GfxMipFilterMode, GfxTexFilterMode, GfxWrapMode } from "../gfx/platform/GfxPlatform.js";
-import { fullscreenMegaState, makeMegaState, setAttachmentStateSimple } from "../gfx/helpers/GfxMegaStateDescriptorHelpers.js";
-import { TextureMapping } from "../TextureHolder.js";
-import { fillColor, fillVec4 } from "../gfx/helpers/UniformBufferHelpers.js";
-import { reverseDepthForDepthOffset } from "../gfx/helpers/ReversedDepthHelpers.js";
-import { isConnectedWithRail } from "./RailRider.js";
 import { MapPartsRailMover, MapPartsRotator } from "./MapParts.js";
-import { addHitSensorMapObj } from "./HitSensor.js";
-import { emitEffectHitPos } from "./EffectSystem.js";
+import { CalcAnimType, DrawBufferType, DrawType, MovementType, NameObj } from "./NameObj.js";
+import { isConnectedWithRail } from "./RailRider.js";
+import { isFirstStep, isGreaterStep, isLessStep } from "./Spine.js";
 import { createStageSwitchCtrl, isExistStageSwitchAppear, StageSwitchCtrl } from "./Switch.js";
-import { drawWorldSpaceLine, drawWorldSpacePoint, drawWorldSpaceText, getDebugOverlayCanvas2D } from "../DebugJunk.js";
-import { TDDraw } from "./DDraw.js";
-import { GXShaderLibrary } from "../gx/gx_material.js";
 
 const materialParams = new MaterialParams();
 const drawParams = new DrawParams();
@@ -243,7 +241,7 @@ function calcNerveEaseOutValue(actor: LiveActor, maxStep: number, minValue: numb
     return getEaseOutValue(t, minValue, maxValue);
 }
 
-const enum ClipAreaDropNrv { Wait }
+enum ClipAreaDropNrv { Wait }
 class ClipAreaDrop extends ClipArea<ClipAreaDropNrv> {
     private baseSize: number;
     private sphere: ClipAreaShapeSphere;
@@ -326,7 +324,7 @@ function moveCoordAndCheckPassPointNo(actor: LiveActor, speed: number): number {
     return -1;
 }
 
-const enum ClipAreaDropLaserNrv { Wait, Move }
+enum ClipAreaDropLaserNrv { Wait, Move }
 export class ClipAreaDropLaser extends LiveActor<ClipAreaDropLaserNrv> {
     private moveSpeed: number;
     private drawCount: number = 0;
@@ -430,7 +428,7 @@ export class ClipAreaDropLaser extends LiveActor<ClipAreaDropLaserNrv> {
             return;
 
         const ddraw = this.ddraw;
-        ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
 
         getCamZdir(scratchVec3b, viewerInput.camera);
 
@@ -681,7 +679,7 @@ export class FallOutFieldDraw extends NameObj {
             this.activate(sceneObjHolder);
         }
 
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
         const linearSampler = cache.createSampler({
             wrapS: GfxWrapMode.Clamp,
             wrapT: GfxWrapMode.Clamp,
@@ -709,9 +707,8 @@ export class FallOutFieldDraw extends NameObj {
     }
 
     private allocateParameterBuffer(renderInst: GfxRenderInst) {
-        let offs = renderInst.allocateUniformBuffer(0, 8);
-        const d = renderInst.mapUniformBufferF32(0);
-
+        const d = renderInst.allocateUniformBufferF32(0, 8);
+        let offs = 0;
         offs += fillColor(d, offs, this.edgeColor);
         offs += fillVec4(d, offs, this.invert ? 1.0 : 0.0);
     }

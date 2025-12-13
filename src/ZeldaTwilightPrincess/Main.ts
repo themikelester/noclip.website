@@ -25,7 +25,7 @@ import { dRes_control_c, ResType } from './d_resorce.js';
 import { dStage_stageDt_c, dStage_dt_c_stageLoader, dStage_dt_c_stageInitLoader, dStage_roomStatus_c, dStage_dt_c_roomLoader, dStage_dt_c_roomReLoader } from './d_stage.js';
 import { dScnKy_env_light_c, dKy_tevstr_init, dKy__RegisterConstructors, dKankyo_create, dKy_reinitLight } from './d_kankyo.js';
 import { dKyw__RegisterConstructors, mDoGph_bloom_c } from './d_kankyo_wether.js';
-import { d_a__RegisterConstructors, dDlst_2DStatic_c, dProcName_e } from './d_a.js';
+import { d_a__RegisterConstructors, dProcName_e } from './d_a.js';
 import { LegacyActor__RegisterFallbackConstructor } from './LegacyActor.js';
 import { dBgS } from '../ZeldaWindWaker/d_bg.js';
 import { TransparentBlack } from '../Color.js';
@@ -147,7 +147,6 @@ export class dGlobals {
     // TODO(jstpierre): Remove
     public renderer: TwilightPrincessRenderer;
 
-    public quadStatic: dDlst_2DStatic_c;
     public renderHacks = new RenderHacks();
 
     private relNameTable: { [id: number]: string };
@@ -229,7 +228,7 @@ export class TwilightPrincessRoom {
     }
 }
 
-const enum EffectDrawGroup {
+enum EffectDrawGroup {
     Main = 0,
     Indirect = 1,
 }
@@ -252,6 +251,11 @@ export class TwilightPrincessRenderer implements Viewer.SceneGfx {
     public renderCache: GfxRenderCache;
 
     public time: number; // In milliseconds, affected by pause and time scaling
+
+    // Time of day control
+    private timeOfDayPanel: UI.TimeOfDayPanel | null = null;
+    private useSystemTime: boolean = true;
+    private readonly defaultTimeAdv: number = 0.012;
 
     public onstatechanged!: () => void;
 
@@ -388,7 +392,24 @@ export class TwilightPrincessRenderer implements Viewer.SceneGfx {
         };
         environmentPanel.contents.appendChild(this.bgAmbRatioSlider.elem);
 
-        return [roomsPanel, scenarioPanel, renderHacksPanel, environmentPanel];
+        // Time of Day panel
+        this.timeOfDayPanel = new UI.TimeOfDayPanel();
+        this.timeOfDayPanel.setTime(this.globals.g_env_light.curTime / 360);
+
+        this.timeOfDayPanel.onvaluechange = (t: number, useDynamicTime: boolean) => {
+            this.useSystemTime = useDynamicTime;
+            if (useDynamicTime) {
+                // Re-enable dynamic time: restore time advance rate and sync to current hour
+                this.globals.g_env_light.timeAdv = this.defaultTimeAdv;
+                this.globals.g_env_light.curTime = 15 * new Date().getHours();
+            } else {
+                // Freeze time at the selected value
+                this.globals.g_env_light.timeAdv = 0;
+                this.globals.g_env_light.curTime = t * 360;
+            }
+        };
+
+        return [roomsPanel, scenarioPanel, renderHacksPanel, environmentPanel, this.timeOfDayPanel];
     }
 
     // For people to play around with.
@@ -437,6 +458,11 @@ export class TwilightPrincessRenderer implements Viewer.SceneGfx {
 
         this.time = viewerInput.time;
         globals.counter += viewerInput.deltaTime / 30.0;
+
+        // Update time-of-day panel display
+        if (this.timeOfDayPanel !== null && this.useSystemTime) {
+            this.timeOfDayPanel.setTime(globals.g_env_light.curTime / 360);
+        }
 
         if (!this.cameraFrozen) {
             mat4.getTranslation(this.globals.cameraPosition, viewerInput.camera.worldMatrix);
@@ -490,13 +516,15 @@ export class TwilightPrincessRenderer implements Viewer.SceneGfx {
 
                 if (group === EffectDrawGroup.Indirect) {
                     texPrjMtx = scratchMatrix;
-                    texProjCameraSceneTex(texPrjMtx, viewerInput.camera, 1);
+                    texProjCameraSceneTex(texPrjMtx, viewerInput.camera.projectionMatrix, 1);
                 }
 
                 this.globals.particleCtrl.setDrawInfo(viewerInput.camera.viewMatrix, viewerInput.camera.projectionMatrix, texPrjMtx, viewerInput.camera.frustum);
                 renderInstManager.setCurrentList(dlst.effect[group]);
                 this.globals.particleCtrl.draw(device, this.renderHelper.renderInstManager, group);
             }
+
+            globals.particleCtrl.prepareToRender(device);
 
             renderInstManager.setCurrentList(dlst.indirect[0]);
         }
@@ -586,13 +614,13 @@ export class ModelCache {
     private fileDataCache = new Map<string, ArrayBufferSlice>();
     private archivePromiseCache = new Map<string, Promise<RARC.JKRArchive>>();
     private archiveCache = new Map<string, RARC.JKRArchive>();
-    public cache: GfxRenderCache;
+    public renderCache: GfxRenderCache;
 
     public resCtrl = new dRes_control_c();
     public currentStage: string;
 
     constructor(public device: GfxDevice, private dataFetcher: DataFetcher) {
-        this.cache = new GfxRenderCache(device);
+        this.renderCache = new GfxRenderCache(device);
     }
 
     public waitForLoad(): Promise<any> {
@@ -658,13 +686,13 @@ export class ModelCache {
 
     public async fetchObjectData(arcName: string): Promise<RARC.JKRArchive> {
         const archive = await this.fetchArchive(`res/Object/${arcName}.arc`);
-        this.resCtrl.mountRes(this.device, this.cache, arcName, archive, this.resCtrl.resObj);
+        this.resCtrl.mountRes(this.device, this.renderCache, arcName, archive, this.resCtrl.resObj);
         return archive;
     }
 
     public async fetchMsgData(arcName: string) {
         const archive = await this.fetchArchive(`res/Msg/${arcName}.arc`);
-        this.resCtrl.mountRes(this.device, this.cache, arcName, archive, this.resCtrl.resSystem);
+        this.resCtrl.mountRes(this.device, this.renderCache, arcName, archive, this.resCtrl.resSystem);
     }
 
     public requestFileData(path: string): cPhs__Status {
@@ -703,12 +731,12 @@ export class ModelCache {
 
     public async fetchStageData(arcName: string): Promise<RARC.JKRArchive> {
         const archive = await this.fetchArchive(`res/Stage/${this.currentStage}/${arcName}.arc`);
-        this.resCtrl.mountRes(this.device, this.cache, arcName, archive, this.resCtrl.resStg);
+        this.resCtrl.mountRes(this.device, this.renderCache, arcName, archive, this.resCtrl.resStg);
         return archive;
     }
 
     public destroy(device: GfxDevice): void {
-        this.cache.destroy();
+        this.renderCache.destroy();
         this.resCtrl.destroy(device);
     }
 }

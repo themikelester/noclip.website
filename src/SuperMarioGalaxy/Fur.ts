@@ -13,10 +13,11 @@ import ArrayBufferSlice from "../ArrayBufferSlice.js";
 import { lerp, saturate, computeModelMatrixS } from "../MathHelpers.js";
 import * as GX from "../gx/gx_enum.js";
 import { GfxDevice, GfxFormat, GfxBufferUsage, GfxBuffer, GfxVertexBufferDescriptor } from "../gfx/platform/GfxPlatform.js";
-import { getRandomFloat, connectToScene, isHiddenModel, isValidDraw } from "./ActorUtil.js";
+import { connectToScene, isHiddenModel, isValidDraw } from "./ActorUtil.js";
+import { randomRangeFloat } from '../MathHelpers.js';
 import { TextureMapping } from "../TextureHolder.js";
 import { Shape } from "../Common/JSYSTEM/J3D/J3DLoader.js";
-import { GXShapeHelperGfx, GXMaterialHelperGfx, MaterialParams, DrawParams, ColorKind } from "../gx/gx_render.js";
+import { GXMaterialHelperGfx, MaterialParams, DrawParams, ColorKind } from "../gx/gx_render.js";
 import { coalesceBuffer } from "../gfx/helpers/BufferHelpers.js";
 import { GfxRenderInstManager, GfxRenderInst } from "../gfx/render/GfxRenderInstManager.js";
 import { GXMaterialBuilder } from "../gx/GXMaterialBuilder.js";
@@ -189,8 +190,8 @@ function createFurDensityMap(mapDensity: ReadonlyVec4, mapThickness: ReadonlyVec
 
         const numPoints = (width * height * layerDensity);
         for (let j = 0; j < numPoints; j++) {
-            const x = getRandomFloat(0.0, width) | 0;
-            const y = getRandomFloat(0.0, height) | 0;
+            const x = randomRangeFloat(0.0, width) | 0;
+            const y = randomRangeFloat(0.0, height) | 0;
 
             data[(y * width + x) * 2 + 0] = 0xFF * layerThickness;
             data[(y * width + x) * 2 + 1] = 0xFF - layerMixingRatio;
@@ -421,7 +422,7 @@ class FurCtrl {
     private ownDensityMapData: BTIData | null = null;
 
     constructor(sceneObjHolder: SceneObjHolder, private actor: LiveActor, private shapeData: ShapeData, public param: FurParam, private dynamicFurParam: DynamicFurParam, bodyMapSamplerIndex: number, indirectMap: BTI_Texture | null, densityMap: BTI_Texture | null) {
-        const device = sceneObjHolder.modelCache.device, cache = sceneObjHolder.modelCache.cache;
+        const device = sceneObjHolder.modelCache.device, cache = sceneObjHolder.modelCache.renderCache;
 
         if (indirectMap !== null)
             this.ownIndirectMapData = new BTIData(device, cache, indirectMap);
@@ -466,7 +467,7 @@ class FurCtrl {
             this.actor.actorLightCtrl.loadLightOnMaterialParams(materialParams, viewerInput.camera);
         }
 
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
         const shape = this.shapeData.shape;
 
         this.furDrawer.setupMaterial(materialParams, this.dynamicFurParam);
@@ -495,7 +496,7 @@ class FurCtrl {
     }
 
     public calcLayerForm(sceneObjHolder: SceneObjHolder, lengthMap: BTI_Texture | null): void {
-        const device = sceneObjHolder.modelCache.device, cache = sceneObjHolder.modelCache.cache;
+        const device = sceneObjHolder.modelCache.device, cache = sceneObjHolder.modelCache.renderCache;
         const shapeData = this.shapeData;
 
         const numLayers = this.param.numLayers;
@@ -665,23 +666,25 @@ export function initMultiFur(sceneObjHolder: SceneObjHolder, actor: LiveActor, l
         if (bodyMapSamplerIndex === -1)
             bodyMapSamplerIndex = 0;
 
+        const resourceHolder = actor.modelManager!.resourceHolder;
+
         const lengthMapName = `${materialName}Length.bti`;
-        const lengthMapData = actor.resourceHolder.arc.findFileData(lengthMapName);
+        const lengthMapData = resourceHolder.arc.findFileData(lengthMapName);
         const lengthMap = lengthMapData !== null ? BTI.parse(lengthMapData, lengthMapName).texture : null;
 
         const indirectMapName = `${materialName}Indirect.bti`;
-        const indirectMapData = actor.resourceHolder.arc.findFileData(indirectMapName);
+        const indirectMapData = resourceHolder.arc.findFileData(indirectMapName);
         const indirectMap = indirectMapData !== null ? BTI.parse(indirectMapData, indirectMapName).texture : null;
 
         const densityMapName = `${materialName}Density.bti`;
-        const densityMapData = actor.resourceHolder.arc.findFileData(densityMapName);
+        const densityMapData = resourceHolder.arc.findFileData(densityMapName);
         const densityMap = densityMapData !== null ? BTI.parse(densityMapData, densityMapName).texture : null;
 
         const furParam = Object.assign({}, defaultFurParam) as FurParam;
         const dynFurParam = new DynamicFurParam();
         dynFurParam.lightType = lightType;
 
-        const furTxt = actor.resourceHolder.arc.findFileData(`${materialName}.fur.txt`);
+        const furTxt = resourceHolder.arc.findFileData(`${materialName}.fur.txt`);
         if (furTxt !== null)
             initFurParamFromDVD(furParam, dynFurParam, furTxt);
 

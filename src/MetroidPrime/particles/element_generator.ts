@@ -17,8 +17,8 @@ import { assert, assertExists, nArray } from '../../util.js';
 import { PART } from '../part.js';
 import { AABB } from '../../Geometry.js';
 import { getMatrixAxisZ, getMatrixTranslation, MathConstants, transformVec3Mat4w0, transformVec3Mat4w1, Vec3UnitZ, Vec3Zero } from '../../MathHelpers.js';
-import { GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxDevice, GfxMipFilterMode, GfxTexFilterMode, GfxWrapMode } from '../../gfx/platform/GfxPlatform.js';
-import { ColorKind, DrawParams, GXMaterialHelperGfx, GXShapeHelperGfx, MaterialParams } from '../../gx/gx_render.js';
+import { GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxDevice, GfxInputLayout, GfxMipFilterMode, GfxTexFilterMode, GfxWrapMode } from '../../gfx/platform/GfxPlatform.js';
+import { ColorKind, createInputLayout, DrawParams, GXMaterialHelperGfx, MaterialParams } from '../../gx/gx_render.js';
 import { computeViewMatrix } from '../../Camera.js';
 import { GfxRendererLayer, GfxRenderInst, makeSortKey } from '../../gfx/render/GfxRenderInstManager.js';
 import { Color, colorCopy, colorEqual, colorFromRGBA, colorNewFromRGBA, colorScale, colorToRGBA8, OpaqueBlack, White } from '../../Color.js';
@@ -34,7 +34,7 @@ import { SWHC } from '../swhc.js';
 import { ELSC } from '../elsc.js';
 import { Endianness, getSystemEndianness } from '../../endian.js';
 import { GfxTopology, makeTriangleIndexBuffer } from '../../gfx/helpers/TopologyHelpers.js';
-import { makeStaticDataBuffer } from '../../gfx/helpers/BufferHelpers.js';
+import { createBufferFromData } from '../../gfx/helpers/BufferHelpers.js';
 
 const scratchMat4a = mat4.create();
 const scratchMat4b = mat4.create();
@@ -503,19 +503,19 @@ export function GetChildGeneratorDesc(stream: InputStream, resourceSystem: Resou
     return part.description;
 }
 
-export const enum ModelOrientationType {
+export enum ModelOrientationType {
     Normal,
     One
 }
 
-export const enum LightType {
+export enum LightType {
     None,
     Custom,
     Directional,
     Spot,
 }
 
-export const enum FalloffType {
+export enum FalloffType {
     Constant,
     Linear,
     Quadratic
@@ -602,7 +602,7 @@ export class ElementGenerator extends BaseGenerator {
     material: GXMaterialHelperGfx;
     materialPmus: GXMaterialHelperGfx;
     textureMapping: TextureMapping = new TextureMapping();
-    shapeHelper: ElementGeneratorShapeHelper;
+    shapeData: ElementGeneratorShapeData;
 
     constructor(private genDesc: GenDescription, private orientationType: ModelOrientationType,
                 private enableOPTS: boolean, private renderer: RetroSceneRenderer) {
@@ -720,9 +720,9 @@ export class ElementGenerator extends BaseGenerator {
                 wrapS: GfxWrapMode.Repeat,
                 wrapT: GfxWrapMode.Repeat,
             });
-            this.shapeHelper = ElementGeneratorShapeHelper.createTex(renderer, 256);
+            this.shapeData = ElementGeneratorShapeData.createTex(renderer, 256);
         } else {
-            this.shapeHelper = ElementGeneratorShapeHelper.createNoTex(renderer, 256);
+            this.shapeData = ElementGeneratorShapeData.createNoTex(renderer, 256);
         }
     }
 
@@ -1518,9 +1518,9 @@ export class ElementGenerator extends BaseGenerator {
         if (true || !this.MBLR) {
             if (!this.ORNT) {
                 const setVertex = this.genDesc.TEXR ? (idx: number, posX: number, posY: number, posZ: number, color: Color, uvX: number, uvY: number) => {
-                    this.shapeHelper.setTexVertex(idx, posX, posY, posZ, color, uvX, uvY);
+                    this.shapeData.setTexVertex(idx, posX, posY, posZ, color, uvX, uvY);
                 } : (idx: number, posX: number, posY: number, posZ: number, color: Color, uvX: number, uvY: number) => {
-                    this.shapeHelper.setNoTexVertex(idx, posX, posY, posZ, color);
+                    this.shapeData.setNoTexVertex(idx, posX, posY, posZ, color);
                 };
 
                 for (let i = 0; i < this.particles.length; ++i) {
@@ -1555,9 +1555,9 @@ export class ElementGenerator extends BaseGenerator {
                 }
             } else {
                 const setVertexVec = this.genDesc.TEXR ? (idx: number, pos: ReadonlyVec3, color: Color, uvX: number, uvY: number) => {
-                    this.shapeHelper.setTexVertexVec(idx, pos, color, uvX, uvY);
+                    this.shapeData.setTexVertexVec(idx, pos, color, uvX, uvY);
                 } : (idx: number, pos: ReadonlyVec3, color: Color, uvX: number, uvY: number) => {
-                    this.shapeHelper.setNoTexVertexVec(idx, pos, color);
+                    this.shapeData.setNoTexVertexVec(idx, pos, color);
                 };
 
                 getMatrixAxisZ(scratchViewDirection, viewerInput.camera.worldMatrix);
@@ -1636,8 +1636,8 @@ export class ElementGenerator extends BaseGenerator {
         renderInst.sortKey = makeSortKey(GfxRendererLayer.TRANSLUCENT, this.material.programKey);
         renderInst.setSamplerBindingsFromTextureMappings([this.textureMapping]);
 
-        this.shapeHelper.uploadToDevice(renderer.device);
-        this.shapeHelper.setOnRenderInst(renderInst, this.particles.length);
+        this.shapeData.uploadToDevice(renderer.device);
+        this.shapeData.setOnRenderInst(renderInst, this.particles.length);
         mat4.copy(scratchDrawParams.u_PosMtx[0], scratchModelViewMatrix);
         this.material.allocateDrawParamsDataOnInst(renderInst, scratchDrawParams);
 
@@ -1681,7 +1681,7 @@ export class ElementGenerator extends BaseGenerator {
             const child = this.activeChildren[i];
             child.Destroy(device);
         }
-        this.shapeHelper.destroy(device);
+        this.shapeData.destroy(device);
     }
 }
 
@@ -1732,8 +1732,8 @@ export class ElementGeneratorMaterialHelper {
     }
 }
 
-export class ElementGeneratorShapeHelper {
-    public shapeHelper: GXShapeHelperGfx;
+export class ElementGeneratorShapeData {
+    private readonly inputLayout: GfxInputLayout;
     private readonly shadowBuffer: DataView;
     private readonly vertexBuffer: GfxBuffer;
     private readonly indexBuffer: GfxBuffer;
@@ -1743,35 +1743,36 @@ export class ElementGeneratorShapeHelper {
         const wordCount = vertexLayout.vertexBufferStrides[0] * maxElementCount;
         const shadowBufferData = new ArrayBuffer(wordCount * 4);
         this.shadowBuffer = new DataView(shadowBufferData);
-        this.vertexBuffer = renderer.device.createBuffer(wordCount, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Dynamic);
+        this.vertexBuffer = renderer.device.createBuffer(shadowBufferData.byteLength, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Dynamic);
 
         const indexData = makeTriangleIndexBuffer(GfxTopology.Quads, 0, maxElementCount * 4);
-        this.indexBuffer = makeStaticDataBuffer(renderer.device, GfxBufferUsage.Index, indexData.buffer);
+        this.indexBuffer = createBufferFromData(renderer.device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, indexData.buffer);
 
-        this.shapeHelper = new GXShapeHelperGfx(renderer.device, renderer.renderCache, [{ buffer: this.vertexBuffer, byteOffset: 0 }], { buffer: this.indexBuffer, byteOffset: 0 }, vertexLayout);
+        this.inputLayout = createInputLayout(renderer.renderCache, vertexLayout);
     }
 
-    static createTex(renderer: RetroSceneRenderer, maxElementCount: number): ElementGeneratorShapeHelper {
+    static createTex(renderer: RetroSceneRenderer, maxElementCount: number): ElementGeneratorShapeData {
         const vcd: GX_VtxDesc[] = [];
         vcd[GX.Attr.POS] = { type: GX.AttrType.DIRECT };
         vcd[GX.Attr.CLR0] = { type: GX.AttrType.DIRECT };
         vcd[GX.Attr.TEX0] = { type: GX.AttrType.DIRECT };
         const loadedVertexLayout = compileLoadedVertexLayout(vcd);
         assert(loadedVertexLayout.vertexBufferStrides[0] === 9*4);
-        return new ElementGeneratorShapeHelper(renderer, loadedVertexLayout, maxElementCount);
+        return new ElementGeneratorShapeData(renderer, loadedVertexLayout, maxElementCount);
     }
 
-    static createNoTex(renderer: RetroSceneRenderer, maxElementCount: number): ElementGeneratorShapeHelper {
+    static createNoTex(renderer: RetroSceneRenderer, maxElementCount: number): ElementGeneratorShapeData {
         const vcd: GX_VtxDesc[] = [];
         vcd[GX.Attr.POS] = { type: GX.AttrType.DIRECT };
         vcd[GX.Attr.CLR0] = { type: GX.AttrType.DIRECT };
         const loadedVertexLayout = compileLoadedVertexLayout(vcd);
         assert(loadedVertexLayout.vertexBufferStrides[0] === 5*4);
-        return new ElementGeneratorShapeHelper(renderer, loadedVertexLayout, maxElementCount);
+        return new ElementGeneratorShapeData(renderer, loadedVertexLayout, maxElementCount);
     }
 
     public setOnRenderInst(renderInst: GfxRenderInst, elementCount: number): void {
-        this.shapeHelper.setOnRenderInst(renderInst, { indexOffset: 0, indexCount: Math.min(elementCount, this.maxElementCount) * 6, texMatrixTable: [], posMatrixTable: [] });
+        renderInst.setVertexInput(this.inputLayout, [{ buffer: this.vertexBuffer }], { buffer: this.indexBuffer });
+        renderInst.setDrawCount(Math.min(elementCount, this.maxElementCount) * 6);
     }
 
     public setTexVertex(idx: number, posX: number, posY: number, posZ: number, color: Color, uvX: number, uvY: number): void {
@@ -1811,7 +1812,6 @@ export class ElementGeneratorShapeHelper {
     }
 
     public destroy(device: GfxDevice): void {
-        this.shapeHelper.destroy(device);
         device.destroyBuffer(this.vertexBuffer);
         device.destroyBuffer(this.indexBuffer);
     }

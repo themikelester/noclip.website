@@ -1,4 +1,5 @@
-use deku::prelude::*;
+
+use deku::{ctx::Order, prelude::*};
 
 // https://github.com/AssetRipper/TypeTreeDumps/blob/main/StructsDump/release/2019.4.39f1.dump
 // e.g. Outer Wilds
@@ -135,7 +136,7 @@ pub struct Mesh {
     pub keep_vertices: u8,
     pub keep_indices: u8,
     pub index_format: IndexFormat,
-    pub index_buffer: UnityArray<u8>,
+    pub index_buffer: ByteArray,
     #[deku(count = "(4 - deku::byte_offset % 4) % 4")] _alignment2: Vec<u8>,
     #[deku(ctx = "version")]
     pub vertex_data: VertexData,
@@ -143,9 +144,9 @@ pub struct Mesh {
     pub compressed_mesh: CompressedMesh,
     pub local_aabb: AABB,
     pub mesh_usage_flags: i32,
-    pub baked_convex_collision_mesh: UnityArray<u8>,
+    pub baked_convex_collision_mesh: ByteArray,
     #[deku(count = "(4 - deku::byte_offset % 4) % 4")] _alignment4: Vec<u8>,
-    pub baked_triangle_collision_mesh: UnityArray<u8>,
+    pub baked_triangle_collision_mesh: ByteArray,
     #[deku(count = "(4 - deku::byte_offset % 4) % 4")] _alignment5: Vec<u8>,
     pub mesh_metrics: [f32; 2],
     #[deku(ctx = "version")]
@@ -153,14 +154,16 @@ pub struct Mesh {
 }
 
 #[derive(DekuRead, Clone, Copy, Debug)]
-#[deku(type = "i32")]
+#[repr(i32)]
+#[deku(id_type = "i32")]
 pub enum IndexFormat {
     UInt16 = 0,
     UInt32 = 1,
 }
 
 #[derive(DekuRead, Clone, Copy, Debug)]
-#[deku(type = "u8")]
+#[repr(u8)]
+#[deku(id_type = "u8")]
 pub enum MeshCompression {
     Off = 0,
     Low = 1,
@@ -211,8 +214,28 @@ pub struct SubMesh {
 pub struct VertexData {
     pub vertex_count: u32,
     pub channels: UnityArray<ChannelInfo>,
-    pub data: UnityArray<u8>,
+    pub data: ByteArray,
     #[deku(count = "(4 - deku::byte_offset % 4) % 4")] _alignment: Vec<u8>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct ByteArray {
+    pub data: Vec<u8>,
+}
+
+impl<'a, Ctx> DekuReader<'a, Ctx> for ByteArray where Ctx: Copy {
+    fn from_reader_with_ctx<R: std::io::Read + std::io::Seek>(reader: &mut Reader<R>, _ctx: Ctx) -> Result<Self, DekuError> {
+        let count = i32::from_reader_with_ctx(reader, ())? as usize;
+        let mut buf = vec![0x00; count];
+        reader.read_bytes(count, &mut buf, Order::Msb0)?;
+        Ok(ByteArray{ data: buf })
+    }
+}
+
+impl From<ByteArray> for Vec<u8> {
+    fn from(value: ByteArray) -> Self {
+        value.data
+    }
 }
 
 #[derive(DekuRead, Clone, Debug)]
@@ -242,7 +265,7 @@ pub struct ChannelInfo {
 }
 
 #[derive(DekuRead, Clone, Debug)]
-#[deku(type = "u8")]
+#[deku(id_type = "u8")]
 pub enum VertexFormat {
     #[deku(id = "0")] Float,
     #[deku(id = "1")] Float16,
@@ -323,9 +346,9 @@ pub struct Texture2D {
     pub lightmap_format: i32,
     pub color_space: ColorSpace,
     #[deku(cond = "version >= UnityVersion::V2020_3_16f1")]
-    pub platform_blob: UnityArray<u8>,
+    pub platform_blob: ByteArray,
     #[deku(count = "(4 - deku::byte_offset % 4) % 4")] _alignment2: Vec<u8>,
-    pub data: UnityArray<u8>,
+    pub data: ByteArray,
     #[deku(count = "(4 - deku::byte_offset % 4) % 4")] _alignment3: Vec<u8>,
     #[deku(ctx = "version")]
     pub streaming_info: StreamingInfo,
@@ -361,7 +384,8 @@ pub struct GLTextureSettings {
 }
 
 #[derive(DekuRead, Clone, Debug)]
-#[deku(type = "i32")]
+#[repr(i32)]
+#[deku(id_type = "i32")]
 pub enum TextureFilterMode {
     Nearest = 0,
     Bilinear = 1,
@@ -369,7 +393,8 @@ pub enum TextureFilterMode {
 }
 
 #[derive(DekuRead, Clone, Debug)]
-#[deku(type = "i32")]
+#[repr(i32)]
+#[deku(id_type = "i32")]
 pub enum TextureWrapMode {
     Repeat = 0,
     Clamp = 1,
@@ -377,24 +402,126 @@ pub enum TextureWrapMode {
     MirrorOnce = 3,
 }
 
+// copied from https://github.com/Unity-Technologies/UnityCsReference/blob/129a67089d125df5b95b659d3535deaf9968e86c/Editor/Mono/AssetPipeline/TextureImporterEnums.cs#L37
 #[derive(DekuRead, Clone, Debug)]
-#[deku(type = "i32")]
+#[repr(i32)]
+#[deku(id_type = "i32")]
 pub enum TextureFormat {
-    Alpha8       = 0x01,
-    RGB24        = 0x03,
-    RGBA32       = 0x04,
-    ARGB32       = 0x05,
-    BC1          = 0x0A,
-    BC2          = 0x0B,
-    BC3          = 0x0C,
-    BC6H         = 0x18,
-    BC7          = 0x19,
-    DXT1Crunched = 0x1C,
-    DXT5Crunched = 0x1D,
+    // Alpha 8 bit texture format.
+    Alpha8 = 1,
+    // RGBA 16 bit texture format.
+    ARGB16 = 2,
+    // RGB 24 bit texture format.
+    RGB24 = 3,
+    // RGBA 32 bit texture format.
+    RGBA32 = 4,
+    // ARGB 32 bit texture format.
+    ARGB32 = 5,
+    // RGB 16 bit texture format.
+    RGB16 = 7,
+    // Red 16 bit texture format.
+    R16 = 9,
+    // DXT1 compressed texture format.
+    DXT1 = 10,
+    // DXT5 compressed texture format.
+    DXT5 = 12,
+    // RGBA 16 bit (4444) texture format.
+    RGBA16 = 13,
+
+    // R 16 bit texture format.
+    RHalf = 15,
+    // RG 32 bit texture format.
+    RGHalf = 16,
+    // RGBA 64 bit texture format.
+    RGBAHalf = 17,
+
+    // R 32 bit texture format.
+    RFloat = 18,
+    // RG 64 bit texture format.
+    RGFloat = 19,
+    // RGBA 128 bit texture format.
+    RGBAFloat = 20,
+
+    // RGB 32 bit packed float format.
+    RGB9E5 = 22,
+
+    // R BC4 compressed texture format.
+    BC4 = 26,
+    // RG BC5 compressed texture format.
+    BC5 = 27,
+    // HDR RGB BC6 compressed texture format.
+    BC6H = 24,
+    // RGBA BC7 compressed texture format.
+    BC7 = 25,
+
+    // DXT1 crunched texture format.
+    DXT1Crunched = 28,
+    // DXT5 crunched texture format.
+    DXT5Crunched = 29,
+    // ETC (GLES2.0) 4 bits/pixel compressed RGB texture format.
+    EtcRGB4 = 34,
+    // EAC 4 bits/pixel compressed 16-bit R texture format
+    EacR = 41,
+    // EAC 4 bits/pixel compressed 16-bit signed R texture format
+    EacRSigned = 42,
+    // EAC 8 bits/pixel compressed 16-bit RG texture format
+    EacRG = 43,
+    // EAC 8 bits/pixel compressed 16-bit signed RG texture format
+    EacRGSigned = 44,
+
+    // ETC2 (GLES3.0) 4 bits/pixel compressed RGB texture format.
+    Etc2RGB4 = 45,
+    // ETC2 (GLES3.0) 4 bits/pixel compressed RGB + 1-bit alpha texture format.
+    Etc2RGB4PunchthroughAlpha = 46,
+    // ETC2 (GLES3.0) 8 bits/pixel compressed RGBA texture format.
+    Etc2RGBA8 = 47,
+
+    // ASTC uses 128bit block of varying sizes (we use only square blocks). It does not distinguish RGB/RGBA
+    Astc4x4 = 48,
+    Astc5x5 = 49,
+    Astc6x6 = 50,
+    Astc8x8 = 51,
+    Astc10x10 = 52,
+    Astc12x12 = 53,
+
+    // RG 16 bit texture format.
+    RG16 = 62,
+    // Red 8 bit texture format.
+    R8 = 63,
+    // ETC1 crunched texture format.
+    EtcRGB4Crunched = 64,
+    // ETC2_RGBA8 crunched texture format.
+    Etc2RGBA8Crunched = 65,
+
+    // ASTC (block size 4x4) compressed HDR RGB(A) texture format.
+    AstcHdr4x4 = 66,
+    // ASTC (block size 5x5) compressed HDR RGB(A)  texture format.
+    AstcHdr5x5 = 67,
+    // ASTC (block size 4x6x6) compressed HDR RGB(A) texture format.
+    AstcHdr6x6 = 68,
+    // ASTC (block size 8x8) compressed HDR RGB(A) texture format.
+    AstcHdr8x8 = 69,
+    // ASTC (block size 10x10) compressed HDR RGB(A) texture format.
+    AstcHdr10x10 = 70,
+    // ASTC (block size 12x12) compressed HDR RGB(A) texture format.
+    AstcHdr12x12 = 71,
+
+    RG32 = 72,
+    RGB48 = 73,
+    RGBA64 = 74,
+    R8Signed = 75,
+    RG16Signed = 76,
+    RGB24Signed = 77,
+    RGBA32Signed = 78,
+    R16Signed = 79,
+    RG32Signed = 80,
+    RGB48Signed = 81,
+    RGBA64Signed = 82,
 }
 
 #[derive(DekuRead, Clone, Debug)]
-#[deku(type = "i32")]
+#[repr(i32)]
+#[deku(id_type = "i32")]
 pub enum ColorSpace {
     Linear = 0x00,
     SRGB   = 0x01,
@@ -405,4 +532,11 @@ pub enum ColorSpace {
 pub struct MeshFilter {
     pub game_object: PPtr<GameObject>,
     pub mesh: PPtr<Mesh>,
+}
+
+#[derive(DekuRead, Clone, Debug)]
+#[deku(ctx = "_version: UnityVersion")]
+pub struct ScriptMapper {
+    pub shader_to_name_map: Map<PPtr<()>, CharArray>,
+    pub preload_shaders: bool,
 }

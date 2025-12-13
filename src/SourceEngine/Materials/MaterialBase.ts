@@ -1,23 +1,24 @@
 
-import { ReadonlyMat4, vec3, vec2, mat4 } from "gl-matrix";
-import { Color, TransparentBlack, White, colorCopy, colorNewCopy, colorNewFromRGBA, colorScale } from "../../Color.js";
-import { dfShow, dfRange } from "../../DebugFloaters.js";
-import { AABB } from "../../Geometry.js";
+import { ReadonlyMat4, mat4, vec2, vec3 } from "gl-matrix";
+import { Color, TransparentBlack, White, colorCopy, colorNewCopy, colorNewFromRGBA } from "../../Color.js";
+import { dfRange, dfShow } from "../../DebugFloaters.js";
+import type { AABB } from "../../Geometry.js";
 import { scaleMatrix } from "../../MathHelpers.js";
 import { TextureMapping } from "../../TextureHolder.js";
 import { setAttachmentStateSimple } from "../../gfx/helpers/GfxMegaStateDescriptorHelpers.js";
 import { GfxShaderLibrary, glslGenerateFloat } from "../../gfx/helpers/GfxShaderLibrary.js";
-import { fillMatrix4x4, fillVec3v, fillVec4, fillMatrix4x2, fillColor, fillMatrix4x3 } from "../../gfx/helpers/UniformBufferHelpers.js";
+import { fillColor, fillMatrix4x2, fillMatrix4x3, fillMatrix4x4, fillVec3v, fillVec4 } from "../../gfx/helpers/UniformBufferHelpers.js";
 import { GfxBindingLayoutDescriptor, GfxBlendFactor, GfxBlendMode, GfxCullMode, GfxFrontFaceMode, GfxMegaStateDescriptor, GfxSamplerFormatKind, GfxTextureDimension } from "../../gfx/platform/GfxPlatform.js";
 import { GfxRenderInst, GfxRenderInstList } from "../../gfx/render/GfxRenderInstManager.js";
 import { assert, assertExists, nArray, nullify } from "../../util.js";
-import { SourceEngineView, SourceRenderContext, SourceEngineViewType } from "../Main.js";
+import { SourceEngineView, SourceEngineViewType, SourceRenderContext } from "../Main.js";
 import { UberShaderInstanceBasic, UberShaderTemplateBasic } from "../UberShader.js";
-import { VMT } from "../VMT.js";
-import { VTF } from "../VTF.js";
+import type { VMT } from "../VMT.js";
+import type { VTF } from "../VTF.js";
+import { RGBM_SCALE } from "./Lightmap.js";
+import type { MaterialCache } from "./MaterialCache.js";
 import * as P from "./MaterialParameters.js";
-import { MaterialCache } from "./MaterialCache.js";
-import { LightCache } from "./WorldLight.js";
+import type { LightCache } from "./WorldLight.js";
 
 const BindingLayouts: GfxBindingLayoutDescriptor[] = [
     { numUniformBuffers: 3, numSamplers: 15, samplerEntries: [
@@ -39,22 +40,20 @@ const BindingLayouts: GfxBindingLayoutDescriptor[] = [
     ] },
 ];
 
-export const RGBM_SCALE = 6.0;
-
-export const enum StaticLightingMode {
+export enum StaticLightingMode {
     None,
     StudioVertexLighting,
     StudioVertexLighting3,
     StudioAmbientCube,
 }
 
-export const enum SkinningMode {
+export enum SkinningMode {
     None,
     Rigid,
     Smooth,
 };
 
-export const enum LateBindingTexture {
+export enum LateBindingTexture {
     Camera              = `camera`,
     FramebufferColor    = `framebuffer-color`,
     FramebufferDepth    = `framebuffer-depth`,
@@ -63,7 +62,7 @@ export const enum LateBindingTexture {
 }
 
 // https://github.com/ValveSoftware/source-sdk-2013/blob/master/sp/src/public/const.h#L340-L387
-export const enum RenderMode {
+export enum RenderMode {
     Normal = 0,
     TransColor,
     TransTexture,
@@ -122,6 +121,8 @@ export class MaterialShaderTemplateBase extends UberShaderTemplateBasic {
 // #define DEBUG_DIFFUSEONLY 1
 // #define DEBUG_FULLBRIGHT 1
 
+${GfxShaderLibrary.MatrixLibrary}
+
 layout(std140) uniform ub_SceneParams {
     Mat4x4 u_ProjectionView;
     vec4 u_SceneMisc[3];
@@ -129,9 +130,9 @@ layout(std140) uniform ub_SceneParams {
 
 layout(std140) uniform ub_SkinningParams {
 #if SKINNING_MODE == ${SkinningMode.Smooth}
-    Mat4x3 u_BoneMatrix[${MaterialShaderTemplateBase.MaxSkinningParamsBoneMatrix}];
+    Mat3x4 u_BoneMatrix[${MaterialShaderTemplateBase.MaxSkinningParamsBoneMatrix}];
 #else
-    Mat4x3 u_ModelMatrix;
+    Mat3x4 u_ModelMatrix;
 #endif
 };
 
@@ -247,19 +248,19 @@ layout(location = ${MaterialShaderTemplateBase.a_BoneWeights}) in vec4 a_BoneWei
 layout(location = ${MaterialShaderTemplateBase.a_BoneIDs}) in vec4 a_BoneIndices;
 #endif
 
-Mat4x3 CalcWorldFromLocalMatrix() {
+mat4x3 CalcWorldFromLocalMatrix() {
 #if SKINNING_MODE == ${SkinningMode.Smooth}
     // Calculate our per-vertex position.
-    Mat4x3 t_WorldFromLocalMatrix = _Mat4x3(0.0);
+    mat4x3 t_WorldFromLocalMatrix = mat4x3(0.0);
 
-    Fma(t_WorldFromLocalMatrix, u_BoneMatrix[int(a_BoneIndices.x)], a_BoneWeights.x);
-    Fma(t_WorldFromLocalMatrix, u_BoneMatrix[int(a_BoneIndices.y)], a_BoneWeights.y);
-    Fma(t_WorldFromLocalMatrix, u_BoneMatrix[int(a_BoneIndices.z)], a_BoneWeights.z);
-    Fma(t_WorldFromLocalMatrix, u_BoneMatrix[int(a_BoneIndices.w)], a_BoneWeights.w);
+    t_WorldFromLocalMatrix += UnpackMatrix(u_BoneMatrix[int(a_BoneIndices.x)]) * a_BoneWeights.x;
+    t_WorldFromLocalMatrix += UnpackMatrix(u_BoneMatrix[int(a_BoneIndices.y)]) * a_BoneWeights.y;
+    t_WorldFromLocalMatrix += UnpackMatrix(u_BoneMatrix[int(a_BoneIndices.z)]) * a_BoneWeights.z;
+    t_WorldFromLocalMatrix += UnpackMatrix(u_BoneMatrix[int(a_BoneIndices.w)]) * a_BoneWeights.w;
 
     return t_WorldFromLocalMatrix;
 #else
-    return u_ModelMatrix;
+    return UnpackMatrix(u_ModelMatrix);
 #endif
 }
 #endif
@@ -339,7 +340,7 @@ export class EntityMaterialParameters {
     public randomNumber = Math.random();
 }
 
-export const enum AlphaBlendMode {
+export enum AlphaBlendMode {
     None, Blend, Add, Glow,
 }
 
@@ -542,17 +543,14 @@ export abstract class BaseMaterial {
         return fillMatrix4x2(d, offs, MaterialUtil.scratchMat4a);
     }
 
+    protected paramFillModulationColor(d: Float32Array, offs: number, gamma: boolean = true): number {
+        this.calcModulationColor(MaterialUtil.scratchColor);
+        return gamma ? fillGammaColor(d, offs, MaterialUtil.scratchColor) : fillColor(d, offs, MaterialUtil.scratchColor);
+    }
+
     protected paramFillGammaColor(d: Float32Array, offs: number, name: string, alpha: number = 1.0): number {
         this.paramGetVector(name).fillColor(MaterialUtil.scratchColor, alpha);
         return fillGammaColor(d, offs, MaterialUtil.scratchColor);
-    }
-
-    protected paramFillModulationColor(d: Float32Array, offs: number, gamma = true, scale = 1.0): number {
-        this.calcModulationColor(MaterialUtil.scratchColor, scale);
-        if (gamma)
-            return fillGammaColor(d, offs, MaterialUtil.scratchColor);
-        else
-            return fillColor(d, offs, MaterialUtil.scratchColor);
     }
 
     protected paramFillColor(d: Float32Array, offs: number, name: string, alpha: number = 1.0): number {
@@ -770,12 +768,11 @@ export abstract class BaseMaterial {
         vec2.set(this.texCoord0Scale, 1 / w, 1 / h);
     }
 
-    protected calcModulationColor(dst: Color, scale: number): void {
+    protected calcModulationColor(dst: Color): void {
         this.paramGetVector('$color').fillColor(dst, 1.0);
         this.paramGetVector('$color2').mulColor(dst);
         this.paramGetVector('$srgbtint').mulColor(dst);
         dst.a = this.paramGetNumber('$alpha');
-        colorScale(dst, dst, scale)
     }
 
     protected initStatic(materialCache: MaterialCache) {

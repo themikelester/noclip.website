@@ -12,8 +12,7 @@ import { J3DModelInstanceSimple } from '../Common/JSYSTEM/J3D/J3DGraphSimple.js'
 import * as Yaz0 from '../Common/Compression/Yaz0.js';
 import { DrawParams, fillSceneParamsDataOnTemplate, ColorKind, ub_SceneParamsBufferSize } from '../gx/gx_render.js';
 import { GXRenderHelperGfx } from '../gx/gx_render.js';
-import { GfxDevice, GfxBuffer, GfxInputLayout, GfxBufferUsage, GfxVertexAttributeDescriptor, GfxFormat, GfxVertexBufferFrequency, GfxVertexBufferDescriptor, GfxInputLayoutBufferDescriptor, GfxRenderPass, GfxIndexBufferDescriptor } from '../gfx/platform/GfxPlatform.js';
-import { makeStaticDataBuffer } from '../gfx/helpers/BufferHelpers.js';
+import { GfxDevice, GfxBuffer, GfxInputLayout, GfxBufferUsage, GfxVertexAttributeDescriptor, GfxFormat, GfxVertexBufferFrequency, GfxVertexBufferDescriptor, GfxInputLayoutBufferDescriptor, GfxRenderPass, GfxIndexBufferDescriptor, GfxBufferFrequencyHint } from '../gfx/platform/GfxPlatform.js';
 import { makeSortKey, GfxRendererLayer, GfxRenderInstManager, GfxRenderInstList } from '../gfx/render/GfxRenderInstManager.js';
 import { OrbitCameraController } from '../Camera.js';
 import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
@@ -29,6 +28,7 @@ import { colorNewCopy, White } from '../Color.js';
 import { GXMaterialBuilder } from '../gx/GXMaterialBuilder.js';
 import { dfUsePercent } from '../DebugFloaters.js';
 import { GfxrAttachmentSlot } from '../gfx/render/GfxRenderGraph.js';
+import { createBufferFromData } from '../gfx/helpers/BufferHelpers.js';
 
 class PlaneShape {
     private vtxBuffer: GfxBuffer;
@@ -109,8 +109,8 @@ class PlaneShape {
         }
         assert(indexOffs === this.indexCount);
 
-        this.vtxBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, vtx.buffer);
-        this.idxBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, indexData.buffer);
+        this.vtxBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, vtx.buffer);
+        this.idxBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, indexData.buffer);
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
             { location: GX_Material.getVertexInputLocation(VertexAttributeInput.POS),   format: GfxFormat.F32_RGB,  bufferByteOffset: 0*0x04, bufferIndex: 0, },
@@ -122,16 +122,16 @@ class PlaneShape {
             { byteStride: 9*0x04, frequency: GfxVertexBufferFrequency.PerVertex, },
         ];
 
-        this.zeroBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, new Uint8Array(16).buffer);
+        this.zeroBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, new Uint8Array(16).buffer);
         this.inputLayout = cache.createInputLayout({
             vertexAttributeDescriptors,
             vertexBufferDescriptors,
             indexBufferFormat: GfxFormat.U16_R,
         });
         this.vertexBufferDescriptors = [
-            { buffer: this.vtxBuffer, byteOffset: 0, },
+            { buffer: this.vtxBuffer },
         ];
-        this.indexBufferDescriptor = { buffer: this.idxBuffer, byteOffset: 0 };
+        this.indexBufferDescriptor = { buffer: this.idxBuffer };
     }
 
     public prepareToRender(renderInstManager: GfxRenderInstManager): void {
@@ -214,7 +214,7 @@ class FakeWaterModelInstance {
         material.alphaTest.compareB = GX.CompareType.LEQUAL;
 
         material.hasDynamicAlphaTest = true;
-        materialHelper.materialInvalidated();
+        materialHelper.invalidateMaterial();
 
         this.k3.r = materialHelper.material.alphaTest.referenceA;
         this.k3.g = materialHelper.material.alphaTest.referenceB;
@@ -235,9 +235,10 @@ class FakeWaterModelInstance {
         if (!this.visible)
             return;
 
+        const camera = viewerInput.camera;
         this.modelInstance.animationController.setTimeInMilliseconds(viewerInput.time);
         this.modelInstance.calcAnim();
-        this.modelInstance.calcView(viewerInput.camera, viewerInput.camera.viewMatrix);
+        this.modelInstance.calcView(camera.viewMatrix, camera.frustum);
 
         const template = renderInstManager.pushTemplate();
 
@@ -247,7 +248,7 @@ class FakeWaterModelInstance {
 
         // Push our material instance.
         this.materialInstance.setOnRenderInst(renderInstManager.gfxRenderCache, template);
-        this.materialInstance.fillMaterialParams(template, this.modelInstance.materialInstanceState, this.modelInstance.shapeInstanceState.worldToViewMatrix, this.modelInstance.modelMatrix, viewerInput.camera, drawParams);
+        this.materialInstance.fillMaterialParams(template, this.modelInstance.materialInstanceState, this.modelInstance.shapeInstanceState.viewFromWorldMatrix, this.modelInstance.modelMatrix, viewerInput.camera.projectionMatrix, drawParams);
         this.plane.prepareToRender(renderInstManager);
 
         renderInstManager.popTemplate();

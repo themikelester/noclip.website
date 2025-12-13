@@ -57,7 +57,7 @@ export interface BSPSurface {
     bbox: AABB;
 }
 
-const enum TexinfoFlags {
+enum TexinfoFlags {
     SKY2D     = 0x0002,
     SKY       = 0x0004,
     TRANS     = 0x0010,
@@ -97,7 +97,7 @@ export interface BSPLeafAmbientSample {
     pos: vec3;
 }
 
-const enum BSPLeafContents {
+enum BSPLeafContents {
     Solid     = 0x001,
     Water     = 0x010,
     TestWater = 0x100,
@@ -125,7 +125,7 @@ export interface Model {
     surfaces: number[];
 }
 
-export const enum WorldLightType {
+export enum WorldLightType {
     Surface,
     Point,
     Spotlight,
@@ -134,7 +134,7 @@ export const enum WorldLightType {
     SkyAmbient,
 }
 
-export const enum WorldLightFlags {
+export enum WorldLightFlags {
     InAmbientCube = 0x01,
 }
 
@@ -579,9 +579,8 @@ function buildOverlay(overlayInfo: OverlayInfo, faceInfos: BSPFaceInfo[], bspSur
             const overlayPoints = nArray(4, () => new MeshVertex());
             buildOverlayPoints(overlayPoints, overlayInfo);
 
-            fetchVertexFromBuffer(surfacePoints[0], vertexData, indexData[index + 0]);
-            fetchVertexFromBuffer(surfacePoints[1], vertexData, indexData[index + 1]);
-            fetchVertexFromBuffer(surfacePoints[2], vertexData, indexData[index + 2]);
+            for (let i = 0; i < 3; i++)
+                fetchVertexFromBuffer(surfacePoints[i], vertexData, indexData[index + i]);
 
             // Store our surface plane for later, so we can re-project back to it...
             surfacePlane.setTri(surfacePoints[0].position, surfacePoints[2].position, surfacePoints[1].position);
@@ -647,7 +646,6 @@ function buildDecal(pt: ReadonlyVec3, halfWidth: number, halfHeight: number, que
     const surfaces: OverlaySurface[] = [];
     const surfacePlane = new Plane();
     const textureSpaceBasis = nArray(3, () => vec3.create());
-    const dpt = vec3.create();
 
     for (const face of faces) {
         const faceInfo = faceInfos[face];
@@ -675,6 +673,11 @@ function buildDecal(pt: ReadonlyVec3, halfWidth: number, halfHeight: number, que
             // Build the surface plane.
             surfacePlane.setTri(surfacePoints[0].position, surfacePoints[2].position, surfacePoints[1].position);
 
+            // Reject any triangles that are too far from the decal's origin.
+            vec3.sub(scratchVec3a, pt, surfacePoints[0].position);
+            if (vec3.dot(scratchVec3a, surfacePlane.n) >= halfWidth)
+                continue;
+
             vec3.copy(textureSpaceBasis[2], surfacePlane.n);
 
             if (Math.abs(surfacePlane.n[2]) >= Math.sin(MathConstants.TAU * 0.25)) {
@@ -692,7 +695,7 @@ function buildDecal(pt: ReadonlyVec3, halfWidth: number, halfHeight: number, que
             normToLength(textureSpaceBasis[1], halfHeight);
 
             // Project our origin point down to the plane.
-            surfacePlane.projectToPlane(dpt, pt);
+            surfacePlane.projectToPlane(scratchVec3a, pt);
 
             // Compute the four corners of the decal.
             const overlayPoints = nArray(4, () => new MeshVertex());
@@ -700,7 +703,7 @@ function buildDecal(pt: ReadonlyVec3, halfWidth: number, halfHeight: number, que
                 const p = overlayPoints[i];
                 const sx = (0b0110 >>> i) & 1;
                 const sy = (0b1100 >>> i) & 1;
-                vec3FromBasis2(p.position, dpt, textureSpaceBasis[0], sx * 2 - 1, textureSpaceBasis[1], sy * 2 - 1);
+                vec3FromBasis2(p.position, scratchVec3a, textureSpaceBasis[0], sx * 2 - 1, textureSpaceBasis[1], sy * 2 - 1);
                 vec2.set(p.uv, sx, sy);
             }
 
@@ -903,7 +906,7 @@ export class LightmapPacker {
 
 //#region Parsing and Misc. Utils
 
-const enum LumpType {
+enum LumpType {
     ENTITIES                  = 0,
     PLANES                    = 1,
     TEXDATA                   = 2,
@@ -979,10 +982,7 @@ class ResizableArrayBuffer {
 
         if (byteSize > this.byteCapacity) {
             this.byteCapacity = Math.max(byteSize, this.byteCapacity * 2);
-            const oldBuffer = this.buffer;
-            const newBuffer = new ArrayBuffer(this.byteCapacity);
-            new Uint8Array(newBuffer).set(new Uint8Array(oldBuffer));
-            this.buffer = newBuffer;
+            this.buffer = this.buffer.transfer(this.byteCapacity);
         }
     }
 
@@ -1173,7 +1173,7 @@ export class BSPFile {
             for (let i = 0; i < lumpCount; i++) {
                 const lumpmagic = game_lump.getUint32(idx + 0x00, true);
                 if (lumpmagic === needle) {
-                    const enum GameLumpFlags { COMPRESSED = 0x01, }
+                    enum GameLumpFlags { COMPRESSED = 0x01, }
                     const flags: GameLumpFlags = game_lump.getUint16(idx + 0x04, true);
                     const version = game_lump.getUint16(idx + 0x06, true);
                     const fileofs = game_lump.getUint32(idx + 0x08, true);

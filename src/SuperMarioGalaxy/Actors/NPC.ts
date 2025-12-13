@@ -1,26 +1,26 @@
 
 // Misc NPC actors.
 
-import { quat, vec3, ReadonlyVec3, ReadonlyMat4 } from 'gl-matrix';
+import { quat, ReadonlyMat4, ReadonlyVec3, vec3 } from 'gl-matrix';
 import * as RARC from '../../Common/JSYSTEM/JKRArchive.js';
-import { isNearZero, MathConstants, quatFromEulerRadians, saturate, vec3SetAll, Vec3Zero } from '../../MathHelpers.js';
+import { getMatrixTranslation, isNearZero, MathConstants, quatFromEulerRadians, randomRangeInt, saturate, vec3SetAll, Vec3Zero } from '../../MathHelpers.js';
 import { assertExists, fallback, fallbackUndefined } from '../../util.js';
-import { adjustmentRailCoordSpeed, blendQuatUpFront, calcGravity, connectToSceneIndirectNpc, connectToSceneNpc, getNextRailPointNo, getRailCoordSpeed, getRailDirection, getRailPos, getRandomInt, initDefaultPos, isBckExist, isBckStopped, isExistRail, isRailReachedGoal, makeMtxTRFromQuatVec, makeQuatUpFront, moveCoordAndTransToNearestRailPos, moveRailRider, reverseRailDirection, setBckFrameAtRandom, setBrkFrameAndStop, startAction, startBck, startBckNoInterpole, startBrk, startBtk, startBva, tryStartAction, turnQuatYDirRad, useStageSwitchSleep, moveCoordToStartPos, useStageSwitchWriteA, useStageSwitchWriteB, useStageSwitchWriteDead, moveCoordAndTransToRailStartPoint, isRailGoingToEnd, getRailPointPosStart, getRailPointPosEnd, calcDistanceVertical, calcMtxFromGravityAndZAxis, tryStartBck, calcUpVec, rotateVecDegree, getBckFrameMax, moveCoordAndFollowTrans, isBckPlaying, startBckWithInterpole, isBckOneTimeAndStopped, MapObjConnector, useStageSwitchReadAppear, syncStageSwitchAppear, connectToSceneNpcMovement, quatGetAxisZ, isNearPlayer, getPlayerPos, turnDirectionToTargetRadians, getCurrentRailPointNo, getCurrentRailPointArg0, isBckLooped, calcVecToPlayer, isSameDirection, faceToVectorDeg, quatGetAxisY, makeAxisFrontUp, clampVecAngleDeg, connectToSceneMapObj, setBtkFrameAndStop, getJointMtxByName, calcFrontVec, stopBck, isActionLoopedOrStopped, isActionEnd } from '../ActorUtil.js';
+import { adjustmentRailCoordSpeed, blendQuatUpFront, calcDistanceVertical, calcFrontVec, calcGravity, calcMtxFromGravityAndZAxis, calcUpVec, calcVecToPlayer, clampVecAngleDeg, connectToSceneIndirectNpc, connectToSceneMapObj, connectToSceneNpc, connectToSceneNpcMovement, faceToVectorDeg, getBckFrameMax, getCurrentRailPointArg0, getCurrentRailPointNo, getJointMtx, getJointMtxByName, getNextRailPointNo, getPlayerPos, getRailCoordSpeed, getRailDirection, getRailPointPosEnd, getRailPointPosStart, getRailPos, initDefaultPos, isActionEnd, isActionLoopedOrStopped, isBckExist, isBckLooped, isBckOneTimeAndStopped, isBckPlaying, isBckStopped, isExistRail, isNearPlayer, isRailGoingToEnd, isRailReachedGoal, isSameDirection, makeAxisFrontUp, makeMtxTRFromQuatVec, makeQuatUpFront, MapObjConnector, moveCoordAndFollowTrans, moveCoordAndTransToNearestRailPos, moveCoordAndTransToRailStartPoint, moveCoordToStartPos, moveRailRider, quatGetAxisY, quatGetAxisZ, reverseRailDirection, rotateVecDegree, setBckFrameAtRandom, setBrkFrameAndStop, setBtkFrameAndStop, startAction, startBck, startBckNoInterpole, startBckWithInterpole, startBrk, startBtk, startBva, stopBck, syncStageSwitchAppear, tryStartAction, tryStartBck, turnDirectionToTargetRadians, turnQuatYDirRad, useStageSwitchReadAppear, useStageSwitchSleep, useStageSwitchWriteA, useStageSwitchWriteB, useStageSwitchWriteDead } from '../ActorUtil.js';
 import { getFirstPolyOnLineToMap, getFirstPolyOnLineToWaterSurface } from '../Collision.js';
+import { tryRegisterDemoCast } from '../Demo.js';
+import { initFur } from '../Fur.js';
+import { addHitSensorAtJoint, addHitSensorMtx, HitSensor, HitSensorType, invalidateHitSensor, isSensorNpc, isSensorPlayer, sendArbitraryMsg, validateHitSensor } from '../HitSensor.js';
 import { createCsvParser, getJMapInfoArg0, getJMapInfoArg1, getJMapInfoArg2, getJMapInfoArg3, getJMapInfoArg4, getJMapInfoArg6, getJMapInfoArg7, iterChildObj, JMapInfoIter } from '../JMapInfo.js';
-import { isDead, LiveActor, ZoneAndLayer, MessageType } from '../LiveActor.js';
+import { initLightCtrl } from '../LightData.js';
+import { isDead, LiveActor, MessageType, ZoneAndLayer } from '../LiveActor.js';
 import { getObjectName, SceneObjHolder } from '../Main.js';
 import { DrawBufferType } from '../NameObj.js';
 import { isConnectedWithRail } from '../RailRider.js';
-import { isFirstStep, isGreaterStep, isGreaterEqualStep, isLessStep, calcNerveRate, calcNerveValue } from '../Spine.js';
-import { initShadowFromCSV, initShadowVolumeSphere, onCalcShadowOneTime, onCalcShadow, isExistShadow, initShadowVolumeOval, setShadowDropPositionAtJoint, onCalcShadowDropPrivateGravity } from '../Shadow.js';
-import { initLightCtrl } from '../LightData.js';
-import { HitSensorType, isSensorPlayer, HitSensor, isSensorNpc, sendArbitraryMsg, validateHitSensor, invalidateHitSensor, addHitSensorAtJoint, addHitSensorMtx } from '../HitSensor.js';
-import { drawWorldSpaceVector, getDebugOverlayCanvas2D } from '../../DebugJunk.js';
-import { tryRegisterDemoCast } from '../Demo.js';
-import { createPartsModelMapObj, PartsModel } from './PartsModel.js';
-import { initFur } from '../Fur.js';
+import { initShadowFromCSV, initShadowVolumeOval, initShadowVolumeSphere, isExistShadow, onCalcShadow, onCalcShadowDropPrivateGravity, onCalcShadowOneTime, setShadowDropPositionAtJoint } from '../Shadow.js';
+import { calcNerveRate, calcNerveValue, isFirstStep, isGreaterEqualStep, isGreaterStep, isLessStep } from '../Spine.js';
 import { createTalkCtrl, createTalkCtrlDirect, resetAndForwardNode, TalkMessageCtrl, tryTalkNearPlayer } from '../Talk.js';
+import { createPartsModelMapObj, PartsModel } from './PartsModel.js';
+import { drawWorldSpacePoint, getDebugOverlayCanvas2D } from '../../DebugJunk.js';
 
 // Scratchpad
 const scratchVec3 = vec3.create();
@@ -94,8 +94,8 @@ export class NPCDirector {
     }
 }
 
-const enum InitConnectToSceneType { None = -1, Npc, NpcMovement, IndirectNpc, }
-const enum InitShadowType { None = -1, CSV, Sphere }
+enum InitConnectToSceneType { None = -1, Npc, NpcMovement, IndirectNpc, }
+enum InitShadowType { None = -1, CSV, Sphere }
 
 class NPCActorCaps<TNerve extends number> {
     public initConnectToSceneType = InitConnectToSceneType.Npc;
@@ -481,7 +481,7 @@ class NPCActor<TNerve extends number = number> extends LiveActor<TNerve> {
     }
 }
 
-const enum ButlerNrv { Wait }
+enum ButlerNrv { Wait }
 export class Butler extends NPCActor<ButlerNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         super(zoneAndLayer, sceneObjHolder, getObjectName(infoIter));
@@ -490,6 +490,7 @@ export class Butler extends NPCActor<ButlerNrv> {
         caps.waitNerve = ButlerNrv.Wait;
         caps.hitSensorJointName = 'Body';
         caps.hitSensorRadius = 50.0;
+        vec3.zero(caps.hitSensorOffset);
         caps.initShadowType = InitShadowType.CSV;
         caps.initBinder = false;
         this.initialize(sceneObjHolder, infoIter, caps);
@@ -508,7 +509,7 @@ export class Butler extends NPCActor<ButlerNrv> {
     }
 }
 
-const enum RosettaNrv { Wait }
+enum RosettaNrv { Wait }
 export class Rosetta extends NPCActor {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         super(zoneAndLayer, sceneObjHolder, getObjectName(infoIter));
@@ -538,7 +539,7 @@ export class Rosetta extends NPCActor {
         if (currentNerve === RosettaNrv.Wait) {
             // Normally this is in control(), but we do this here for the easier interval tracking.
             if (isGreaterEqualStep(this, 300.0)) {
-                const v = getRandomInt(0, 2);
+                const v = randomRangeInt(0, 2);
                 if (v === 0)
                     this.talkParam.waitActionName = 'WaitA';
                 else if (v === 1)
@@ -552,7 +553,7 @@ export class Rosetta extends NPCActor {
     }
 }
 
-const enum TicoNrv { Wait, Reaction, Delight }
+enum TicoNrv { Wait, Reaction, Delight }
 export class Tico extends NPCActor<TicoNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         super(zoneAndLayer, sceneObjHolder, getObjectName(infoIter));
@@ -564,6 +565,7 @@ export class Tico extends NPCActor<TicoNrv> {
         caps.waitNerve = TicoNrv.Wait;
         caps.hitSensorJointName = 'Body';
         caps.hitSensorRadius = 60.0;
+        vec3.zero(caps.hitSensorOffset);
         this.initialize(sceneObjHolder, infoIter, caps);
         this.initMessage(sceneObjHolder, infoIter, 'Tico');
 
@@ -587,6 +589,8 @@ export class Tico extends NPCActor<TicoNrv> {
 
         startAction(this, 'Wait');
         setBckFrameAtRandom(this);
+
+        this.makeActorAppeared(sceneObjHolder);
     }
 
     private initMessage(sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter, name: string): void {
@@ -617,7 +621,7 @@ export class Tico extends NPCActor<TicoNrv> {
         } else if (currentNerve === TicoNrv.Delight) {
             if (isFirstStep(this)) {
                 startAction(this, this.reactionName!);
-                resetAndForwardNode(sceneObjHolder, this.talkCtrl!, getRandomInt(0, 5));
+                resetAndForwardNode(sceneObjHolder, this.talkCtrl!, randomRangeInt(0, 5));
             }
 
             // tryTalkForce
@@ -636,7 +640,7 @@ export class TicoAstro extends Tico {
     // TicoAstro checks current number of green stars against arg2 and shows/hides respectively...
 }
 
-const enum KinopioNrv { Wait, Mount, Reaction }
+enum KinopioNrv { Wait, Mount, Reaction }
 export class Kinopio extends NPCActor<KinopioNrv> {
     private mapObjConnector: MapObjConnector | null = null;
 
@@ -799,7 +803,7 @@ export class KinopioAstro extends Kinopio {
     // but we don't need that too much here...
 }
 
-const enum PeachNrv { Wait }
+enum PeachNrv { Wait }
 export class Peach extends NPCActor<PeachNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         super(zoneAndLayer, sceneObjHolder, getObjectName(infoIter));
@@ -970,7 +974,7 @@ class RemovableTurtle {
     }
 }
 
-const enum PenguinNrv { Wait, Dive, Reaction }
+enum PenguinNrv { Wait, Dive, Reaction }
 export class Penguin extends NPCActor<PenguinNrv> {
     private mode: number;
     private diveCounter: number = 0;
@@ -1089,7 +1093,7 @@ export class Penguin extends NPCActor<PenguinNrv> {
 
         if (currentNerve === PenguinNrv.Wait) {
             if (isFirstStep(this)) {
-                this.diveCounter = getRandomInt(120, 300);
+                this.diveCounter = randomRangeInt(120, 300);
                 if (isExistRail(this))
                     onCalcShadow(this);
             }
@@ -1150,7 +1154,7 @@ export class PenguinRacer extends NPCActor {
     }
 }
 
-const enum TicoCometNrv { Wait }
+enum TicoCometNrv { Wait }
 export class TicoComet extends NPCActor<TicoCometNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         super(zoneAndLayer, sceneObjHolder, getObjectName(infoIter));
@@ -1197,7 +1201,7 @@ export class TicoComet extends NPCActor<TicoCometNrv> {
     }
 }
 
-const enum SignBoardNrv { Wait }
+enum SignBoardNrv { Wait }
 export class SignBoard extends NPCActor<SignBoardNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         super(zoneAndLayer, sceneObjHolder, getObjectName(infoIter));
@@ -1214,7 +1218,7 @@ export class SignBoard extends NPCActor<SignBoardNrv> {
     }
 }
 
-const enum TicoRailNrv { Wait, LookAround, MoveSignAndTurn, MoveSign, Move, Stop, TalkStart, Talk, TalkCancel, GoodBye }
+enum TicoRailNrv { Wait, LookAround, MoveSignAndTurn, MoveSign, Move, Stop, TalkStart, Talk, TalkCancel, GoodBye }
 export class TicoRail extends LiveActor<TicoRailNrv> {
     public direction = vec3.create();
     private talkingActor: LiveActor | null = null;
@@ -1237,7 +1241,7 @@ export class TicoRail extends LiveActor<TicoRailNrv> {
         startBrk(this, 'ColorChange');
         setBrkFrameAndStop(this, colorChangeFrame);
 
-        const rnd = getRandomInt(0, 2);
+        const rnd = randomRangeInt(0, 2);
         if (rnd === 0)
             this.initNerve(TicoRailNrv.Wait);
         else
@@ -1279,7 +1283,7 @@ export class TicoRail extends LiveActor<TicoRailNrv> {
                 // Original game seems to have a bug where it checks the this sensor, rather than the other actor's sensor.
                 // So the isSameRailActor check will always pass.
                 if (this.isSameRailActor(thisSensor!.actor)) {
-                    const rnd = getRandomInt(0, 2);
+                    const rnd = randomRangeInt(0, 2);
                     if (rnd !== 0) {
                         const dist = calcDistanceVertical(this, otherSensor!.actor.translation);
                         if (dist <= 30) {
@@ -1307,7 +1311,7 @@ export class TicoRail extends LiveActor<TicoRailNrv> {
             return true;
 
         if (isGreaterStep(this, v)) {
-            if (getRandomInt(0, 300) === 0)
+            if (randomRangeInt(0, 300) === 0)
                 return true;
         }
 
@@ -1346,7 +1350,7 @@ export class TicoRail extends LiveActor<TicoRailNrv> {
             rotateVecDegree(this.direction, scratchVec3, turnAmt);
 
             if (isGreaterStep(this, 160)) {
-                const rnd = getRandomInt(0, 2);
+                const rnd = randomRangeInt(0, 2);
                 if (rnd === 0)
                     this.setNerve(TicoRailNrv.MoveSignAndTurn);
                 else
@@ -1420,7 +1424,7 @@ export class TicoRail extends LiveActor<TicoRailNrv> {
         } else if (currentNerve === TicoRailNrv.Talk) {
             if (isFirstStep(this))
                 startBck(this, `Talk`);
-            if (!isBckPlaying(this, `Reaction`) && getRandomInt(0, 60) === 0)
+            if (!isBckPlaying(this, `Reaction`) && randomRangeInt(0, 60) === 0)
                 startBckWithInterpole(this, `Reaction`, 5);
             if (isBckOneTimeAndStopped(this))
                 startBck(this, `Talk`);
@@ -1452,7 +1456,7 @@ export class TicoRail extends LiveActor<TicoRailNrv> {
     }
 }
 
-const enum StrayTicoNrv { Wait }
+enum StrayTicoNrv { Wait }
 class StrayTico extends LiveActor<StrayTicoNrv> {
     private poseQuat = quat.create();
     private axisZ = vec3.create();
@@ -1533,7 +1537,7 @@ class StrayTico extends LiveActor<StrayTicoNrv> {
     }
 }
 
-const enum CollectTicoNrv { Wait }
+enum CollectTicoNrv { Wait }
 export class CollectTico extends LiveActor<CollectTicoNrv> {
     private strayTico: StrayTico[] = [];
 
@@ -1563,7 +1567,7 @@ export class CollectTico extends LiveActor<CollectTicoNrv> {
     }
 }
 
-const enum HoneyBeeNrv { Wait, Fly, JumpLecture, FlyLectureA, FlyLectureB, DropLecture }
+enum HoneyBeeNrv { Wait, Fly, JumpLecture, FlyLectureA, FlyLectureB, DropLecture }
 export class HoneyBee extends NPCActor<HoneyBeeNrv> {
     private currentRailPointNo = -1;
 
@@ -1688,7 +1692,7 @@ export class RosettaChair extends LiveActor {
     }
 }
 
-const enum CaretakerNrv { Talk, Reaction }
+enum CaretakerNrv { Talk, Reaction }
 export class Caretaker extends NPCActor<CaretakerNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         super(zoneAndLayer, sceneObjHolder, 'Caretaker');
@@ -1808,7 +1812,7 @@ export class Caretaker extends NPCActor<CaretakerNrv> {
     }
 }
 
-const enum LuigiNPCNrv { Wait, AfraidWait, ArrestedWait, }
+enum LuigiNPCNrv { Wait, AfraidWait, ArrestedWait, }
 export class LuigiNPC extends NPCActor<LuigiNPCNrv> {
     private mode = 0;
 

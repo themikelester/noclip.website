@@ -71,11 +71,8 @@ export function nArray<T>(n: number, c: (i: number) => T): T[] {
     return d;
 }
 
-// Eat your heart out, npm.
 export function leftPad(S: string, spaces: number, ch: string = '0'): string {
-    while (S.length < spaces)
-        S = `${ch}${S}`;
-    return S;
+    return S.padStart(spaces, ch);
 }
 
 export function hexzero(n: number, spaces: number): string {
@@ -103,6 +100,12 @@ export function fallback<T>(v: T | null, fallback: T): T {
 
 export function fallbackUndefined<T>(v: T | null | undefined, fallback: T): T {
     return (v !== null && v !== undefined) ? v : fallback;
+}
+
+export function arraySwap<T>(L: T[], ia: number, ib: number): void {
+    const tmp: T = L[ia];
+    L[ia] = L[ib];
+    L[ib] = tmp;
 }
 
 export function arrayRemove<T>(L: T[], n: T): number {

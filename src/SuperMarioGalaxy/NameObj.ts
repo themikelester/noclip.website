@@ -7,18 +7,19 @@ import { Camera } from "../Camera.js";
 import { gfxRenderInstCompareSortKey, GfxRenderInstExecutionOrder, GfxRenderInstList, GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
 import { LiveActor } from "./LiveActor.js";
 import { JMapInfoIter } from "./JMapInfo.js";
-import { mat4 } from "gl-matrix";
+import { mat4, ReadonlyMat4 } from "gl-matrix";
 import { assert, nArray, nullify } from "../util.js";
 import { ub_SceneParamsBufferSize } from "../gx/gx_render.js";
 import { GX_Program } from "../gx/gx_material.js";
+import { Mat4Identity } from "../MathHelpers.js";
 
-export const enum GameBits {
+export enum GameBits {
     SMG1 = 0b01,
     SMG2 = 0b10,
     Both = SMG1 | SMG2,
 }
 
-export const enum MovementType {
+export enum MovementType {
     None                           = -1,
 
     StopSceneDelayRequest          = 0x01,
@@ -68,7 +69,7 @@ export const enum MovementType {
     Count
 }
 
-export const enum CalcAnimType {
+export enum CalcAnimType {
     None                           = -1,
 
     ClippedMapParts                = 0x00,
@@ -94,7 +95,7 @@ export const enum CalcAnimType {
     Count,
 }
 
-export const enum DrawBufferType {
+export enum DrawBufferType {
     None                           = -1,
 
     ClippedMapParts                     = 0x00,
@@ -142,7 +143,7 @@ export const enum DrawBufferType {
     AstroMapBoard,
 }
 
-export const enum DrawType {
+export enum DrawType {
     None                           = -1,
 
     SwingRope                      = 0x00,
@@ -235,7 +236,7 @@ export class NameObj {
         // Default implementation; nothing.
     }
 
-    public calcViewAndEntry(sceneObjHolder: SceneObjHolder, camera: Camera | null, viewMatrix: mat4 | null): void {
+    public calcViewAndEntry(sceneObjHolder: SceneObjHolder, camera: Camera | null, viewFromWorldMatrix: ReadonlyMat4): void {
         // Default implementation; nothing.
     }
 
@@ -407,7 +408,7 @@ export class SceneNameObjListExecutor {
             if (drawCameraType === DrawCameraType.DrawCameraType_3D)
                 nameObj.calcViewAndEntry(sceneObjHolder, viewerInput.camera, viewerInput.camera.viewMatrix);
             else if (drawCameraType === DrawCameraType.DrawCameraType_2D)
-                nameObj.calcViewAndEntry(sceneObjHolder, null, null);
+                nameObj.calcViewAndEntry(sceneObjHolder, null, Mat4Identity);
             else
                 throw "whoops";
         }
@@ -468,7 +469,7 @@ export class SceneNameObjListExecutor {
 
 export class NameObjAdaptor extends NameObj {
     public calcAnimCallback: ((sceneObjHolder: SceneObjHolder) => void) | null = null;
-    public calcViewAndEntryCallback: ((sceneObjHolder: SceneObjHolder, camera: Camera | null, viewMatrix: mat4 | null) => void) | null = null;
+    public calcViewAndEntryCallback: ((sceneObjHolder: SceneObjHolder, camera: Camera | null, viewMatrix: ReadonlyMat4) => void) | null = null;
     public movementCallback: ((sceneObjHolder: SceneObjHolder) => void) | null = null;
     public drawCallback: ((sceneObjHolder: SceneObjHolder, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput) => void) | null = null;
 
@@ -477,7 +478,7 @@ export class NameObjAdaptor extends NameObj {
             this.calcAnimCallback(sceneObjHolder);
     }
 
-    public override calcViewAndEntry(sceneObjHolder: SceneObjHolder, camera: Camera | null, viewMatrix: mat4 | null): void {
+    public override calcViewAndEntry(sceneObjHolder: SceneObjHolder, camera: Camera | null, viewMatrix: ReadonlyMat4): void {
         if (this.calcViewAndEntryCallback !== null)
             this.calcViewAndEntryCallback(sceneObjHolder, camera, viewMatrix);
     }

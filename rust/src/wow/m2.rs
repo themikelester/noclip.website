@@ -10,12 +10,6 @@ use super::common::{
     fixed_precision_6_9_to_f32, parse_array, AABBox, ChunkedData, Fixedi16, Quat, Vec2, Vec3, WowArray, WowCharArray
 };
 
-// if it's an MD21 chunk, all pointers are relative to the end of that chunk
-#[derive(Debug, DekuRead)]
-pub struct M2HeaderBlock {
-    pub _header: M2Header,
-}
-
 #[derive(Debug, DekuRead, Clone)]
 #[deku(magic = b"MD20")]
 pub struct M2Header {
@@ -41,7 +35,7 @@ pub struct M2Header {
     transparency_lookup_table: WowArray<u16>,
     texture_transforms_lookup_table: WowArray<u16>,
     pub bounding_box: AABBox,
-    pub _bounding_sphere_radius: f32,
+    pub bounding_sphere_radius: f32,
     pub _collision_box: AABBox,
     pub _collision_sphere_radius: f32,
     _collision_triangles: WowArray<u16>,
@@ -311,6 +305,10 @@ impl M2 {
         self.header.bounding_box
     }
 
+    pub fn get_bounding_radius(&self) -> f32 {
+        self.header.bounding_sphere_radius
+    }
+
     pub fn take_legacy_textures(&mut self) -> Vec<LegacyTexture> {
         self.legacy_textures.take().expect("M2 legacy textures already taken")
     }
@@ -376,7 +374,8 @@ pub struct M2Material {
 
 #[wasm_bindgen(js_name = "WowM2BlendingMode")]
 #[derive(DekuRead, Debug, Copy, Clone)]
-#[deku(type = "u16")]
+#[repr(u16)]
+#[deku(id_type = "u16")]
 pub enum M2BlendingMode {
     Opaque = 0,
     AlphaKey = 1,

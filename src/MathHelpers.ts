@@ -4,7 +4,7 @@ import { mat4, vec3, quat, ReadonlyVec3, ReadonlyMat4 } from "gl-matrix";
 // Misc bits of 3D math.
 
 // Basic scalar constants.
-export const enum MathConstants {
+export enum MathConstants {
     DEG_TO_RAD = 0.017453292519943295, // Math.PI / 180,
     RAD_TO_DEG = 57.29577951308232, // 180 / Math.PI,
     TAU = 6.283185307179586, // Math.PI * 2
@@ -385,7 +385,7 @@ export function projectionMatrixForCuboid(m: mat4, left: number, right: number, 
     m[15] = 1;
 }
 
-export function computeEulerAngleRotationFromSRTMatrix(dst: vec3, m: ReadonlyMat4): void {
+export function calcEulerAngleRotationFromSRTMatrix(dst: vec3, m: ReadonlyMat4): void {
     // "Euler Angle Conversion", Ken Shoemake, Graphics Gems IV. http://www.gregslabaugh.net/publications/euler.pdf
 
     if (compareEpsilon(m[2], 1.0)) {
@@ -403,7 +403,7 @@ export function computeEulerAngleRotationFromSRTMatrix(dst: vec3, m: ReadonlyMat
     }
 }
 
-export function computeUnitSphericalCoordinates(dst: vec3, azimuthal: number, polar: number): void {
+export function calcUnitSphericalCoordinates(dst: vec3, azimuthal: number, polar: number): void {
     // https://en.wikipedia.org/wiki/Spherical_coordinate_system
     // https://en.wikipedia.org/wiki/List_of_common_coordinate_transformations#From_spherical_coordinates
     // Wikipedia uses the convention of Z-up, we use Y-up here.
@@ -551,7 +551,7 @@ export function vec3FromBasis3(dst: vec3, pt: ReadonlyVec3, b0: ReadonlyVec3, s0
     dst[2] = pt[2] + b0[2] * s0 + b1[2] * s1 + b2[2] * s2;
 }
 
-export const enum CalcBillboardFlags {
+export enum CalcBillboardFlags {
     // The up vector for computing roll should come from the input matrix.
     UseRollLocal = 0 << 0,
     // The up vector for computing roll should be global world up 0, 1, 0.
@@ -732,8 +732,16 @@ export function calcBillboardMatrix(dst: mat4, m: ReadonlyMat4, flags: CalcBillb
     dst[15] = 9999.0;
 }
 
-export function randomRange(a: number, b = -a): number {
+export function randomRangeFloat(a: number, b = -a): number {
     return lerp(a, b, Math.random());
+}
+
+export function randomRangeInt(min: number, max: number): number {
+    return randomRangeFloat(min, max) | 0;
+}
+
+export function randomRangeVec3(dst: vec3, range: number): void {
+    vec3.set(dst, randomRangeFloat(range), randomRangeFloat(range), randomRangeFloat(range));
 }
 
 /**

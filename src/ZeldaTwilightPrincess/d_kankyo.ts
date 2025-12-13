@@ -5,7 +5,7 @@ import { Camera } from "../Camera.js";
 import { Color, OpaqueBlack, TransparentBlack, White, colorCopy, colorFromRGBA, colorNewCopy, colorNewFromRGBA8 } from "../Color.js";
 import { J3DModelInstance, MaterialInstance } from "../Common/JSYSTEM/J3D/J3DGraphBase.js";
 import { LoopMode } from "../Common/JSYSTEM/J3D/J3DLoader.js";
-import { MathConstants, Vec3Zero, computeUnitSphericalCoordinates, invlerp, lerp, saturate } from "../MathHelpers.js";
+import { MathConstants, Vec3Zero, calcUnitSphericalCoordinates, invlerp, lerp, saturate } from "../MathHelpers.js";
 import { cLib_addCalc, cM_rndF } from "../ZeldaWindWaker/SComponent.js";
 import { GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
 import * as GX from "../gx/gx_enum.js";
@@ -21,7 +21,7 @@ import { mDoExt_btkAnm, mDoExt_modelUpdateDL } from "./m_do_ext.js";
 import { cPhs__Status, fGlobals, fopKyM_Create, fpc_bs__Constructor, fpcPf__Register, kankyo_class } from "../ZeldaWindWaker/framework.js";
 import { dProcName_e } from "./d_a.js";
 
-export const enum LightType {
+export enum LightType {
     UNK_0 = 0,
     UNK_1 = 1,
     UNK_2 = 2,
@@ -306,7 +306,7 @@ export class EF_THUNDER {
     public influence = new LIGHT_INFLUENCE();
 }
 
-const enum LightMode {
+enum LightMode {
     BG,
     Actor,
     BGwithPlight,
@@ -356,7 +356,7 @@ enum DiceWeatherMode {
     Done = 0xFF,
 }
 
-const enum DiceWeatherState {
+enum DiceWeatherState {
     Uninitialized = 0,
     Init,
     Execute,
@@ -977,7 +977,7 @@ export function settingTevStruct_colget_player(envLight: dScnKy_env_light_c, tev
 }
 
 export function dKy_lightdir_set(dst: vec3, x: number, y: number): void {
-    computeUnitSphericalCoordinates(dst, x * MathConstants.DEG_TO_RAD, y * MathConstants.DEG_TO_RAD);
+    calcUnitSphericalCoordinates(dst, x * MathConstants.DEG_TO_RAD, y * MathConstants.DEG_TO_RAD);
 }
 
 export function settingTevStruct(globals: dGlobals, lightType: LightType, pos: vec3 | null, tevStr: dKy_tevstr_c): void {
@@ -1271,12 +1271,12 @@ export function dKy_GxFog_set(envLight: dScnKy_env_light_c, fog: FogBlock, camer
 // have global state, we have to do this here.
 export function dKy_setLight__OnModelInstance(envLight: dScnKy_env_light_c, modelInstance: J3DModelInstance, camera: Camera): void {
     for (let i = 0; i < envLight.lightStatus.length; i++)
-        lightSetFromWorldLight(modelInstance.getGXLightReference(i), envLight.lightStatus[i], camera);
+        lightSetFromWorldLight(modelInstance.getGXLightReference(i), camera.viewMatrix, envLight.lightStatus[i]);
 }
 
 export function dKy_setLight__OnMaterialParams(envLight: dScnKy_env_light_c, materialParams: MaterialParams, camera: Camera): void {
     for (let i = 0; i < envLight.lightStatus.length; i++)
-        lightSetFromWorldLight(materialParams.u_Lights[i], envLight.lightStatus[i], camera);
+        lightSetFromWorldLight(materialParams.u_Lights[i], camera.viewMatrix, envLight.lightStatus[i]);
 }
 
 function setLightTevColorType_MAJI_sub(globals: dGlobals, materialInstance: MaterialInstance, tevStr: dKy_tevstr_c, mode: number): void {
@@ -1328,7 +1328,7 @@ function setLightTevColorType_MAJI_light(globals: dGlobals, modelInstance: J3DMo
     // TODO(jstpierre): allow setting lights per MaterialInstance
     const envLight = globals.g_env_light;
 
-    lightSetFromWorldLight(modelInstance.getGXLightReference(0), tevStr.baseLight, globals.camera);
+    lightSetFromWorldLight(modelInstance.getGXLightReference(0), globals.camera.viewMatrix, tevStr.baseLight);
 
     if (mode === 2) {
         for (let i = 0; i < tevStr.lights.length; i++) {
@@ -1346,7 +1346,7 @@ function setLightTevColorType_MAJI_light(globals: dGlobals, modelInstance: J3DMo
         //     modelInstance.getGXLightReference(i + 2).copy(tevStr.lights[i]);
 
         for (let i = 0; i < 6; i++)
-            lightSetFromWorldLight(modelInstance.getGXLightReference(i + 2), envLight.lightStatus[i + 2], globals.camera);
+            lightSetFromWorldLight(modelInstance.getGXLightReference(i + 2), globals.camera.viewMatrix, envLight.lightStatus[i + 2]);
     }
 }
 
@@ -1378,10 +1378,10 @@ export function setLightTevColorType_MAJI(globals: dGlobals, modelInstance: J3DM
     const envLight = globals.g_env_light;
 
     const light0 = modelInstance.getGXLightReference(0);
-    lightSetFromWorldLight(light0, tevStr.baseLight, camera);
+    lightSetFromWorldLight(light0, camera.viewMatrix, tevStr.baseLight);
 
     const light1 = modelInstance.getGXLightReference(1);
-    lightSetFromWorldLight(light1, envLight.lightStatus[1], camera);
+    lightSetFromWorldLight(light1, camera.viewMatrix, envLight.lightStatus[1]);
 
     modelInstance.setColorOverride(ColorKind.C0, tevStr.colorC0);
     modelInstance.setColorOverride(ColorKind.K0, tevStr.colorK0);

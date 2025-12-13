@@ -7,15 +7,14 @@
 import { mat4, vec2, vec3 } from "gl-matrix";
 import ArrayBufferSlice from "../ArrayBufferSlice.js";
 import { Color, colorCopy, colorNewFromRGBA, colorNewFromRGBA8, colorScale } from "../Color.js";
-import { GfxDevice, GfxMipFilterMode, GfxTexFilterMode, GfxWrapMode } from "../gfx/platform/GfxPlatform.js";
-import { GfxSampler } from "../gfx/platform/GfxPlatformImpl.js";
+import { GfxDevice, GfxMipFilterMode, GfxSampler, GfxTexFilterMode, GfxWrapMode } from "../gfx/platform/GfxPlatform.js";
 import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
 import { GfxRenderInst } from "../gfx/render/GfxRenderInstManager.js";
-import { GXMaterialBuilder } from "../gx/GXMaterialBuilder.js";
 import * as GX from "../gx/gx_enum.js";
 import { GXMaterialHacks } from "../gx/gx_material.js";
 import { ColorKind, DrawParams, GXMaterialHelperGfx, MaterialParams } from "../gx/gx_render.js";
 import { TextureInputGX } from "../gx/gx_texture.js";
+import { GXMaterialBuilder } from "../gx/GXMaterialBuilder.js";
 import { TSDraw } from "../SuperMarioGalaxy/DDraw.js";
 import { LoadedTexture } from "../TextureHolder.js";
 import { assertExists } from "../util.js";
@@ -51,7 +50,7 @@ const FLIP_T_TEX_MTX = mat4.fromValues(
     0, 0, 0, 1
 );
 
-const enum TexFlags {
+enum TexFlags {
     ScaleFilterNear = (1 << 13) | (1 << 14), // If either set, min/mag scale is nearest, else linear
     TClamp = 1 << 15,
     SClamp = 1 << 16,
@@ -73,7 +72,7 @@ type VtxTypeB = {
     texCoord: vec2;
 };
 
-const enum DispListFlags {
+enum DispListFlags {
     // Bits 0-1 are cull mode
     Quads = 1 << 2,
     Triangles = 1 << 3,
@@ -85,13 +84,13 @@ type DispList<T> = {
     vertices: T[];
 };
 
-const enum MeshType {
+enum MeshType {
     UnlitConstMatColor = -1,
     LitConstMatColor = -2, // These types aren't actually rendered but non-negative types are this
     UnlitVertMatColor = -3,
 }
 
-const enum MeshFlags {
+enum MeshFlags {
     DisableDepthWrite = 1 << 24,
 }
 
@@ -115,7 +114,7 @@ type MeshWithType =
           mesh: Mesh<VtxTypeB>;
       };
 
-const enum ModelFlags {
+enum ModelFlags {
     VtxTypeA, // All meshes in model have vertices of type A (type B if unset)
     Translucent, // Model has at least 1 translucent mesh
     Opaque, // Model has at least 1 opaque mesh

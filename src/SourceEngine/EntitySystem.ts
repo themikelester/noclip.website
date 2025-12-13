@@ -2,16 +2,17 @@
 import { mat4, ReadonlyMat4, ReadonlyVec3, vec3 } from 'gl-matrix';
 import { IS_DEVELOPMENT } from '../BuildVersion.js';
 import { computeViewSpaceDepthFromWorldSpacePoint } from '../Camera.js';
-import { Color, colorCopy, colorLerp, colorNewCopy, Cyan, Green, Magenta, Red, White, Yellow } from '../Color.js';
+import { Color, colorCopy, colorLerp, colorNewCopy, Cyan, Green, Magenta, Red, White } from '../Color.js';
 import { drawWorldSpaceAABB, drawWorldSpaceLine, drawWorldSpaceLocator, drawWorldSpacePoint, drawWorldSpaceText, getDebugOverlayCanvas2D } from '../DebugJunk.js';
 import { AABB } from '../Geometry.js';
 import { projectionMatrixConvertClipSpaceNearZ } from '../gfx/helpers/ProjectionHelpers.js';
 import { projectionMatrixReverseDepth } from '../gfx/helpers/ReversedDepthHelpers.js';
-import { GfxBuffer, GfxBufferUsage, GfxClipSpaceNearZ, GfxCompareMode, GfxDevice, GfxFormat } from '../gfx/platform/GfxPlatform.js';
+import { GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxClipSpaceNearZ, GfxDevice, GfxFormat } from '../gfx/platform/GfxPlatform.js';
 import { GfxrGraphBuilder, GfxrRenderTargetDescription } from '../gfx/render/GfxRenderGraph.js';
 import { GfxRenderInstManager, setSortKeyDepth } from '../gfx/render/GfxRenderInstManager.js';
-import { clamp, computeModelMatrixR, computeModelMatrixSRT, getMatrixAxis, getMatrixAxisX, getMatrixAxisY, getMatrixAxisZ, getMatrixTranslation, invlerp, lerp, MathConstants, projectionMatrixForFrustum, randomRange, saturate, scaleMatrix, setMatrixTranslation, transformVec3Mat4w1, vec3SetAll, Vec3UnitX, Vec3UnitY, Vec3UnitZ, Vec3Zero } from '../MathHelpers.js';
-import { getRandomInt, getRandomVector } from '../SuperMarioGalaxy/ActorUtil.js';
+import { clamp, computeModelMatrixR, computeModelMatrixSRT, getMatrixAxis, getMatrixAxisX, getMatrixAxisY, getMatrixAxisZ, getMatrixTranslation, invlerp, lerp, MathConstants, projectionMatrixForFrustum, randomRangeFloat, saturate, scaleMatrix, setMatrixTranslation, transformVec3Mat4w1, vec3SetAll, Vec3UnitX, Vec3UnitY, Vec3UnitZ, Vec3Zero } from '../MathHelpers.js';
+import { randomRangeVec3 } from "../MathHelpers.js";
+import { randomRangeInt } from '../MathHelpers.js';
 import { arrayRemove, assert, assertExists, fallbackUndefined, leftPad, nArray, nullify } from '../util.js';
 import { BSPEntity, DecalSurface } from './BSPFile.js';
 import { BSPModelRenderer, BSPRenderer, BSPSurfaceRenderer, ProjectedLightRenderer, RenderObjectKind, SourceEngineView, SourceEngineViewType, SourceRenderContext, SourceRenderer, SourceWorldViewRenderer } from './Main.js';
@@ -23,7 +24,7 @@ import { vmtParseColor, vmtParseNumber, vmtParseVector } from './VMT.js';
 import { EntityMaterialParameters, FogParams, BaseMaterial } from './Materials/MaterialBase.js';
 import { ParameterReference, paramSetNum } from './Materials/MaterialParameters.js';
 import { LightCache, worldLightingCalcColorForPoint } from './Materials/WorldLight.js';
-import { makeStaticDataBuffer } from '../gfx/helpers/BufferHelpers.js';
+import { createBufferFromData } from '../gfx/helpers/BufferHelpers.js';
 
 type EntityMessageValue = string;
 
@@ -83,7 +84,7 @@ type EntityInputFunc = (entitySystem: EntitySystem, activator: BaseEntity, value
 const scratchMat4a = mat4.create();
 const scratchMat4b = mat4.create();
 
-const enum SpawnState {
+enum SpawnState {
     FetchingResources,
     ReadyForSpawn,
     Spawned,
@@ -291,10 +292,12 @@ export class BaseEntity {
         this.playSequenceIndex(this.findSequenceLabel(label));
     }
 
-    public spawn(entitySystem: EntitySystem): void {
+    public setupParent(entitySystem: EntitySystem): void {
         if (this.entity.parentname)
             this.setParentEntity(entitySystem.findEntityByTargetName(this.entity.parentname));
+    }
 
+    public spawn(entitySystem: EntitySystem): void {
         if (this.entity.defaultanim) {
             this.seqdefaultindex = this.findSequenceLabel(this.entity.defaultanim);
             this.playSequenceIndex(this.seqdefaultindex);
@@ -886,7 +889,7 @@ function angleVec(dstForward: vec3 | null, dstRight: vec3 | null, dstUp: vec3 | 
     getMatrixAxis(dstForward, dstRight, dstUp, scratchMat4a);
 }
 
-const enum ToggleState {
+enum ToggleState {
     Top, Bottom, GoingToTop, GoingToBottom,
 }
 
@@ -1044,7 +1047,7 @@ abstract class BaseDoor extends BaseToggle {
         const spawnpos = Number(fallbackUndefined(this.entity.spawnpos, '0'));
         this.wait = Number(fallbackUndefined(this.entity.wait, '-1'));
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             START_OPEN_OBSOLETE = 0x01,
             NO_AUTO_RETURN      = 0x20,
         };
@@ -1111,6 +1114,7 @@ abstract class BaseDoor extends BaseToggle {
     }
 
     private hitTop(entitySystem: EntitySystem): void {
+        this.toggleState = ToggleState.Top;
         this.output_onFullyOpen.fire(entitySystem, this, this);
 
         if (this.wait > 0) {
@@ -1119,6 +1123,7 @@ abstract class BaseDoor extends BaseToggle {
     }
 
     private hitBottom(entitySystem: EntitySystem): void {
+        this.toggleState = ToggleState.Bottom;
         this.output_onFullyClosed.fire(entitySystem, this, this);
     }
 
@@ -1229,7 +1234,7 @@ class func_door_rotating extends BaseDoor {
     public override spawn(entitySystem: EntitySystem): void {
         super.spawn(entitySystem);
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             ROTATE_BACKWARDS = 0x02,
             ROTATE_ROLL      = 0x40,
             ROTATE_PITCH     = 0x80,
@@ -1320,7 +1325,7 @@ class func_rotating extends BaseEntity {
         if (this.maxSpeed === 0)
             this.maxSpeed = 100;
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             ROTATE_START_ON  = 0x01,
             ROTATE_BACKWARDS = 0x02,
             ROTATE_Z_AXIS    = 0x04,
@@ -1471,7 +1476,7 @@ class path_track extends BaseEntity {
     public override spawn(entitySystem: EntitySystem): void {
         super.spawn(entitySystem);
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             DISABLED      = 0x0001,
             ALTREVERSE    = 0x0004,
             DISABLE_TRAIN = 0x0008,
@@ -1567,7 +1572,7 @@ class func_tracktrain extends BaseEntity {
 
     private output_onstart = new EntityOutput();
 
-    private currentPath: path_track;
+    private currentPath: path_track | null = null;
     private waitTime = 0.0;
     private activated = false;
 
@@ -1585,7 +1590,7 @@ class func_tracktrain extends BaseEntity {
     public override spawn(entitySystem: EntitySystem): void {
         super.spawn(entitySystem);
 
-        this.currentPath = assertExists(entitySystem.findEntityByTargetName(this.entity.target) as path_track);
+        this.currentPath = this.entity.target !== undefined ? entitySystem.findEntityByTargetName(this.entity.target) as path_track : null;
         this.velocityType = Number(fallbackUndefined(this.entity.velocitytype, '0'));
         this.orientationType = Number(fallbackUndefined(this.entity.orientationtype, '0'));
         this.length = Number(fallbackUndefined(this.entity.wheels, '0'));
@@ -1603,6 +1608,9 @@ class func_tracktrain extends BaseEntity {
 
     public override movement(entitySystem: EntitySystem, renderContext: SourceRenderContext): void {
         super.movement(entitySystem, renderContext);
+
+        if (this.currentPath === null)
+            return;
 
         if (!this.activated) {
             vec3.copy(this.localOrigin, this.currentPath.localOrigin);
@@ -1754,7 +1762,7 @@ class logic_relay extends BaseEntity {
     constructor(entitySystem: EntitySystem, renderContext: SourceRenderContext, bspRenderer: BSPRenderer, entity: BSPEntity) {
         super(entitySystem, renderContext, bspRenderer, entity);
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             RemoveOnFire = 0x01,
             AllowFastRetrigger = 0x02,
         };
@@ -1922,12 +1930,18 @@ class logic_case extends BaseEntity {
     }
 
     private input_pickrandom(entitySystem: EntitySystem, activator: BaseEntity): void {
+        if (this.connectedOutputs.length === 0)
+            return;
+
         const index = (Math.random() * this.connectedOutputs.length) | 0;
         const c = this.connectedOutputs[index];
         this.output_oncaseNN[c].fire(entitySystem, this, activator);
     }
 
     private input_pickrandomshuffle(entitySystem: EntitySystem, activator: BaseEntity): void {
+        if (this.connectedOutputs.length === 0)
+            return;
+
         if (this.shuffled.length === 0)
             this.shuffled = shuffle(this.connectedOutputs);
         const c = this.shuffled.pop()!;
@@ -1961,7 +1975,7 @@ class logic_timer extends BaseEntity {
 
     private reset(entitySystem: EntitySystem): void {
         if (this.useRandomTime)
-            this.refiretime = randomRange(this.lowerRandomBound, this.upperRandomBound);
+            this.refiretime = randomRangeFloat(this.lowerRandomBound, this.upperRandomBound);
         this.nextFireTime = entitySystem.currentTime + this.refiretime;
     }
 
@@ -2153,7 +2167,7 @@ class math_remap extends BaseEntity {
         this.output_outValue.parse(this.entity.outvalue);
         this.registerInput('invalue', this.input_invalue.bind(this));
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             IgnoreOutOfRange   = 0x01,
             ClampOutputToRange = 0x02,
         }
@@ -2216,7 +2230,7 @@ class math_colorblend extends BaseEntity {
         this.output_outColor.parse(this.entity.outcolor);
         this.registerInput('invalue', this.input_invalue.bind(this));
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             IgnoreOutOfRange   = 0x01,
         }
         const spawnflags: SpawnFlags = Number(fallbackUndefined(this.entity.spawnflags, '0'));
@@ -2462,7 +2476,7 @@ class env_fog_controller extends BaseEntity {
     constructor(entitySystem: EntitySystem, renderContext: SourceRenderContext, bspRenderer: BSPRenderer, entity: BSPEntity) {
         super(entitySystem, renderContext, bspRenderer, entity);
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             IsMaster = 0x01,
         }
         const spawnflags: SpawnFlags = Number(fallbackUndefined(this.entity.spawnflags, '0'));
@@ -2743,7 +2757,7 @@ class color_correction extends BaseEntity {
         this.minfalloff = Number(fallbackUndefined(this.entity.minfalloff, '-1'));
         this.maxfalloff = Number(fallbackUndefined(this.entity.maxfalloff, '-1'));
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             Master = 0x01,
             ClientSide = 0x02,
         };
@@ -2815,7 +2829,7 @@ abstract class BaseLight extends BaseEntity {
             this.localAngles[0] = pitch;
         }
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             StartOff = 0x01,
         };
         const spawnflags: SpawnFlags = Number(fallbackUndefined(this.entity.spawnflags, '0'));
@@ -2960,7 +2974,7 @@ class point_template extends BaseEntity {
     public override spawn(entitySystem: EntitySystem): void {
         super.spawn(entitySystem);
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             DontRemoveTemplateEntities = 0x01,
             PreserveNames              = 0x02,
         };
@@ -3165,7 +3179,7 @@ class env_steam extends BaseEntity {
         if (initialstate !== 0)
             this.shouldEmit = true;
 
-        const enum Type {
+        enum Type {
             HEATWAVE = 0x01,
         };
         const type: Type = Number(fallbackUndefined(this.entity.type, '0'));
@@ -3229,12 +3243,12 @@ class env_steam extends BaseEntity {
 
             // Spread axes
             getMatrixAxisY(scratchVec3a, modelMatrix);
-            vec3.scaleAndAdd(p.velocity, p.velocity, scratchVec3a, randomRange(this.spreadSpeed));
+            vec3.scaleAndAdd(p.velocity, p.velocity, scratchVec3a, randomRangeFloat(this.spreadSpeed));
             getMatrixAxisZ(scratchVec3a, modelMatrix);
-            vec3.scaleAndAdd(p.velocity, p.velocity, scratchVec3a, randomRange(this.spreadSpeed));
+            vec3.scaleAndAdd(p.velocity, p.velocity, scratchVec3a, randomRangeFloat(this.spreadSpeed));
 
-            p.roll = randomRange(0, 360);
-            p.rollDelta = randomRange(-this.rollSpeed, this.rollSpeed);
+            p.roll = randomRangeFloat(0, 360);
+            p.rollDelta = randomRangeFloat(-this.rollSpeed, this.rollSpeed);
             p.lifetime = this.particleLifetime;
 
             this.particlePool.push(p);
@@ -3290,7 +3304,7 @@ class env_steam extends BaseEntity {
     }
 }
 
-const enum env_citadel_energy_core_state { Idle, Charging, Discharging }
+enum env_citadel_energy_core_state { Idle, Charging, Discharging }
 class env_citadel_energy_core extends BaseEntity {
     public static classname = `env_citadel_energy_core`;
 
@@ -3320,7 +3334,7 @@ class env_citadel_energy_core extends BaseEntity {
 
         this.bindMaterials(renderContext);
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             NO_PARTICLES = 0x01,
             START_ON     = 0x02,
         };
@@ -3394,14 +3408,14 @@ class env_citadel_energy_core extends BaseEntity {
                 vec3.scaleAndAdd(p.position, p.position, scratchVec3a, dist);
                 const spreadRange = lerp(6.0, 1.0, randT) * 4.0;
                 getMatrixAxisY(scratchVec3a, modelMatrix);
-                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRange(spreadRange));
+                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRangeFloat(spreadRange));
                 getMatrixAxisZ(scratchVec3a, modelMatrix);
-                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRange(spreadRange));
+                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRangeFloat(spreadRange));
                 p.velocity[2] = 8.0;
                 p.startAlpha = t;
-                p.startSize = randomRange(1, 2);
+                p.startSize = randomRangeFloat(1, 2);
                 p.lifetime = 0.2;
-                p.roll = randomRange(0, 360);
+                p.roll = randomRangeFloat(0, 360);
                 this.chargingParticles.push(p);
             }
         }
@@ -3424,7 +3438,7 @@ class env_citadel_energy_core extends BaseEntity {
             p.startSize = coreScale * (i + 1);
             p.endSize = p.startSize * 2.0;
             p.lifetime = 0.1;
-            p.roll = randomRange(0, 360);
+            p.roll = randomRangeFloat(0, 360);
             this.coreParticles.push(p);
         }
 
@@ -3443,14 +3457,14 @@ class env_citadel_energy_core extends BaseEntity {
                 vec3.scaleAndAdd(p.position, p.position, scratchVec3a, dist);
                 const spreadRange = lerp(6.0, 1.0, randT) * 4.0;
                 getMatrixAxisY(scratchVec3a, modelMatrix);
-                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRange(spreadRange));
+                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRangeFloat(spreadRange));
                 getMatrixAxisZ(scratchVec3a, modelMatrix);
-                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRange(spreadRange));
+                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRangeFloat(spreadRange));
                 p.velocity[2] = 8.0;
                 p.startAlpha = t;
-                p.startSize = randomRange(1, 2);
+                p.startSize = randomRangeFloat(1, 2);
                 p.lifetime = 0.2;
-                p.roll = randomRange(0, 360);
+                p.roll = randomRangeFloat(0, 360);
                 this.chargingParticles.push(p);
             }
         }
@@ -3472,13 +3486,13 @@ class env_citadel_energy_core extends BaseEntity {
             getMatrixAxisX(p.velocity, modelMatrix);
             vec3.scale(p.velocity, p.velocity, 32.0 * i);
 
-            if (i === 2 && getRandomInt(0, 20) === 0) {
+            if (i === 2 && randomRangeInt(0, 20) === 0) {
                 p.lifetime = 0.25;
             } else {
                 p.lifetime = 0.2;
             }
 
-            p.roll = randomRange(0, 360);
+            p.roll = randomRangeFloat(0, 360);
             p.startAlpha = 0.5;
             p.endAlpha = 0;
 
@@ -3507,11 +3521,11 @@ class env_citadel_energy_core extends BaseEntity {
                 vec3.scaleAndAdd(p.position, p.position, scratchVec3a, dist);
                 const spreadRange = lerp(6.0, 1.0, randT) * 2.0 * this.scale;
                 getMatrixAxisY(scratchVec3a, modelMatrix);
-                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRange(spreadRange));
+                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRangeFloat(spreadRange));
                 getMatrixAxisZ(scratchVec3a, modelMatrix);
-                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRange(spreadRange));
+                vec3.scaleAndAdd(p.position, p.position, scratchVec3a, randomRangeFloat(spreadRange));
                 p.lifetime = 0.5;
-                p.roll = randomRange(0, 360);
+                p.roll = randomRangeFloat(0, 360);
                 p.velocity[2] = 2.0;
                 p.startAlpha = 1;
                 p.startSize = 1;
@@ -3582,7 +3596,7 @@ class env_sprite extends BaseEntity {
         const sprite = assertExists(this.modelSprite);
         this.maxframe = sprite.materialInstance.getNumFrames();
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             StartOn = 0x01,
             Once    = 0x02,
         };
@@ -3749,7 +3763,7 @@ export class env_projectedtexture extends BaseEntity {
         this.brightnessScale = Number(entity.brightnessscale);
         this.style = vmtParseNumber(entity.style, -1);
 
-        const enum SpawnFlags {
+        enum SpawnFlags {
             ENABLED = 0x01,
         };
         const spawnflags: SpawnFlags = Number(entity.spawnflags);
@@ -3876,8 +3890,8 @@ export class env_shake extends BaseEntity {
         if (renderContext.crossedRepeatTime(this.shakeStartTime, this.interval)) {
             // Compute new shake vector.
             const amplitude = this.amplitude * ((1.0 - (time / this.duration)) ** 2);
-            getRandomVector(this.shakeOffset, amplitude);
-            this.shakeRoll = MathConstants.DEG_TO_RAD * randomRange(amplitude) * 0.25;
+            randomRangeVec3(this.shakeOffset, amplitude);
+            this.shakeRoll = MathConstants.DEG_TO_RAD * randomRangeFloat(amplitude) * 0.25;
         }
     }
 
@@ -4188,8 +4202,8 @@ class infodecal extends BaseEntity {
         const decalResult = this.bspRenderer.bsp.buildDecal(scratchVec3a, halfWidth, halfHeight);
 
         const device = renderContext.renderCache.device;
-        this.vertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, decalResult.vertexData);
-        this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, decalResult.indexData);
+        this.vertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, decalResult.vertexData);
+        this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, decalResult.indexData);
         this.surfaces = decalResult.surfaces;
 
         for (let i = 0; i < this.surfaces.length; i++)
@@ -4209,7 +4223,7 @@ class infodecal extends BaseEntity {
             return;
 
         const template = renderInstManager.pushTemplate();
-        template.setVertexInput(this.bspRenderer.inputLayout, [{ buffer: this.vertexBuffer, byteOffset: 0 }], { buffer: this.indexBuffer, byteOffset: 0 });
+        template.setVertexInput(this.bspRenderer.inputLayout, [{ buffer: this.vertexBuffer }], { buffer: this.indexBuffer });
         this.materialInstance.setOnRenderInstModelMatrix(template, null);
 
         this.materialInstance.calcProjectedLight(renderContext, this.bbox);
@@ -4465,9 +4479,19 @@ export class EntitySystem {
             // Still fetching; nothing to do.
             return;
         } else if (spawnStateAction === SpawnState.ReadyForSpawn) {
-            for (let i = 0; i < this.entities.length; i++)
-                if (this.entities[i].spawnState === SpawnState.ReadyForSpawn)
-                    this.entities[i].spawn(this);
+            // Set all parent relationships so that the origin relationships are correct
+            // before calling the spawn method on anything.
+            for (let i = 0; i < this.entities.length; i++) {
+                const entity = this.entities[i];
+                if (entity.spawnState === SpawnState.ReadyForSpawn)
+                    entity.setupParent(this);
+            }
+
+            for (let i = 0; i < this.entities.length; i++) {
+                const entity = this.entities[i];
+                if (entity.spawnState === SpawnState.ReadyForSpawn)
+                    entity.spawn(this);
+            }
         }
 
         this.processOutputQueue();

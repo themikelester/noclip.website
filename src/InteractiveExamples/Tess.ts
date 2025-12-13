@@ -1,23 +1,23 @@
 
-import { SceneGfx, ViewerRenderInput } from "../viewer.js";
-import { SceneDesc, SceneContext } from "../SceneBase.js";
-import { GfxDevice, GfxTexture, GfxProgram, GfxBuffer, GfxFormat, GfxInputLayout, GfxBufferUsage, GfxVertexAttributeDescriptor, GfxInputLayoutBufferDescriptor, GfxVertexBufferFrequency, GfxBindingLayoutDescriptor, GfxCullMode, makeTextureDescriptor2D, GfxWrapMode, GfxTexFilterMode, GfxMipFilterMode, GfxVertexBufferDescriptor, GfxIndexBufferDescriptor } from "../gfx/platform/GfxPlatform.js";
-import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
-import { makeStaticDataBuffer } from "../gfx/helpers/BufferHelpers.js";
-import { assert, nArray } from "../util.js";
-import { GfxRenderHelper } from "../gfx/render/GfxRenderHelper.js";
-import { DeviceProgram } from "../Program.js";
-import { makeBackbufferDescSimple, standardFullClearRenderPassDescriptor } from "../gfx/helpers/RenderGraphHelpers.js";
-import { GfxrAttachmentSlot } from "../gfx/render/GfxRenderGraph.js";
-import { GfxRenderInst, GfxRenderInstList, GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
 import { mat4, ReadonlyMat4, ReadonlyVec3, vec2, vec3 } from "gl-matrix";
-import { fillColor, fillMatrix4x3, fillMatrix4x4, fillVec3v, fillVec4 } from "../gfx/helpers/UniformBufferHelpers.js";
-import { computeModelMatrixS, computeModelMatrixSRT, getMatrixTranslation, getMatrixAxisZ, MathConstants, transformVec3Mat4w1 } from "../MathHelpers.js";
+import { Blue, Cyan, Green, OpaqueBlack, Red, Yellow } from "../Color.js";
 import { DataFetcher } from "../DataFetcher.js";
-import { TextureMapping } from "../TextureHolder.js";
-import { Blue, Cyan, Green, Magenta, OpaqueBlack, Red, Yellow } from "../Color.js";
 import { dfLabel, dfRange, dfShow } from "../DebugFloaters.js";
 import { GfxShaderLibrary } from "../gfx/helpers/GfxShaderLibrary.js";
+import { makeBackbufferDescSimple, standardFullClearRenderPassDescriptor } from "../gfx/helpers/RenderGraphHelpers.js";
+import { fillColor, fillMatrix4x3, fillMatrix4x4, fillVec3v, fillVec4 } from "../gfx/helpers/UniformBufferHelpers.js";
+import { GfxBindingLayoutDescriptor, GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxCullMode, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxProgram, GfxTexFilterMode, GfxTexture, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency, GfxWrapMode, makeTextureDescriptor2D } from "../gfx/platform/GfxPlatform.js";
+import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
+import { GfxrAttachmentSlot } from "../gfx/render/GfxRenderGraph.js";
+import { GfxRenderHelper } from "../gfx/render/GfxRenderHelper.js";
+import { GfxRenderInst, GfxRenderInstList, GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
+import { computeModelMatrixS, computeModelMatrixSRT, getMatrixTranslation, MathConstants, transformVec3Mat4w1 } from "../MathHelpers.js";
+import { DeviceProgram } from "../Program.js";
+import { SceneContext, SceneDesc } from "../SceneBase.js";
+import { TextureMapping } from "../TextureHolder.js";
+import { assert, nArray } from "../util.js";
+import { SceneGfx, ViewerRenderInput } from "../viewer.js";
+import { createBufferFromData } from "../gfx/helpers/BufferHelpers.js";
 
 class PatchProgram extends DeviceProgram {
     public static a_TexCoord = 0;
@@ -27,6 +27,7 @@ class PatchProgram extends DeviceProgram {
 
     public override both = `
 ${GfxShaderLibrary.saturate}
+${GfxShaderLibrary.MatrixLibrary}
 
 layout(std140) uniform ub_SceneParams {
     Mat4x4 u_ProjectionView;
@@ -38,8 +39,8 @@ struct WaveParam {
 };
 
 layout(std140) uniform ub_ObjectParams {
-    Mat4x3 u_PatchToMeshMatrix;
-    Mat4x3 u_MeshToWorldMatrix;
+    Mat3x4 u_PatchToMeshMatrix;
+    Mat3x4 u_MeshToWorldMatrix;
     WaveParam u_Wave[2];
     vec4 u_ColorAdd;
 };
@@ -72,6 +73,8 @@ out vec3 v_NormalWorld;
 out vec3 v_TangentWorld;
 out vec2 v_TexCoordLocal;
 
+${GfxShaderLibrary.MulNormalMatrix}
+
 vec3 SphereFromCube(vec3 t_Pos) {
     // http://mathproofs.blogspot.com/2005/07/mapping-cube-to-sphere.html
     vec3 t_Pos2 = t_Pos * t_Pos;
@@ -87,8 +90,8 @@ void main() {
     vec3 t_PatchPos = vec3(t_PatchLoc.x, 0.0, t_PatchLoc.y);
     vec3 t_PatchNrm = vec3(0.0, 1.0, 0.0);
 
-    vec3 t_MeshPos = Mul(_Mat4x4(u_PatchToMeshMatrix), vec4(t_PatchPos, 1.0)).xyz;
-    vec3 t_MeshNrm = Mul(_Mat4x4(u_PatchToMeshMatrix), vec4(t_PatchNrm, 0.0)).xyz;
+    vec3 t_MeshPos = UnpackMatrix(u_PatchToMeshMatrix) * vec4(t_PatchPos, 1.0);
+    vec3 t_MeshNrm = UnpackMatrix(u_PatchToMeshMatrix) * vec4(t_PatchNrm, 0.0);
     vec3 t_MeshTng = vec3(1.0, 0.0, 0.0);
     vec2 t_TexCoordMesh;
     t_TexCoordMesh.xy = a_TexCoord.xy;
@@ -102,17 +105,17 @@ void main() {
     t_TexCoordMesh.y = t_MeshNrm.y * 0.5 + 0.5;
 #endif
 
-    vec3 t_PosWorld = Mul(_Mat4x4(u_MeshToWorldMatrix), vec4(t_MeshPos, 1.0)).xyz;
-    v_NormalWorld = normalize(Mul(_Mat4x4(u_MeshToWorldMatrix), vec4(t_MeshNrm, 0.0)).xyz);
-    v_TangentWorld = normalize(Mul(_Mat4x4(u_MeshToWorldMatrix), vec4(t_MeshTng, 0.0)).xyz);
+    mat4x3 t_MeshToWorldMatrix = UnpackMatrix(u_MeshToWorldMatrix);
+    v_PositionWorld = t_MeshToWorldMatrix * vec4(t_MeshPos, 1.0);
+    v_NormalWorld = MulNormalMatrix(t_MeshToWorldMatrix, t_MeshNrm);
+    v_TangentWorld = normalize(t_MeshToWorldMatrix * vec4(t_MeshTng, 0.0));
 
 #ifdef MODE_SPHERE
-    t_PosWorld.xyz += v_NormalWorld.xyz * CalcWaveHeight(0u, t_TexCoordMesh.xy);
-    t_PosWorld.xyz += v_NormalWorld.xyz * CalcWaveHeight(1u, t_TexCoordMesh.xy);
+    v_PositionWorld += v_NormalWorld * CalcWaveHeight(0u, t_TexCoordMesh.xy);
+    v_PositionWorld += v_NormalWorld * CalcWaveHeight(1u, t_TexCoordMesh.xy);
 #endif
 
-    v_PositionWorld.xyz = t_PosWorld.xyz;
-    gl_Position = Mul(u_ProjectionView, vec4(t_PosWorld, 1.0));
+    gl_Position = UnpackMatrix(u_ProjectionView) * vec4(v_PositionWorld, 1.0);
 
     v_NormalMesh.xyz = t_MeshNrm.xyz;
     v_TexCoordLocal.xy = a_TexCoord.xy;
@@ -263,7 +266,6 @@ class PatchLibrary {
     private patchVariation: { startIndex: number, indexCount: number }[] = [];
 
     constructor(cache: GfxRenderCache, public sideNumQuads: number = 32) {
-        const device = cache.device;
         const sideNumVerts = sideNumQuads + 1;
 
         let totalNumVerts = sideNumVerts ** 2.0;
@@ -327,7 +329,7 @@ class PatchLibrary {
             vertexData[vertexOffs++] = texCoordT;
         }
 
-        this.vertexBuffer = makeStaticDataBuffer(cache.device, GfxBufferUsage.Vertex, vertexData.buffer);
+        this.vertexBuffer = createBufferFromData(cache.device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, vertexData.buffer);
 
         const gridNumQuads = sideNumQuads ** 2.0;
 
@@ -535,7 +537,7 @@ class PatchLibrary {
             assert(indexOffs === variation.startIndex + variation.indexCount);
         }
 
-        this.indexBuffer = makeStaticDataBuffer(cache.device, GfxBufferUsage.Index, indexData.buffer);
+        this.indexBuffer = createBufferFromData(cache.device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, indexData.buffer);
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
             { location: PatchProgram.a_TexCoord, format: GfxFormat.F32_RG, bufferIndex: 0, bufferByteOffset: 0, },
@@ -549,8 +551,8 @@ class PatchLibrary {
             vertexBufferDescriptors,
             indexBufferFormat: GfxFormat.U16_R,
         });
-        this.vertexBufferDescriptors = [{ buffer: this.vertexBuffer, byteOffset: 0 }];
-        this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+        this.vertexBufferDescriptors = [{ buffer: this.vertexBuffer }];
+        this.indexBufferDescriptor = { buffer: this.indexBuffer };
     }
 
     public getVariationNo(splitTop: boolean, splitLeft: boolean, splitRight: boolean, splitBottom: boolean): number {
@@ -583,7 +585,7 @@ const scratchMat4a = mat4.create();
 const scratchVec3a = vec3.create();
 const scratchVec3b = vec3.create();
 
-const enum PatchNeighborEdge {
+enum PatchNeighborEdge {
     // Blue-to-purple
     Top,
     // Blue-to-cyan
@@ -594,12 +596,12 @@ const enum PatchNeighborEdge {
     Bottom,
 }
 
-const enum PatchChild {
+enum PatchChild {
     TopLeft, TopRight,
     BottomLeft, BottomRight,
 }
 
-const enum PatchTransformMode {
+enum PatchTransformMode {
     Plane,
     Sphere,
 }
@@ -610,7 +612,7 @@ interface PatchShaderParam {
     showTess: boolean;
 }
 
-const enum PatchState {
+enum PatchState {
     Undecided,
     Branch,
     Leaf,
@@ -808,7 +810,7 @@ interface TessObject {
     prepareToRender(renderInstManager: GfxRenderInstManager, patchLibrary: PatchLibrary, viewerInput: ViewerRenderInput): void;
 }
 
-const enum TessCubeFace {
+enum TessCubeFace {
     Top, Bottom, Left, Right, Front, Back,
 }
 

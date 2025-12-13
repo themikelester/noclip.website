@@ -1,8 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, io::{Cursor, Seek, SeekFrom}};
 
-use deku::prelude::*;
+use deku::{ctx::Order, prelude::*};
+use nalgebra_glm::Vec2;
+use crate::geometry::{point_dist_to_polygon, point_inside_polygon};
+
 use super::common::*;
-use deku::bitvec::{BitVec, BitSlice, Msb0};
 use wasm_bindgen::prelude::*;
 
 #[derive(DekuRead, Debug, Clone)]
@@ -42,7 +44,7 @@ pub struct Wdc4Db2SectionHeader {
 }
 
 #[derive(DekuRead, Debug, Clone)]
-#[deku(type = "u32")]
+#[deku(id_type = "u32")]
 pub enum StorageType {
     #[deku(id = "0")]
     None {
@@ -128,23 +130,44 @@ impl Wdc4Db2File {
     }
 }
 
-fn bitslice_to_u32(bits: &BitSlice<u8, Msb0>, bit_offset: usize, num_bits: usize) -> u32 {
-    let mut result: u32 = 0;
-    for bit_num in bit_offset..bit_offset + num_bits {
-        let byte_index = bit_num >> 3;
-        let bit_index = 7 - (bit_num % 8);
-        if bits[byte_index * 8 + bit_index] {
-            result |= 1 << (bit_num - bit_offset);
-        }
-    }
-    result
-}
-
 fn from_u32<T>(v: u32) -> Result<T, DekuError>
-    where for<'a> T: DekuRead<'a, ()>
+    where for<'a> T: DekuReader<'a, ()>
 {
     let v_bytes = v.to_le_bytes();
-    let (_, result) = T::read(BitSlice::from_slice(&v_bytes), ())?;
+    let mut cursor = Cursor::new(v_bytes);
+    let mut reader = Reader::new(&mut cursor);
+    T::from_reader_with_ctx(&mut reader, ())
+}
+
+fn read_field_to_u32<R: std::io::Read + std::io::Seek>(reader: &mut Reader<R>, field_offset_bits: usize, field_size_bits: usize) -> Result<u32, DekuError> {
+    // Assumes the reader points to the start of the record
+    let old = reader.seek(std::io::SeekFrom::Current(0))
+        .map_err(|err| DekuError::Io(err.kind()))?;
+
+    // This is somewhat annoying. Deku uses Msb0 ordering, while we want Lsb0 ordering.
+    // Do the math ourselves rather than using Deku's read_bits.
+    // Deku trunk supports Lsb0 ordering, but that's not released yet.
+    let field_offset_bytes = field_offset_bits >> 3;
+    reader.seek(std::io::SeekFrom::Current(field_offset_bytes as i64))
+        .map_err(|err| DekuError::Io(err.kind()))?;
+
+    let shift = field_offset_bits & 7;
+    let field_size_bytes = (field_size_bits + 7 + shift) >> 3;
+    assert!(field_size_bits <= 32);
+
+    let mut buf = [0x00; 4];
+    reader.read_bytes(field_size_bytes, &mut buf, Order::Msb0)?;
+    let v = u32::from_le_bytes(buf);
+
+    let result = if field_size_bits == 32 {
+        v
+    } else {
+        let mask = (1 << field_size_bits) - 1;
+        (v >> shift) & mask
+    };
+
+    reader.seek(std::io::SeekFrom::Start(old))
+        .map_err(|err| DekuError::Io(err.kind()))?;
     Ok(result)
 }
 
@@ -155,20 +178,19 @@ impl Wdc4Db2File {
             println!("{:?}", info);
             for palette_index in 0..info.additional_data_size / 4 {
                 let palette_u32 = self.get_palette_data(field_index, palette_index as usize);
-                println!("  {}: {} {}", palette_index, palette_u32, from_u32::<f32>(palette_u32).unwrap());
+                println!("  {}: {} {}", palette_index, palette_u32, f32::from_bits(palette_u32));
             }
         }
     }
 
-    pub fn read_vec<'a, T>(&self, input: &'a BitSlice<u8, Msb0>, _bit_offset: usize, field_number: usize) -> Result<(&'a BitSlice<u8, Msb0>, Vec<T>), DekuError>
-        where for<'b> T: DekuRead<'b, ()>
+    pub fn read_vec<'a, T, R: std::io::Read + std::io::Seek>(&self, reader: &mut Reader<R>, field_number: usize) -> Result<Vec<T>, DekuError>
+        where for<'b> T: DekuReader<'b, ()>
     {
         let field_offset = self.field_storage_info[field_number].field_offset_bits as usize;
         let field_size = self.field_storage_info[field_number].field_size_bits as usize;
-        let _field_bits = &input[field_offset..field_offset + field_size];
         let result = match &self.field_storage_info[field_number].storage_type {
             StorageType::BitpackedIndexedArray { offset_bits: _, size_bits: _, array_count } => {
-                let index = bitslice_to_u32(input, field_offset, field_size);
+                let index = read_field_to_u32(reader, field_offset, field_size)?;
                 let mut result: Vec<T> = Vec::with_capacity(*array_count as usize);
                 for _ in 0..*array_count as usize {
                     let palette_element = self.get_palette_data(field_number, index as usize);
@@ -178,79 +200,89 @@ impl Wdc4Db2File {
             },
             _ => panic!("called read_vec() on field {}, which is a non-BitpackedIndexedArray type. call read_field instead", field_number),
         };
-        Ok((&input[field_offset + field_size..], result))
+        Ok(result)
     }
 
-    pub fn read_string_helper<'a>(&self, input: &'a BitSlice<u8, Msb0>, string_data: &'a BitSlice<u8, Msb0>) -> Result<(&'a BitSlice<u8, Msb0>, String), DekuError>
-    {
+    pub fn read_string_helper<'a, R: std::io::Read + std::io::Seek>(&self, reader: &mut Reader<R>, string_offset: u32) -> Result<String, DekuError> {
         let mut string = String::new();
-        let mut rest = string_data;
+        let old = reader.seek(std::io::SeekFrom::Current(0))
+            .map_err(|err| DekuError::Io(err.kind()))?;
+        reader.seek(std::io::SeekFrom::Current(string_offset as i64))
+            .map_err(|err| DekuError::Io(err.kind()))?;
+
         loop {
-            let (new_rest, byte) = u8::read(rest, ())?;
-            rest = new_rest;
+            let byte = u8::from_reader_with_ctx(reader, ())?;
             if byte == 0 {
-                return Ok((input, string));
+                break;
             }
             string.push(byte as char);
             if string.len() > 100 {
                 panic!("bad string data: {}", string);
             }
         }
+
+        reader.seek(std::io::SeekFrom::Start(old))
+            .map_err(|err| DekuError::Io(err.kind()))?;
+        Ok(string)
     }
 
-    pub fn read_string_direct<'a>(&self, input: &'a BitSlice<u8, Msb0>) -> Result<(&'a BitSlice<u8, Msb0>, String), DekuError>
-    {
-        let (field_rest, string_offset) = u32::read(input, ())?;
-        let string_rest = &input[string_offset as usize * 8..];
-        self.read_string_helper(field_rest, string_rest)
+    pub fn read_string_direct<'a, R: std::io::Read + std::io::Seek>(&self, reader: &mut Reader<R>, field_number: usize, extra_offset: usize) -> Result<String, DekuError> {
+        let field_offset = (self.field_storage_info[field_number].field_offset_bits as usize) + (extra_offset * 8);
+        let old = reader.seek(std::io::SeekFrom::Current(0))
+            .map_err(|err| DekuError::Io(err.kind()))?;
+        reader.skip_bits(field_offset)?;
+        let string_offset = u32::from_reader_with_ctx(reader, ())?;
+        let v = if string_offset != 0 { self.read_string_helper(reader, string_offset - 4) } else { Ok("".into()) };
+        reader.seek(std::io::SeekFrom::Start(old))
+            .map_err(|err| DekuError::Io(err.kind()))?;
+        v
     }
 
-    pub fn read_string<'a>(&self, input: &'a BitSlice<u8, Msb0>, bit_offset: usize, field_number: usize) -> Result<(&'a BitSlice<u8, Msb0>, String), DekuError>
-    {
-        let (field_rest, string_offset) = self.read_field::<u32>(input, bit_offset, field_number)?;
-        let string_rest = &input[string_offset as usize * 8..];
-        self.read_string_helper(field_rest, string_rest)
+    pub fn read_string<'a, R: std::io::Read + std::io::Seek>(&self, reader: &mut Reader<R>, field_number: usize) -> Result<String, DekuError> {
+        let string_offset = self.read_field::<u32, R>(reader, field_number)?;
+        self.read_string_helper(reader, string_offset)
     }
 
-    pub fn read_field<'a, T>(&self, input: &'a BitSlice<u8, Msb0>, _bit_offset: usize, field_number: usize) -> Result<(&'a BitSlice<u8, Msb0>, T), DekuError>
-        where for<'b> T: DekuRead<'b, ()>
+    pub fn read_field<'a, T, R: std::io::Read + std::io::Seek>(&self, reader: &mut Reader<R>, field_number: usize) -> Result<T, DekuError>
+        where for<'b> T: DekuReader<'b, ()>
     {
         let field_offset = self.field_storage_info[field_number].field_offset_bits as usize;
         let field_size = self.field_storage_info[field_number].field_size_bits as usize;
-        let field_bits = &input[field_offset..field_offset + field_size];
         let result = match &self.field_storage_info[field_number].storage_type {
             StorageType::None { .. } => {
-                let (_, result) = T::read(field_bits, ())?;
-                result
+                let old = reader.seek(std::io::SeekFrom::Current(0i64))
+                    .map_err(|err| DekuError::Io(err.kind()))?;
+                reader.skip_bits(field_offset)?;
+                let v = T::from_reader_with_ctx(reader, ())?;
+                reader.seek(std::io::SeekFrom::Start(old))
+                    .map_err(|err| DekuError::Io(err.kind()))?;
+                v
             },
-            StorageType::Bitpacked { offset_bits: _, size_bits, flags: _ } => {
+            StorageType::Bitpacked { offset_bits: _, size_bits, flags: _ } | StorageType::BitpackedSigned { offset_bits: _, size_bits, flags: _ } => {
                 let size_bits = *size_bits as usize;
-                from_u32(bitslice_to_u32(input, field_offset, size_bits))?
+                let v = read_field_to_u32(reader, field_offset, size_bits)?;
+                from_u32(v)?
             },
             StorageType::CommonData { default_value, .. } => {
                 let default = from_u32(*default_value)?;
-                let index = bitslice_to_u32(input, field_offset, field_size);
+                let index = read_field_to_u32(reader, field_offset, field_size)?;
                 let common_element = self.get_common_data(field_number, index).unwrap_or(default);
                 from_u32(common_element)?
             },
-            StorageType::BitpackedIndexed {   .. } => {
-                let index = bitslice_to_u32(input, field_offset, field_size);
+            StorageType::BitpackedIndexed { .. } => {
+                let index = read_field_to_u32(reader, field_offset, field_size)?;
                 let palette_element = self.get_palette_data(field_number, index as usize);
                 from_u32(palette_element)?
             },
             StorageType::BitpackedIndexedArray { offset_bits: _, size_bits: _, array_count: _ } => {
                 panic!("read_value() called on field {}, which is a BitpackedIndexedArray type. use read_vec() instead", field_number)
             },
-            StorageType::BitpackedSigned { offset_bits: _, size_bits, flags: _ } => {
-                let size_bits = *size_bits as usize;
-                from_u32(bitslice_to_u32(input, field_offset, size_bits))?
-            },
         };
-        Ok((&input[field_offset + field_size..], result))
+        Ok(result)
     }
 
     fn get_common_data(&self, field_number: usize, needle: u32) -> Option<u32> {
-        let mut offset = 0;
+        let mut offset: usize = 0;
         for field_number_i in 0..field_number {
             match &self.field_storage_info[field_number_i].storage_type {
                 StorageType::CommonData {..} => {
@@ -303,129 +335,196 @@ impl Wdc4Db2File {
 pub struct DatabaseTable<T> {
     records: Vec<T>,
     ids: Vec<u32>,
+    foreign_keys: Option<Vec<u32>>,
+    copies: HashMap<u32, u32>,
 }
 
 impl<T> DatabaseTable<T> {
     pub fn new(data: &[u8]) -> Result<DatabaseTable<T>, String>
-        where for<'a> T: DekuRead<'a, Wdc4Db2File>
+        where for<'a> T: DekuReader<'a, Wdc4Db2File>
     {
         let (_, db2) = Wdc4Db2File::from_bytes((&data, 0))
             .map_err(|e| format!("{:?}", e))?;
+        assert!(db2.section_headers.len() == 1);
         let mut records: Vec<T> = Vec::with_capacity(db2.header.record_count as usize);
         let mut ids: Vec<u32> = Vec::with_capacity(db2.header.record_count as usize);
         let records_start = db2.section_headers[0].file_offset as usize;
-        let bitvec = BitVec::from_slice(&data[records_start..]);
-        let mut rest = bitvec.as_bitslice();
+        let mut cursor = Cursor::new(&data);
+        let mut reader = Reader::new(&mut cursor);
+
+        reader.seek(std::io::SeekFrom::Start(records_start as u64))
+            .map_err(|err| err.to_string())?;
         let mut id = db2.header.min_id;
         for _ in 0..db2.header.record_count {
-            let (new_rest, value) = T::read(rest, db2.clone())
+            let value = T::from_reader_with_ctx(&mut reader, db2.clone())
                 .map_err(|e| format!("{:?}", e))?;
+            // our abuse of Deku in the database system always puts the cursor back where it started, so advance to the next record manually
+            reader.seek(std::io::SeekFrom::Current(db2.header.record_size as i64))
+                .map_err(|err| err.to_string())?;
             records.push(value);
             ids.push(id);
             id += 1;
-            let bits_read = rest.len() - new_rest.len();
-            assert_eq!(db2.header.record_size as usize * 8, bits_read);
-            rest = new_rest;
         }
         let strings_start = records_start + (db2.header.record_count * db2.header.record_size) as usize;
 
         // if a list of IDs is provided, correct our auto-generated IDs
-        let id_list_start = strings_start + db2.header.string_table_size as usize;
-        let id_list_size = db2.section_headers[0].id_list_size as usize;
+        let id_list_start: usize = strings_start + db2.header.string_table_size as usize;
+        let id_list_size: usize = db2.section_headers[0].id_list_size as usize;
         if id_list_size > 0 {
-            let mut bitslice = BitSlice::from_slice(&data[id_list_start..]);
+            reader.seek(std::io::SeekFrom::Start(id_list_start as u64))
+                .map_err(|err| err.to_string())?;
             assert_eq!(id_list_size, records.len() * 4);
             for i in 0..records.len() {
-                (rest, id) = u32::read(bitslice, ())
+                id = u32::from_reader_with_ctx(&mut reader, ())
                     .map_err(|e| format!("{:?}", e))?;
-                bitslice = rest;
                 ids[i] = id;
             }
         }
+
+        let mut foreign_keys = None;
+        let relationship_start = id_list_start + id_list_size + 12; // idk
+        if db2.section_headers[0].relationship_data_size > 0 {
+            let mut keys = vec![0; records.len()];
+            reader.seek(SeekFrom::Start(relationship_start as u64))
+                .map_err(|err| err.to_string())?;
+            for _ in 0..records.len() {
+                let foreign_key = u32::from_reader_with_ctx(&mut reader, ())
+                    .map_err(|e| format!("{:?}", e))?;
+                let id = u32::from_reader_with_ctx(&mut reader, ())
+                    .map_err(|e| format!("{:?}", e))?;
+                keys[id as usize] = foreign_key;
+            }
+            foreign_keys = Some(keys);
+        }
+
+        let mut copies = HashMap::new();
+        for _ in 0..db2.section_headers[0].copy_table_count {
+            let id_of_new_row = u32::from_reader_with_ctx(&mut reader, ())
+                .map_err(|e| format!("{:?}", e))?;
+            let id_of_old_row = u32::from_reader_with_ctx(&mut reader, ())
+                .map_err(|e| format!("{:?}", e))?;
+            copies.insert(id_of_new_row, id_of_old_row);
+        }
+
         Ok(DatabaseTable {
             records,
             ids,
+            foreign_keys,
+            copies,
         })
     }
 
-    pub fn get_record(&self, needle: u32) -> Option<&T> {
+    pub fn get_record(&self, mut needle: u32) -> Option<&T> {
+        if let Some(id) = self.copies.get(&needle) {
+            needle = *id;
+        }
         let index = self.ids.iter().position(|haystack| *haystack == needle)?;
         Some(&self.records[index])
     }
 }
 
 #[derive(DekuRead, Debug, Clone)]
+#[deku(ctx = "db2: Wdc4Db2File")]
+struct ZoneLightRecord {
+    #[deku(reader = "db2.read_field(deku::reader, 0)")]
+    pub _unk_1: u32,
+    #[deku(reader = "db2.read_field(deku::reader, 1)")]
+    pub map_id: u16,
+    #[deku(reader = "db2.read_field(deku::reader, 2)")]
+    pub light_id: u16,
+    #[deku(reader = "db2.read_field(deku::reader, 3)")]
+    pub _light_flags: u8,
+    #[deku(reader = "db2.read_field(deku::reader, 4)")]
+    pub z_min: f32,
+    #[deku(reader = "db2.read_field(deku::reader, 5)")]
+    pub z_max: f32,
+    #[deku(reader = "db2.read_field(deku::reader, 6)")]
+    pub _unk_2: u32,
+}
+
+#[derive(DekuRead, Debug, Clone)]
+#[deku(ctx = "db2: Wdc4Db2File")]
+struct ZoneLightPointRecord {
+    #[deku(reader = "db2.read_field(deku::reader, 0)")]
+    pub coords: [f32; 2],
+    #[deku(reader = "db2.read_field(deku::reader, 1)")]
+    pub _point_order: u32,
+}
+
+#[derive(DekuRead, Debug, Clone)]
 #[wasm_bindgen(js_name = "WowLightParamsRecord")]
 #[deku(ctx = "db2: Wdc4Db2File")]
 pub struct LightParamsRecord {
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 0)")]
+    #[deku(reader = "db2.read_field(deku::reader, 0)")]
     _celestial_overrides: Vec3,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 1)")]
-    pub light_data_id: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 2)")]
+    #[deku(reader = "db2.read_field(deku::reader, 1)")]
+    pub id: u32,
+    #[deku(reader = "db2.read_field(deku::reader, 2)")]
     pub highlight_sky: bool,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 3)")]
+    #[deku(reader = "db2.read_field(deku::reader, 3)")]
     pub skybox_id: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 5)")]
+    #[deku(reader = "db2.read_field(deku::reader, 5)")]
     pub glow: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 6)")]
+    #[deku(reader = "db2.read_field(deku::reader, 6)")]
     pub water_shallow_alpha: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 7)")]
+    #[deku(reader = "db2.read_field(deku::reader, 7)")]
     pub water_deep_alpha: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 8)")]
+    #[deku(reader = "db2.read_field(deku::reader, 8)")]
     pub ocean_shallow_alpha: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 9)")]
+    #[deku(reader = "db2.read_field(deku::reader, 9)")]
     pub ocean_deep_alpha: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 10)", pad_bits_after = "1")]
+    #[deku(reader = "db2.read_field(deku::reader, 10)")]
     pub flags: f32,
+    #[deku(reader = "db2.read_field(deku::reader, 11)")]
+    pub unk: u32,
 }
 
 #[derive(DekuRead, Debug, Clone)]
 #[deku(ctx = "db2: Wdc4Db2File")]
 struct LightDataRecord {
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 0)")]
+    #[deku(reader = "db2.read_field(deku::reader, 0)")]
     pub light_param_id: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 1)")]
+    #[deku(reader = "db2.read_field(deku::reader, 1)")]
     pub time: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 2)")]
+    #[deku(reader = "db2.read_field(deku::reader, 2)")]
     pub direct_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 3)")]
+    #[deku(reader = "db2.read_field(deku::reader, 3)")]
     pub ambient_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 4)")]
+    #[deku(reader = "db2.read_field(deku::reader, 4)")]
     pub sky_top_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 5)")]
+    #[deku(reader = "db2.read_field(deku::reader, 5)")]
     pub sky_middle_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 6)")]
+    #[deku(reader = "db2.read_field(deku::reader, 6)")]
     pub sky_band1_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 7)")]
+    #[deku(reader = "db2.read_field(deku::reader, 7)")]
     pub sky_band2_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 8)")]
+    #[deku(reader = "db2.read_field(deku::reader, 8)")]
     pub sky_smog_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 9)")]
+    #[deku(reader = "db2.read_field(deku::reader, 9)")]
     pub sky_fog_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 10)")]
+    #[deku(reader = "db2.read_field(deku::reader, 10)")]
     pub sun_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 11)")]
+    #[deku(reader = "db2.read_field(deku::reader, 11)")]
     pub cloud_sun_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 12)")]
+    #[deku(reader = "db2.read_field(deku::reader, 12)")]
     pub cloud_emissive_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 13)")]
+    #[deku(reader = "db2.read_field(deku::reader, 13)")]
     pub cloud_layer1_ambient_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 14)")]
+    #[deku(reader = "db2.read_field(deku::reader, 14)")]
     pub cloud_layer2_ambient_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 15)")]
+    #[deku(reader = "db2.read_field(deku::reader, 15)")]
     pub ocean_close_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 16)")]
+    #[deku(reader = "db2.read_field(deku::reader, 16)")]
     pub ocean_far_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 17)")]
+    #[deku(reader = "db2.read_field(deku::reader, 17)")]
     pub river_close_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 18)")]
+    #[deku(reader = "db2.read_field(deku::reader, 18)")]
     pub river_far_color: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 19)")]
+    #[deku(reader = "db2.read_field(deku::reader, 19)")]
     pub shadow_opacity: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 20)")]
+    #[deku(reader = "db2.read_field(deku::reader, 20)")]
     pub fog_end: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 21)", pad_bits_after = "40")]
+    #[deku(reader = "db2.read_field(deku::reader, 21)")]
     pub fog_scaler: f32,
 }
 
@@ -459,18 +558,23 @@ pub struct LightResult {
     pub fog_end: f32,
     pub fog_scaler: f32,
     skyboxes: HashMap<String, (u16, f32)>,
+    total_alpha: f32,
 }
 
 #[derive(DekuRead, Debug, Clone)]
 #[wasm_bindgen(js_name = "WowLightRecord")]
-#[deku(ctx = "_: Wdc4Db2File")]
+#[deku(ctx = "db2: Wdc4Db2File")]
 pub struct LightRecord {
+    #[deku(reader = "db2.read_field(deku::reader, 0)")]
     pub coords: Vec3,
+    #[deku(reader = "db2.read_field(deku::reader, 1)")]
     pub falloff_start: f32,
+    #[deku(reader = "db2.read_field(deku::reader, 2)")]
     pub falloff_end: f32,
+    #[deku(reader = "db2.read_field(deku::reader, 3)")]
     pub map_id: u16,
+    #[deku(reader = "db2.read_field(deku::reader, 4)")]
     light_param_ids: [u16; 8],
-    pub unk: u16,
 }
 
 enum DistanceResult {
@@ -515,8 +619,10 @@ impl LightResult {
                 weight: *weight,
             });
         }
-        // sort lightboxes by weight, highest to lowest
-        result.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap());
+        // sort lightboxes by name for consistent rendering during tweening
+        result.sort_by(|a, b| {
+            a.name.partial_cmp(&b.name).unwrap()
+        });
         result
     }
 }
@@ -528,6 +634,7 @@ impl LightResult {
             skyboxes.insert(skybox.name.clone(), (skybox.flags, 1.0));
         }
         LightResult {
+            total_alpha: 1.0,
             glow: params.glow,
             water_shallow_alpha: params.water_shallow_alpha,
             water_deep_alpha: params.water_deep_alpha,
@@ -559,6 +666,7 @@ impl LightResult {
     }
 
     fn add_scaled(&mut self, other: &LightResult, t: f32) {
+        self.total_alpha += t;
         self.glow += other.glow * t;
         self.water_shallow_alpha += other.water_shallow_alpha * t;
         self.water_deep_alpha += other.water_deep_alpha * t;
@@ -593,6 +701,46 @@ impl LightResult {
             }
         }
     }
+
+    fn normalize(&mut self, default_light: &LightResult) {
+        if self.total_alpha < 1.0 {
+            self.add_scaled(default_light, 1.0 - self.total_alpha);
+        } else if self.total_alpha > 1.0 {
+            self.divide(self.total_alpha);
+        }
+    }
+
+    fn divide(&mut self, t: f32) {
+        self.glow /= t;
+        self.water_shallow_alpha /= t;
+        self.water_deep_alpha /= t;
+        self.ocean_shallow_alpha /= t;
+        self.ocean_deep_alpha /= t;
+        self.ambient_color /= t;
+        self.direct_color /= t;
+        self.sky_top_color /= t;
+        self.sky_middle_color /= t;
+        self.sky_band1_color /= t;
+        self.sky_band2_color /= t;
+        self.sky_smog_color /= t;
+        self.sky_fog_color /= t;
+        self.sun_color /= t;
+        self.cloud_sun_color /= t;
+        self.cloud_emissive_color /= t;
+        self.cloud_layer1_ambient_color /= t;
+        self.cloud_layer2_ambient_color /= t;
+        self.ocean_close_color /= t;
+        self.ocean_far_color /= t;
+        self.river_close_color /= t;
+        self.river_far_color /= t;
+        self.shadow_opacity /= t;
+        self.fog_end /= t;
+        self.fog_scaler /= t;
+
+        for entry in self.skyboxes.values_mut() {
+            entry.1 /= t;
+        }
+    }
 }
 
 impl Lerp for LightResult {
@@ -607,6 +755,7 @@ impl Lerp for LightResult {
         }
 
         LightResult {
+            total_alpha: self.total_alpha.lerp(other.total_alpha, t),
             glow: self.glow.lerp(other.glow, t),
             water_shallow_alpha: self.water_shallow_alpha.lerp(other.water_shallow_alpha, t),
             water_deep_alpha: self.water_deep_alpha.lerp(other.water_deep_alpha, t),
@@ -641,87 +790,71 @@ impl Lerp for LightResult {
 #[derive(DekuRead, Clone, Debug)]
 #[deku(ctx = "db2: Wdc4Db2File")]
 pub struct LiquidType {
-    #[deku(reader = "db2.read_string(deku::input_bits, deku::bit_offset, 0)")]
+    #[deku(reader = "db2.read_string(deku::reader, 0)")]
     pub name: String,
-    #[deku(reader = "db2.read_string_direct(deku::rest)")]
+    #[deku(reader = "db2.read_string_direct(deku::reader, 1, 0)")]
     pub tex0: String,
-    #[deku(reader = "db2.read_string_direct(deku::rest)")]
+    #[deku(reader = "db2.read_string_direct(deku::reader, 1, 4)")]
     pub tex1: String,
-    #[deku(reader = "db2.read_string_direct(deku::rest)")]
+    #[deku(reader = "db2.read_string_direct(deku::reader, 1, 8)")]
     pub tex2: String,
-    #[deku(reader = "db2.read_string_direct(deku::rest)")]
+    #[deku(reader = "db2.read_string_direct(deku::reader, 1, 12)")]
     pub tex3: String,
-    #[deku(reader = "db2.read_string_direct(deku::rest)")]
+    #[deku(reader = "db2.read_string_direct(deku::reader, 1, 16)")]
     pub tex4: String,
-    #[deku(reader = "db2.read_string_direct(deku::rest)")]
+    #[deku(reader = "db2.read_string_direct(deku::reader, 1, 20)")]
     pub tex5: String,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 2)")]
+    #[deku(reader = "db2.read_field(deku::reader, 2)")]
     pub flags: u16,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 3)")]
+    #[deku(reader = "db2.read_field(deku::reader, 3)")]
     pub _sound_bank: u8,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 4)")]
+    #[deku(reader = "db2.read_field(deku::reader, 4)")]
     pub _sound_id: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 5)")]
+    #[deku(reader = "db2.read_field(deku::reader, 5)")]
     pub _f6: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 6)")]
+    #[deku(reader = "db2.read_field(deku::reader, 6)")]
     pub _max_darken_depth: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 7)")]
+    #[deku(reader = "db2.read_field(deku::reader, 7)")]
     pub _fog_darken_intensity: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 8)")]
+    #[deku(reader = "db2.read_field(deku::reader, 8)")]
     pub _ambient_darken_intensity: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 9)")]
+    #[deku(reader = "db2.read_field(deku::reader, 9)")]
     pub _dir_darken_intensity: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 10)")]
+    #[deku(reader = "db2.read_field(deku::reader, 10)")]
     pub _light_id: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 11)")]
+    #[deku(reader = "db2.read_field(deku::reader, 11)")]
     pub _particle_scale: f32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 12)")]
+    #[deku(reader = "db2.read_field(deku::reader, 12)")]
     pub _particle_movement: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 13)")]
+    #[deku(reader = "db2.read_field(deku::reader, 13)")]
     pub _particle_tex_slots: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 14)")]
+    #[deku(reader = "db2.read_field(deku::reader, 14)")]
     pub _particle_material_id: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 15)")]
+    #[deku(reader = "db2.read_field(deku::reader, 15)")]
     pub _minimap_colors: u32,
-    #[deku(reader = "db2.read_vec(deku::input_bits, deku::bit_offset, 16)")]
+    #[deku(reader = "db2.read_vec(deku::reader, 16)")]
     pub _unknown_colors: Vec<u32>,
-    #[deku(reader = "db2.read_vec(deku::input_bits, deku::bit_offset, 17)")]
+    #[deku(reader = "db2.read_vec(deku::reader, 17)")]
     pub _shader_color: Vec<u32>,
-    #[deku(reader = "db2.read_vec(deku::input_bits, deku::bit_offset, 18)")]
+    #[deku(reader = "db2.read_vec(deku::reader, 18)")]
     pub _shader_f32_params: Vec<f32>,
-    #[deku(reader = "db2.read_vec(deku::input_bits, deku::bit_offset, 19)")]
+    #[deku(reader = "db2.read_vec(deku::reader, 19)")]
     pub _shader_int_params: Vec<u32>,
-    #[deku(reader = "db2.read_vec(deku::input_bits, deku::bit_offset, 20)", pad_bits_after = "5")]
+    #[deku(reader = "db2.read_vec(deku::reader, 20)")]
     pub _coeffecients: Vec<u32>,
 }
 
 #[derive(DekuRead, Clone, Debug)]
 #[deku(ctx = "db2: Wdc4Db2File")]
 pub struct LightSkyboxRecord {
-    #[deku(reader = "db2.read_string(deku::input_bits, deku::bit_offset, 0)")]
+    #[deku(reader = "db2.read_string(deku::reader, 0)")]
     pub name: String,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 1)")]
+    #[deku(reader = "db2.read_field(deku::reader, 1)")]
     pub flags: u16,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 2)")]
+    #[deku(reader = "db2.read_field(deku::reader, 2)")]
     pub _skybox_file_data_id: u32,
-    #[deku(reader = "db2.read_field(deku::input_bits, deku::bit_offset, 3)", pad_bits_after = "26")]
+    #[deku(reader = "db2.read_field(deku::reader, 3)")]
     pub _celestial_skybox_file_data_id: u32,
-}
-
-#[derive(DekuRead, Clone, Debug)]
-#[deku(ctx = "_: Wdc4Db2File")]
-pub struct LiquidObject {
-    pub _flow_direction: f32,
-    pub _flow_speed: f32,
-    pub _liquid_type_id: u32,
-}
-
-#[derive(DekuRead, Clone, Debug)]
-#[deku(ctx = "_: Wdc4Db2File")]
-pub struct LiquidTexture {
-    pub _file_data_id: u32,
-    pub _order_index: u32,
-    pub _liquid_type_id: u32,
 }
 
 #[wasm_bindgen(js_name = "WowLiquidResult", getter_with_clone)]
@@ -737,6 +870,48 @@ pub struct LiquidResult {
     pub tex5: String,
 }
 
+struct ZoneLightLookup {
+    zone_lights: DatabaseTable<ZoneLightRecord>,
+    points: HashMap<u32, Vec<Vec2>>, // zone light id -> points
+}
+
+impl ZoneLightLookup {
+    fn new(
+        zone_lights: DatabaseTable<ZoneLightRecord>,
+        zone_light_points: DatabaseTable<ZoneLightPointRecord>,
+    ) -> Self {
+        let mut points = HashMap::new();
+        for i in 0..zone_light_points.records.len() {
+            let record = &zone_light_points.records[i];
+            let zone_light_id = zone_light_points.foreign_keys.as_ref().unwrap()[i];
+            let pt = Vec2::new(record.coords[0], record.coords[1]);
+            points.entry(zone_light_id)
+                .or_insert(Vec::new())
+                .push(pt);
+        }
+        ZoneLightLookup {
+            zone_lights,
+            points,
+        }
+    }
+
+    pub fn lookup_light_id(&self, map_id: u16, x: f32, y: f32, z: f32) -> Option<(u16, f32)> {
+        let p = Vec2::new(x, y);
+        for i in 0..self.zone_lights.records.len() {
+            let record = &self.zone_lights.records[i];
+            let zone_light_id = self.zone_lights.ids[i];
+            if record.map_id == map_id && z >= record.z_min && z <= record.z_max {
+                let points = self.points.get(&zone_light_id).unwrap();
+                if point_inside_polygon(&p, points) {
+                    let dist = point_dist_to_polygon(&p, points);
+                    return Some((record.light_id, dist));
+                }
+            }
+        }
+        None
+    }
+}
+
 #[wasm_bindgen(js_name = "WowDatabase")]
 pub struct Database {
     lights: DatabaseTable<LightRecord>,
@@ -744,6 +919,7 @@ pub struct Database {
     light_params: DatabaseTable<LightParamsRecord>,
     light_skyboxes: DatabaseTable<LightSkyboxRecord>,
     liquid_types: DatabaseTable<LiquidType>,
+    zone_light_lookup: ZoneLightLookup,
 }
 
 #[wasm_bindgen(js_class = "WowDatabase")]
@@ -754,18 +930,24 @@ impl Database {
         light_params_db: &[u8],
         liquid_types_db: &[u8],
         light_skybox_db: &[u8],
+        zone_lights_db: &[u8],
+        zone_light_points_db: &[u8],
     ) -> Result<Database, String> {
         let lights = DatabaseTable::new(lights_db)?;
         let light_data = DatabaseTable::new(light_data_db)?;
         let light_params = DatabaseTable::new(light_params_db)?;
         let liquid_types = DatabaseTable::new(liquid_types_db)?;
         let light_skyboxes = DatabaseTable::new(light_skybox_db)?;
+        let zone_lights = DatabaseTable::new(zone_lights_db)?;
+        let zone_light_points = DatabaseTable::new(zone_light_points_db)?;
+        let zone_light_lookup = ZoneLightLookup::new(zone_lights, zone_light_points);
         Ok(Self {
             lights,
             light_data,
             light_params,
             liquid_types,
             light_skyboxes,
+            zone_light_lookup,
         })
     }
 
@@ -782,7 +964,7 @@ impl Database {
         let id = light.light_param_ids[0];
         assert!(id != 0);
 
-        let light_param = self.light_params.get_record(id as u32)?;
+        let light_param = self.get_light_param(id as u32)?;
         let skybox = self.light_skyboxes.get_record(light_param.skybox_id);
 
         // based on the given time, find the current and next LightDataRecord
@@ -809,7 +991,7 @@ impl Database {
             }
         }
 
-        let current_light_data = current_light_data.unwrap();
+        let current_light_data = current_light_data?;
         let mut final_result = LightResult::new(current_light_data, light_param, skybox);
         if current_light_data.time != std::u32::MAX {
             if let Some(next) = next_light_data {
@@ -836,19 +1018,33 @@ impl Database {
         })
     }
 
+    fn get_light_param(&self, needle: u32) -> Option<&LightParamsRecord> {
+        self.light_params.records.iter()
+            .find(|param| param.id == needle)
+    }
+
+    fn lookup_zone_light(&self, map_id: u16, x: f32, y: f32, z:f32, time: u32) -> Option<(LightResult, f32)> {
+        let (zone_light, dist) = self.zone_light_lookup.lookup_light_id(map_id, x, y, z)?;
+        let light = self.lights.get_record(zone_light as u32)?;
+        Some((self.get_light_result(light, time)?, dist))
+    }
+
     pub fn get_lighting_data(&self, map_id: u16, x: f32, y: f32, z: f32, time: u32) -> LightResult {
-        let mut outer_lights: Vec<(LightResult, f32)> = Vec::new();
         let coord = Vec3 { x, y, z };
-        let default_light = self.get_default_light(map_id, time);
+        let mut result = LightResult::default();
 
         for light in &self.lights.records {
             if light.map_id == map_id {
                 match light.distance(&coord) {
-                    DistanceResult::Inner => return self.get_light_result(light, time).unwrap_or(default_light),
+                    DistanceResult::Inner => {
+                        if let Some(outer_light) = self.get_light_result(light, time) {
+                            result.add_scaled(&outer_light, 1.0);
+                        }
+                    },
                     DistanceResult::Outer(distance) => {
                         if let Some(outer_light) = self.get_light_result(light, time) {
                             let alpha = 1.0 - (distance - light.falloff_start) / (light.falloff_end - light.falloff_start);
-                            outer_lights.push((outer_light, alpha));
+                            result.add_scaled(&outer_light, alpha);
                         }
                     },
                     DistanceResult::None => {},
@@ -856,53 +1052,57 @@ impl Database {
             }
         }
 
-        if outer_lights.is_empty() {
-            return default_light;
-        }
-
-        outer_lights.sort_unstable_by(|(_, alpha_a), (_, alpha_b)| {
-            alpha_b.partial_cmp(alpha_a).unwrap()
-        });
-
-        let mut result = LightResult::default();
-        let mut total_alpha = 0.0;
-        for (outer_result, mut alpha) in &outer_lights {
-            if total_alpha >= 1.0 {
-                break;
+        // zone lights are defined by polygonal zones, and are only used in WOTLK
+        if let Some((zone_light, dist)) = self.lookup_zone_light(map_id, x, y, z, time) {
+            let threshold = 100.0;
+            // if we're approaching the border of another zone, smoothly taper off to the non-zone lighting
+            if dist < threshold {
+                result.add_scaled(&zone_light, dist / threshold);
+            } else if result.total_alpha < 1.0 {
+                // otherwise, just accept whatever alpha hasn't been taken by spherical lights
+                result.add_scaled(&zone_light, 1.0 - result.total_alpha);
             }
+        }
 
-            if total_alpha + alpha >= 1.0 {
-                alpha = 1.0 - total_alpha;
-            }
-            result.add_scaled(outer_result, alpha);
-            total_alpha += alpha;
-        }
-        if total_alpha < 1.0 {
-            result.add_scaled(&default_light, 1.0 - total_alpha);
-        }
+        result.normalize(&self.get_default_light(map_id, time));
 
         result
     }
 
     pub fn get_all_skyboxes(&self, map_id: u16) -> Vec<SkyboxMetadata> {
+        let mut light_ids = Vec::new();
         let mut names: HashSet<&str> = HashSet::new();
         let mut result = Vec::new();
-        for light in &self.lights.records {
+        for i in 0..self.lights.records.len() {
+            let light = &self.lights.records[i];
             if light.map_id == map_id {
-                let id = light.light_param_ids[0];
-                assert!(id != 0);
-                let Some(light_param) = self.light_params.get_record(id as u32) else {
-                    continue;
-                };
-                if let Some(skybox) = self.light_skyboxes.get_record(light_param.skybox_id) {
-                    if !names.contains(skybox.name.as_str()) {
-                        result.push(SkyboxMetadata {
-                            name: skybox.name.clone(),
-                            flags: skybox.flags,
-                            weight: 1.0,
-                        });
-                        names.insert(&skybox.name);
-                    }
+                light_ids.push(self.lights.ids[i]);
+            }
+        }
+
+        for zone_light in &self.zone_light_lookup.zone_lights.records {
+            light_ids.push(zone_light.light_id as u32);
+        }
+
+        let mut skybox_ids = HashSet::new();
+        for light_id in light_ids {
+            let light = self.lights.get_record(light_id).unwrap();
+            for param_id in light.light_param_ids {
+                if param_id == 0 { continue; }
+                let light_param = self.get_light_param(param_id as u32).unwrap();
+                skybox_ids.insert(light_param.skybox_id);
+            }
+        }
+
+        for skybox_id in skybox_ids {
+            if let Some(skybox) = self.light_skyboxes.get_record(skybox_id) {
+                if !names.contains(skybox.name.as_str()) {
+                    result.push(SkyboxMetadata {
+                        name: skybox.name.clone(),
+                        flags: skybox.flags,
+                        weight: 1.0,
+                    });
+                    names.insert(&skybox.name);
                 }
             }
         }
@@ -910,6 +1110,7 @@ impl Database {
     }
 }
 
+#[derive(Debug)]
 #[wasm_bindgen(js_name = "WowSkyboxMetadata", getter_with_clone)]
 pub struct SkyboxMetadata {
     pub name: String,
@@ -923,54 +1124,24 @@ mod test {
     use crate::wow::sheep::SheepfileManager;
 
     #[test]
-    fn test_bitslicing() {
-        let slice = BitSlice::from_slice(&[
-            0, 0, 0, 0,
-            0, 0, 0, 0,
-            0, 0, 0, 0,
-            0x01, 0x18, 0x00, 0x00,
-        ]);
-        assert_eq!(bitslice_to_u32(slice, 96, 10), 1);
-        assert_eq!(bitslice_to_u32(slice, 106, 1), 0);
-        assert_eq!(bitslice_to_u32(slice, 107, 2), 3);
-        assert_eq!(bitslice_to_u32(slice, 109, 4), 0);
-        assert_eq!(bitslice_to_u32(slice, 113, 3), 0);
-        assert_eq!(bitslice_to_u32(slice, 116, 2), 0);
-        assert_eq!(bitslice_to_u32(slice, 118, 3), 0);
-        assert_eq!(bitslice_to_u32(slice, 121, 2), 0);
-        let slice = BitSlice::from_slice(&[
-            0, 0, 0, 0,
-            0, 0, 0, 0,
-            0, 0, 0, 0,
-            0x02, 0x38, 0x0, 0x0,
-        ]);
-        assert_eq!(bitslice_to_u32(slice, 96, 10), 2);
-        assert_eq!(bitslice_to_u32(slice, 106, 1), 0);
-        assert_eq!(bitslice_to_u32(slice, 107, 2), 3);
-        assert_eq!(bitslice_to_u32(slice, 109, 4), 1);
-        assert_eq!(bitslice_to_u32(slice, 113, 3), 0);
-        assert_eq!(bitslice_to_u32(slice, 116, 2), 0);
-        assert_eq!(bitslice_to_u32(slice, 118, 3), 0);
-        assert_eq!(bitslice_to_u32(slice, 121, 2), 0);
-    }
-
-    #[test]
-    fn test() {
+    fn test_lighting_data() {
         let sheep_path = "../data/WorldOfWarcraft/sheep0";
         let d1 = SheepfileManager::load_file_id_data(sheep_path, 1375579).unwrap(); // lightDbData
         let d2 = SheepfileManager::load_file_id_data(sheep_path, 1375580).unwrap(); // lightDataDbData
         let d3 = SheepfileManager::load_file_id_data(sheep_path, 1334669).unwrap(); // lightParamsDbData
         let d4 = SheepfileManager::load_file_id_data(sheep_path, 1371380).unwrap(); // liquidTypes
         let d5 = SheepfileManager::load_file_id_data(sheep_path, 1308501).unwrap(); // lightSkyboxData
-        let db = Database::new(&d1, &d2, &d3, &d4, &d5).unwrap();
-        let result = db.get_lighting_data(0, -8693.8720703125, 646.1775512695312, 125.26680755615234, 1440);
-        dbg!(result);
+        let d6: Vec<u8> = SheepfileManager::load_file_id_data(sheep_path, 1310253).unwrap(); // zoneLight
+        let d7: Vec<u8> = SheepfileManager::load_file_id_data(sheep_path, 1310256).unwrap(); // zoneLightPoint
+        let db = Database::new(&d1, &d2, &d3, &d4, &d5, &d6, &d7).unwrap();
+        dbg!(db.get_lighting_data(530, 2167.899169921875, 1723.90673828125, 299.3044738769531, 1440));
     }
 
     #[test]
     fn test_liquid_type() {
-        let d5 = std::fs::read("../data/wotlk/dbfilesclient/liquidtype.db2").unwrap();
-        let db: DatabaseTable<LiquidType> = DatabaseTable::new(&d5).unwrap();
+        let sheep_path = "../data/WorldOfWarcraft/sheep0";
+        let d4 = SheepfileManager::load_file_id_data(sheep_path, 1371380).unwrap(); // liquidTypes
+        let db: DatabaseTable<LiquidType> = DatabaseTable::new(&d4).unwrap();
         dbg!(&db.get_record(20).unwrap().name);
         dbg!(&db.get_record(21).unwrap().name);
         dbg!(&db.get_record(22));
@@ -979,7 +1150,8 @@ mod test {
 
     #[test]
     fn test_skybox() {
-        let d5 = std::fs::read("../data/wotlk/dbfilesclient/lightskybox.db2").unwrap();
+        let sheep_path = "../data/WorldOfWarcraft/sheep0";
+        let d5 = SheepfileManager::load_file_id_data(sheep_path, 1308501).unwrap(); // lightSkyboxData
         let db: DatabaseTable<LightSkyboxRecord> = DatabaseTable::new(&d5).unwrap();
         dbg!(&db.records[0..4]);
     }

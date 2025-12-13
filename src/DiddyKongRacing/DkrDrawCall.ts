@@ -1,10 +1,8 @@
 
 import { ReadonlyMat4, mat4 } from 'gl-matrix';
-import { computeViewMatrix } from '../Camera.js';
-import { makeStaticDataBuffer } from '../gfx/helpers/BufferHelpers.js';
 import { setAttachmentStateSimple } from '../gfx/helpers/GfxMegaStateDescriptorHelpers.js';
 import { fillMatrix4x3 } from '../gfx/helpers/UniformBufferHelpers.js';
-import { GfxBlendFactor, GfxBlendMode, GfxBuffer, GfxBufferUsage, GfxCullMode, GfxDevice, GfxFormat, GfxInputLayout, GfxProgram, GfxVertexBufferDescriptor, GfxVertexBufferFrequency } from '../gfx/platform/GfxPlatform.js';
+import { GfxBlendFactor, GfxBlendMode, GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxCullMode, GfxDevice, GfxFormat, GfxInputLayout, GfxProgram, GfxVertexBufferDescriptor, GfxVertexBufferFrequency } from '../gfx/platform/GfxPlatform.js';
 import { GfxRenderCache } from '../gfx/render/GfxRenderCache.js';
 import { GfxRenderInstManager, GfxRendererLayer, makeSortKey, setSortKeyDepth } from '../gfx/render/GfxRenderInstManager.js';
 import { assert } from '../util.js';
@@ -14,6 +12,7 @@ import { DkrObjectAnimation } from './DkrObjectAnimation.js';
 import { DkrTexture } from './DkrTexture.js';
 import { DkrFinalVertex, DkrTriangleBatch } from './DkrTriangleBatch.js';
 import { F3DDKR_Program } from './F3DDKR_Program.js';
+import { createBufferFromData } from '../gfx/helpers/BufferHelpers.js';
 
 // Currently known flags
 const FLAG_ENABLE_DEPTH_WRITE    = 0x00000010;
@@ -21,8 +20,7 @@ const FLAG_IS_INVISIBLE_GEOMETRY = 0x00000100;
 const FLAG_IS_ENV_MAP_ENABLED    = 0x00008000; // Spherical Environment Mapping
 const FLAG_IS_TEXTURE_ANIMATED   = 0x00010000;
 
-const viewMatrixScratch = mat4.create();
-const viewMatrixCalcScratch = mat4.create();
+const scratchMatrix = mat4.create();
 const mirrorMatrix = mat4.fromValues(
     -1, 0, 0, 0,
      0, 1, 0, 0,
@@ -138,12 +136,12 @@ export class DkrDrawCall {
             vertexBufferDescriptors,
         });
 
-        this.positionBuffer = makeStaticDataBuffer(cache.device, GfxBufferUsage.Vertex, positionBuffer.buffer);
-        this.attribBuffer = makeStaticDataBuffer(cache.device, GfxBufferUsage.Vertex, attribBuffer.buffer);
+        this.positionBuffer = createBufferFromData(cache.device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, positionBuffer.buffer);
+        this.attribBuffer = createBufferFromData(cache.device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, attribBuffer.buffer);
         this.vertexBufferDescriptors = [
-            { buffer: this.positionBuffer, byteOffset: 0 },
-            { buffer: this.positionBuffer, byteOffset: 0 },
-            { buffer: this.attribBuffer, byteOffset: 0 },
+            { buffer: this.positionBuffer },
+            { buffer: this.positionBuffer },
+            { buffer: this.attribBuffer },
         ];
         this.isBuilt = true;
     }
@@ -259,16 +257,15 @@ export class DkrDrawCall {
                 offs += 16;
             }
 
-            computeViewMatrix(viewMatrixScratch, viewerInput.camera);
-            if(DkrControlGlobals.ADV2_MIRROR.on) {
-                mat4.mul(viewMatrixCalcScratch, mirrorMatrix, params.modelMatrix);
-                mat4.mul(viewMatrixCalcScratch, viewMatrixScratch, viewMatrixCalcScratch);
+            if (DkrControlGlobals.ADV2_MIRROR.on) {
+                mat4.mul(scratchMatrix, mirrorMatrix, params.modelMatrix);
+                mat4.mul(scratchMatrix, viewerInput.camera.viewMatrix, scratchMatrix);
             } else {
-                mat4.mul(viewMatrixCalcScratch, viewMatrixScratch, params.modelMatrix);
+                mat4.mul(scratchMatrix, viewerInput.camera.viewMatrix, params.modelMatrix);
             }
-            offs += fillMatrix4x3(d, offs, viewMatrixCalcScratch);
+            offs += fillMatrix4x3(d, offs, scratchMatrix);
 
-            if(!!params.objAnim) {
+            if (!!params.objAnim) {
                 const currentFrameIndex = params.objAnim.getCurrentFrame();
                 this.vertexBufferDescriptors[0].byteOffset = this.objAnimPositionBufferByteOffset[params.objAnimIndex][currentFrameIndex];
                 const nextFrameIndex = (currentFrameIndex + 1) % params.objAnim.getKeyframes().length;

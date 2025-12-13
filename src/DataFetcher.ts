@@ -11,8 +11,7 @@ export interface NamedArrayBufferSlice extends ArrayBufferSlice {
 function getDataStorageBaseURL(isDevelopment: boolean): string {
     if (isDevelopment)
         return `/data`;
-    else
-        return `https://z.noclip.website`;
+    return import.meta.env.PUBLIC_STORAGE_URL;
 }
 
 function getDataURLForPath(url: string, isDevelopment: boolean): string {
@@ -288,13 +287,8 @@ export class DataFetcher {
     public async init() {
         if (IS_DEVELOPMENT) {
             // Check for the existence of a /data directory.
-            const url = getDataURLForPath('', true);
-            try {
-                await this.fetchURL(url, {});
-                this.useDevelopmentStorage = true;
-            } catch(e) {
-                this.useDevelopmentStorage = false;
-            }
+            // TODO(jstpierre): Put back this fix for rsbuild.
+            this.useDevelopmentStorage = true;
         } else {
             this.useDevelopmentStorage = false;
         }

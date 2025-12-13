@@ -1,7 +1,6 @@
 
 import { GfxSamplerBinding, GfxBufferBinding, GfxBindingsDescriptor, GfxRenderPipelineDescriptor, GfxBindingLayoutDescriptor, GfxInputLayoutDescriptor, GfxVertexAttributeDescriptor, GfxProgram, GfxMegaStateDescriptor, GfxAttachmentState, GfxChannelBlendState, GfxSamplerDescriptor, GfxInputLayoutBufferDescriptor, GfxFormat, GfxBindingLayoutSamplerDescriptor, GfxRenderAttachmentView } from './GfxPlatform.js';
 import { copyMegaState } from '../helpers/GfxMegaStateDescriptorHelpers.js';
-import { gfxColorEqual } from './GfxPlatformUtil.js';
 
 type EqualFunc<K> = (a: K, b: K) => boolean;
 type CopyFunc<T> = (a: T) => T;
@@ -33,8 +32,8 @@ export function gfxSamplerBindingNew(): GfxSamplerBinding {
 
 export function gfxBufferBindingCopy(a: Readonly<GfxBufferBinding>): GfxBufferBinding {
     const buffer = a.buffer;
-    const wordCount = a.wordCount;
-    return { buffer, wordCount };
+    const byteSize = a.byteSize;
+    return { buffer, byteSize };
 }
 
 export function gfxBindingsDescriptorCopy(a: Readonly<GfxBindingsDescriptor>): GfxBindingsDescriptor {
@@ -88,7 +87,7 @@ export function gfxInputLayoutDescriptorCopy(a: Readonly<GfxInputLayoutDescripto
     return { vertexAttributeDescriptors, vertexBufferDescriptors, indexBufferFormat };
 }
 function gfxBufferBindingEquals(a: Readonly<GfxBufferBinding>, b: Readonly<GfxBufferBinding>): boolean {
-    return a.buffer === b.buffer && a.wordCount === b.wordCount;
+    return a.buffer === b.buffer && a.byteSize === b.byteSize;
 }
 function gfxSamplerBindingEquals(a: Readonly<GfxSamplerBinding | null>, b: Readonly<GfxSamplerBinding | null>): boolean {
     if (a === null) return b === null;
@@ -125,8 +124,6 @@ function gfxAttachmentStateEquals(a: Readonly<GfxAttachmentState>, b: Readonly<G
 }
 function gfxMegaStateDescriptorEquals(a: GfxMegaStateDescriptor, b: GfxMegaStateDescriptor): boolean {
     if (!arrayEqual(a.attachmentsState, b.attachmentsState, gfxAttachmentStateEquals))
-        return false;
-    if (!gfxColorEqual(a.blendConstant, b.blendConstant))
         return false;
 
     return (

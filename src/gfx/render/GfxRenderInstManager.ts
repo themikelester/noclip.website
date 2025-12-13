@@ -2,12 +2,12 @@
 import { nArray, assert, assertExists } from "../../util.js";
 import { clamp } from "../../MathHelpers.js";
 
-import { GfxMegaStateDescriptor, GfxDevice, GfxRenderPass, GfxRenderPipelineDescriptor, GfxPrimitiveTopology, GfxBindingLayoutDescriptor, GfxBindingsDescriptor, GfxSamplerBinding, GfxProgram, GfxInputLayout, GfxFormat, GfxRenderPassDescriptor, GfxVertexBufferDescriptor, GfxIndexBufferDescriptor } from "../platform/GfxPlatform.js";
+import { GfxMegaStateDescriptor, GfxDevice, GfxRenderPass, GfxRenderPipelineDescriptor, GfxPrimitiveTopology, GfxBindingLayoutDescriptor, GfxBindingsDescriptor, GfxSamplerBinding, GfxProgram, GfxInputLayout, GfxFormat, GfxRenderPassDescriptor, GfxVertexBufferDescriptor, GfxIndexBufferDescriptor, GfxColor } from "../platform/GfxPlatform.js";
 
 import { defaultMegaState, copyMegaState, setMegaStateFlags } from "../helpers/GfxMegaStateDescriptorHelpers.js";
 
-import { GfxRenderCache } from "./GfxRenderCache.js";
-import { GfxRenderDynamicUniformBuffer } from "./GfxRenderDynamicUniformBuffer.js";
+import type { GfxRenderCache } from "./GfxRenderCache.js";
+import type { GfxRenderDynamicUniformBuffer } from "./GfxRenderDynamicUniformBuffer.js";
 
 /**
  * The "Render" subsystem provides high-level scene graph utiltiies, built on top of gfx/platform and gfx/helpers. A
@@ -54,7 +54,7 @@ import { GfxRenderDynamicUniformBuffer } from "./GfxRenderDynamicUniformBuffer.j
 // bitflag. It's special as it changes the behavior of the generic sort key functions like makeSortKey and
 // setSortKeyDepth.
 
-export const enum GfxRendererLayer {
+export enum GfxRendererLayer {
     BACKGROUND  = 0x00,
     ALPHA_TEST  = 0x10,
     OPAQUE      = 0x20,
@@ -165,6 +165,9 @@ export class GfxRenderInst {
     private _drawCount: number = 0;
     private _drawInstanceCount: number = 1;
 
+    private _stencilRef: number | null = null;
+    private _blendColor: Readonly<GfxColor> | null = null;
+
     constructor() {
         this._renderPipelineDescriptor = {
             bindingLayouts: [],
@@ -198,13 +201,15 @@ export class GfxRenderInst {
         this._vertexBuffers = o._vertexBuffers;
         this._indexBuffer = o._indexBuffer;
         this._allowSkippingPipelineIfNotReady = o._allowSkippingPipelineIfNotReady;
+        this._stencilRef = o._stencilRef;
+        this._blendColor = o._blendColor;
         this.sortKey = o.sortKey;
         for (let i = 0; i < o._bindingDescriptors.length; i++) {
             const tbd = this._bindingDescriptors[i], obd = o._bindingDescriptors[i];
             if (obd.bindingLayout !== null)
                 this._setBindingLayout(i, obd.bindingLayout);
             for (let j = 0; j < Math.min(tbd.uniformBufferBindings.length, obd.uniformBufferBindings.length); j++)
-                tbd.uniformBufferBindings[j].wordCount = obd.uniformBufferBindings[j].wordCount;
+                tbd.uniformBufferBindings[j].byteSize = obd.uniformBufferBindings[j].byteSize;
             this.setSamplerBindingsFromTextureMappings(obd.samplerBindings);
         }
         for (let i = 0; i < o._dynamicUniformBufferByteOffsets.length; i++)
@@ -212,13 +217,6 @@ export class GfxRenderInst {
     }
 
     public validate(): void {
-        // Validate uniform buffer bindings.
-        for (let i = 0; i < this._bindingDescriptors.length; i++) {
-            const bd = this._bindingDescriptors[i];
-            for (let j = 0; j < bd.bindingLayout.numUniformBuffers; j++)
-                assert(bd.uniformBufferBindings[j].wordCount > 0);
-        }
-
         assert(this._drawCount > 0);
     }
 
@@ -271,7 +269,7 @@ export class GfxRenderInst {
         bindingDescriptor.bindingLayout = bindingLayout;
 
         for (let j = bindingDescriptor.uniformBufferBindings.length; j < bindingLayout.numUniformBuffers; j++)
-            bindingDescriptor.uniformBufferBindings.push({ buffer: null!, wordCount: 0 });
+            bindingDescriptor.uniformBufferBindings.push({ buffer: null!, byteSize: 0 });
         for (let j = bindingDescriptor.samplerBindings.length; j < bindingLayout.numSamplers; j++)
             bindingDescriptor.samplerBindings.push({ gfxSampler: null, gfxTexture: null, lateBinding: null });
     }
@@ -320,27 +318,26 @@ export class GfxRenderInst {
 
     /**
      * Allocates {@param wordCount} words from the uniform buffer and assigns it to the buffer
-     * slot at index {@param bufferIndex}. As a convenience, this also directly returns the same
-     * offset into the uniform buffer, in words, that would be returned by a subsequent call to
-     * {@see getUniformBufferOffset}.
+     * slot at index {@param bufferIndex}, and returns the index into the buffer.
      */
     public allocateUniformBuffer(bufferIndex: number, wordCount: number): number {
         assert(this._bindingDescriptors[0].bindingLayout.numUniformBuffers <= this._dynamicUniformBufferByteOffsets.length);
         assert(bufferIndex < this._bindingDescriptors[0].bindingLayout.numUniformBuffers);
-        this._dynamicUniformBufferByteOffsets[bufferIndex] = this._uniformBuffer.allocateChunk(wordCount) << 2;
+        const wordOffset = this._uniformBuffer.allocateChunk(wordCount);
+        this._dynamicUniformBufferByteOffsets[bufferIndex] = wordOffset << 2;
 
         const dst = this._bindingDescriptors[0].uniformBufferBindings[bufferIndex];
-        dst.wordCount = wordCount;
-        return this.getUniformBufferOffset(bufferIndex);
+        dst.byteSize = wordCount << 2;
+        return wordOffset;
     }
 
     /**
-     * Returns the offset into the uniform buffer, in words, that is assigned to the buffer slot
-     * at index {@param bufferIndex}, to be used with e.g. {@see mapUniformBufferF32}.
+     * This is a convenience wrapper for {@param allocateUniformBuffer} and {@param mapUniformBufferF32}
+     * that returns a pre-sliced {@see Float32Array} for the given offset.
      */
-    public getUniformBufferOffset(bufferIndex: number) {
-        const wordOffset = this._dynamicUniformBufferByteOffsets[bufferIndex] >>> 2;
-        return wordOffset;
+    public allocateUniformBufferF32(bufferIndex: number, wordCount: number): Float32Array {
+        const wordOffset = this.allocateUniformBuffer(bufferIndex, wordCount);
+        return this._uniformBuffer.mapBufferF32().subarray(wordOffset);
     }
 
     /**
@@ -352,7 +349,7 @@ export class GfxRenderInst {
         this._dynamicUniformBufferByteOffsets[bufferIndex] = wordOffset << 2;
 
         const dst = this._bindingDescriptors[0].uniformBufferBindings[bufferIndex];
-        dst.wordCount = wordCount;
+        dst.byteSize = wordCount << 2;
     }
 
     /**
@@ -487,6 +484,14 @@ export class GfxRenderInst {
         this._renderPipelineDescriptor.sampleCount = sampleCount;
     }
 
+    public setStencilRef(value: number | null): void {
+        this._stencilRef = value;
+    }
+
+    public setBlendColor(value: Readonly<GfxColor> | null): void {
+        this._blendColor = value;
+    }
+
     public drawOnPass(cache: GfxRenderCache, passRenderer: GfxRenderPass): void {
         const device = cache.device;
         this.setAttachmentFormatsFromRenderPass(device, passRenderer);
@@ -518,6 +523,11 @@ export class GfxRenderInst {
             uboIndex += numBuffers;
         }
 
+        if (this._stencilRef !== null)
+            passRenderer.setStencilRef(this._stencilRef);
+        if (this._blendColor !== null)
+            passRenderer.setBlendColor(this._blendColor);
+
         const indexed = this._indexBuffer !== null;
         if (this._drawInstanceCount > 1) {
             assert(indexed);
@@ -541,7 +551,7 @@ export function gfxRenderInstCompareSortKey(a: GfxRenderInst, b: GfxRenderInst):
     return a.sortKey - b.sortKey;
 }
 
-export const enum GfxRenderInstExecutionOrder {
+export enum GfxRenderInstExecutionOrder {
     Forwards,
     Backwards,
 }

@@ -10,20 +10,22 @@ import { BTIData } from '../../Common/JSYSTEM/JUTTexture.js';
 import { dfRange, dfShow } from '../../DebugFloaters.js';
 import { drawWorldSpaceBasis, drawWorldSpaceLine, drawWorldSpacePoint, drawWorldSpaceText, getDebugOverlayCanvas2D } from '../../DebugJunk.js';
 import { AABB } from '../../Geometry.js';
-import { makeStaticDataBuffer } from '../../gfx/helpers/BufferHelpers.js';
 import { getTriangleIndexCountForTopologyIndexCount, GfxTopology } from '../../gfx/helpers/TopologyHelpers.js';
-import { GfxBuffer, GfxBufferUsage, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency } from '../../gfx/platform/GfxPlatform.js';
+import { GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxDevice, GfxFormat, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency } from '../../gfx/platform/GfxPlatform.js';
 import { GfxRenderInstManager } from '../../gfx/render/GfxRenderInstManager.js';
 import { GXMaterialBuilder } from '../../gx/GXMaterialBuilder.js';
 import { VertexAttributeInput } from '../../gx/gx_displaylist.js';
 import * as GX from '../../gx/gx_enum.js';
 import { getVertexInputLocation } from '../../gx/gx_material.js';
 import { ColorKind, GXMaterialHelperGfx, MaterialParams, DrawParams } from '../../gx/gx_render.js';
-import { clamp, clampRange, computeEulerAngleRotationFromSRTMatrix, computeModelMatrixR, computeModelMatrixS, computeModelMatrixSRT, computeNormalMatrix, getMatrixAxisX, getMatrixAxisY, getMatrixAxisZ, getMatrixTranslation, invlerp, isNearZero, isNearZeroVec3, lerp, MathConstants, normToLength, quatFromEulerRadians, saturate, scaleMatrix, setMatrixTranslation, transformVec3Mat4w0, transformVec3Mat4w1, vec3FromBasis2, vec3FromBasis3, Vec3NegY, vec3SetAll, Vec3UnitX, Vec3UnitY, Vec3UnitZ, Vec3Zero } from '../../MathHelpers.js';
+import { clamp, clampRange, calcEulerAngleRotationFromSRTMatrix, computeModelMatrixR, computeModelMatrixS, computeModelMatrixSRT, computeNormalMatrix, getMatrixAxisX, getMatrixAxisY, getMatrixAxisZ, getMatrixTranslation, invlerp, isNearZero, isNearZeroVec3, lerp, MathConstants, normToLength, quatFromEulerRadians, saturate, scaleMatrix, setMatrixTranslation, transformVec3Mat4w0, transformVec3Mat4w1, vec3FromBasis2, vec3FromBasis3, Vec3NegY, vec3SetAll, Vec3UnitX, Vec3UnitY, Vec3UnitZ, Vec3Zero } from '../../MathHelpers.js';
 import { TextureMapping } from '../../TextureHolder.js';
 import { assert, assertExists, fallback, leftPad, mod, nArray } from '../../util.js';
 import * as Viewer from '../../viewer.js';
-import { addRandomVector, addVelocityToGravity, appearStarPiece, attenuateVelocity, calcActorAxis, calcDistanceToCurrentAndNextRailPoint, calcDistanceToPlayer, calcDistToCamera, calcFrontVec, calcGravity, calcGravityVector, calcMtxAxis, calcMtxFromGravityAndZAxis, calcPerpendicFootToLine, calcPerpendicFootToLineInside, calcRailDirectionAtCoord, calcRailEndPointPos, calcRailEndPos, calcRailPointPos, calcRailPosAtCoord, calcRailStartPointPos, calcRailStartPos, calcReboundVelocity, calcSqDistanceToPlayer, calcUpVec, connectToScene, connectToSceneAir, connectToSceneCollisionMapObj, connectToSceneCollisionMapObjStrongLight, connectToSceneCrystal, connectToSceneEnemyMovement, connectToSceneEnvironment, connectToSceneIndirectMapObj, connectToSceneIndirectMapObjStrongLight, connectToSceneItem, connectToSceneItemStrongLight, connectToSceneMapObj, connectToSceneMapObjDecoration, connectToSceneMapObjDecorationStrongLight, connectToSceneMapObjMovement, connectToSceneMapObjNoCalcAnim, connectToSceneMapObjStrongLight, connectToSceneNoShadowedMapObj, connectToSceneNoShadowedMapObjStrongLight, connectToSceneNoSilhouettedMapObj, connectToSceneNoSilhouettedMapObjStrongLight, connectToSceneNoSilhouettedMapObjWeakLightNoMovement, connectToScenePlanet, connectToSceneSky, connectToSceneSun, declareStarPiece, excludeCalcShadowToMyCollision, FixedPosition, getAreaObj, getBckFrame, getBckFrameMax, getBrkFrameMax, getCamPos, getCamYdir, getCamZdir, getEaseInValue, getEaseOutValue, getGroupFromArray, getJointMtx, getJointMtxByName, getJointNum, getPlayerPos, getRailCoord, getRailDirection, getRailPointNum, getRailPos, getRailTotalLength, getRandomFloat, getRandomInt, getRandomVector, hideMaterial, hideModel, initCollisionParts, initDefaultPos, invalidateCollisionPartsForActor, invalidateShadowAll, isAnyAnimStopped, isBckOneTimeAndStopped, isBckPlaying, isBckStopped, isExistCollisionResource, isHiddenModel, isInDeath, isLoopRail, isOnSwitchA, isOnSwitchAppear, isOnSwitchB, isSameDirection, isValidDraw, isValidSwitchA, isValidSwitchAppear, isValidSwitchB, isValidSwitchDead, joinToGroupArray, listenStageSwitchOnOffA, listenStageSwitchOnOffAppear, listenStageSwitchOnOffB, loadBTIData, loadTexProjectionMtx, makeAxisCrossPlane, makeAxisFrontUp, makeAxisUpSide, makeAxisVerticalZX, makeMtxFrontNoSupportPos, makeMtxFrontUpPos, makeMtxTRFromQuatVec, makeMtxUpFront, makeMtxUpFrontPos, makeMtxUpNoSupportPos, MapObjConnector, moveCoord, moveCoordAndFollowTrans, moveCoordAndTransToNearestRailPos, moveCoordToEndPos, moveCoordToNearestPos, moveCoordToStartPos, moveRailRider, moveTransToCurrentRailPos, moveTransToOtherActorRailPos, quatGetAxisX, quatGetAxisZ, quatSetRotate, reverseRailDirection, rotateVecDegree, setBckFrameAndStop, setBckRate, setBrkFrameAndStop, setBtkFrameAtRandom, setBtpFrameAndStop, setBvaFrameAndStop, setMtxAxisXYZ, setRailCoord, setRailCoordSpeed, setTextureMatrixST, showModel, startAction, startBck, startBpk, startBrk, startBrkIfExist, startBtk, startBtp, startBva, stopBck, syncStageSwitchAppear, tryStartAllAnim, tryStartBck, useStageSwitchReadAppear, useStageSwitchSleep, useStageSwitchWriteA, useStageSwitchWriteB, useStageSwitchWriteDead, validateCollisionPartsForActor, validateShadowAll, vecKillElement } from '../ActorUtil.js';
+import { addRandomVector, addVelocityToGravity, appearStarPiece, attenuateVelocity, calcActorAxis, calcDistanceToCurrentAndNextRailPoint, calcDistanceToPlayer, calcDistToCamera, calcFrontVec, calcGravity, calcGravityVector, calcMtxAxis, calcMtxFromGravityAndZAxis, calcPerpendicFootToLine, calcPerpendicFootToLineInside, calcRailDirectionAtCoord, calcRailEndPointPos, calcRailEndPos, calcRailPointPos, calcRailPosAtCoord, calcRailStartPointPos, calcRailStartPos, calcReboundVelocity, calcSqDistanceToPlayer, calcUpVec, connectToScene, connectToSceneAir, connectToSceneCollisionMapObj, connectToSceneCollisionMapObjStrongLight, connectToSceneCrystal, connectToSceneEnemyMovement, connectToSceneEnvironment, connectToSceneIndirectMapObj, connectToSceneIndirectMapObjStrongLight, connectToSceneItem, connectToSceneItemStrongLight, connectToSceneMapObj, connectToSceneMapObjDecoration, connectToSceneMapObjDecorationStrongLight, connectToSceneMapObjMovement, connectToSceneMapObjNoCalcAnim, connectToSceneMapObjStrongLight, connectToSceneNoShadowedMapObj, connectToSceneNoShadowedMapObjStrongLight, connectToSceneNoSilhouettedMapObj, connectToSceneNoSilhouettedMapObjStrongLight, connectToSceneNoSilhouettedMapObjWeakLightNoMovement, connectToScenePlanet, connectToSceneSky, connectToSceneSun, declareStarPiece, excludeCalcShadowToMyCollision, FixedPosition, getAreaObj, getBckFrame, getBckFrameMax, getBrkFrameMax, getCamPos, getCamYdir, getCamZdir, getEaseInValue, getEaseOutValue, getGroupFromArray, getJointMtx, getJointMtxByName, getJointNum, getPlayerPos, getRailCoord, getRailDirection, getRailPointNum, getRailPos, getRailTotalLength, hideMaterial, hideModel, initCollisionParts, initDefaultPos, invalidateCollisionPartsForActor, invalidateShadowAll, isAnyAnimStopped, isBckOneTimeAndStopped, isBckPlaying, isBckStopped, isExistCollisionResource, isHiddenModel, isInDeath, isLoopRail, isOnSwitchA, isOnSwitchAppear, isOnSwitchB, isSameDirection, isValidDraw, isValidSwitchA, isValidSwitchAppear, isValidSwitchB, isValidSwitchDead, joinToGroupArray, listenStageSwitchOnOffA, listenStageSwitchOnOffAppear, listenStageSwitchOnOffB, loadBTIData, loadTexProjectionMtx, makeAxisCrossPlane, makeAxisFrontUp, makeAxisUpSide, makeAxisVerticalZX, makeMtxFrontNoSupportPos, makeMtxFrontUpPos, makeMtxTRFromQuatVec, makeMtxUpFront, makeMtxUpFrontPos, makeMtxUpNoSupportPos, MapObjConnector, moveCoord, moveCoordAndFollowTrans, moveCoordAndTransToNearestRailPos, moveCoordToEndPos, moveCoordToNearestPos, moveCoordToStartPos, moveRailRider, moveTransToCurrentRailPos, moveTransToOtherActorRailPos, quatGetAxisX, quatGetAxisZ, quatSetRotate, reverseRailDirection, rotateVecDegree, setBckFrameAndStop, setBckRate, setBrkFrameAndStop, setBtkFrameAtRandom, setBtpFrameAndStop, setBvaFrameAndStop, setMtxAxisXYZ, setRailCoord, setRailCoordSpeed, setTextureMatrixST, showModel, startAction, startBck, startBpk, startBrk, startBrkIfExist, startBtk, startBtp, startBva, stopBck, syncStageSwitchAppear, tryStartAllAnim, tryStartBck, useStageSwitchReadAppear, useStageSwitchSleep, useStageSwitchWriteA, useStageSwitchWriteB, useStageSwitchWriteDead, validateCollisionPartsForActor, validateShadowAll, vecKillElement } from '../ActorUtil.js';
+import { randomRangeVec3 } from "../../MathHelpers.js";
+import { randomRangeInt } from '../../MathHelpers.js';
+import { randomRangeFloat } from '../../MathHelpers.js';
 import { calcMapGround, CollisionParts, CollisionScaleType, createCollisionPartsFromLiveActor, getFirstPolyOnLineToMap, getFirstPolyOnLineToMapExceptActor, getGroundNormal, invalidateCollisionParts, isBinded, isBindedGround, isBindedGroundDamageFire, isBindedRoof, isBindedWall, isOnGround, isWallCodeNoAction, setBinderExceptActor, setBinderOffsetVec, setBindTriangleFilter, tryCreateCollisionMoveLimit, tryCreateCollisionWaterSurface, validateCollisionParts } from '../Collision.js';
 import { TDDraw, TSDraw } from '../DDraw.js';
 import { isDemoLastStep, registerDemoActionNerve, tryRegisterDemoCast } from '../Demo.js';
@@ -49,6 +51,7 @@ import { ItemBubble } from './MapObj.js';
 import { createModelObjBloomModel, createModelObjMapObj, createModelObjMapObjStrongLight, ModelObj } from './ModelObj.js';
 import { createPartsModelMapObj, PartsModel } from './PartsModel.js';
 import { GfxRenderCache } from '../../gfx/render/GfxRenderCache.js';
+import { createBufferFromData } from '../../gfx/helpers/BufferHelpers.js';
 
 const materialParams = new MaterialParams();
 const drawParams = new DrawParams();
@@ -210,7 +213,7 @@ export class RailPlanetMap extends PlanetMap {
     }
 }
 
-const enum EarthenPipeNrv { Wait }
+enum EarthenPipeNrv { Wait }
 export class EarthenPipe extends LiveActor<EarthenPipeNrv> {
     private pipeStream: PartsModel | null = null;
     private scaleY: number;
@@ -302,7 +305,7 @@ export class EarthenPipe extends LiveActor<EarthenPipeNrv> {
     }
 }
 
-const enum BlackHoleNrv { Wait }
+enum BlackHoleNrv { Wait }
 export class BlackHole extends LiveActor<BlackHoleNrv> {
     private blackHoleModel: ModelObj;
     private effectHostMtx = mat4.create();
@@ -410,7 +413,7 @@ export class BlackHole extends LiveActor<BlackHoleNrv> {
     }
 }
 
-const enum HatchWaterPlanetNrv { Wait, Open, WaitAfterOpen }
+enum HatchWaterPlanetNrv { Wait, Open, WaitAfterOpen }
 export class HatchWaterPlanet extends LiveActor<HatchWaterPlanetNrv> {
     private collisionPartsAfter: CollisionParts;
 
@@ -687,7 +690,7 @@ class FlashingCtrl extends NameObj {
     }
 }
 
-const enum CoinNrv { Fix, FixHide, Move }
+enum CoinNrv { Fix, FixHide, Move }
 class Coin extends LiveActor<CoinNrv> {
     public useLocalGravity: boolean = false;
     private isInWater: boolean = false;
@@ -1047,7 +1050,7 @@ export function requestArchivesPurpleCoin(sceneObjHolder: SceneObjHolder, infoIt
         sceneObjHolder.modelCache.requestObjectData('AirBubble');
 }
 
-const enum CoinGroupNrv { Wait, Appear }
+enum CoinGroupNrv { Wait, Appear }
 abstract class CoinGroup extends LiveActor<CoinGroupNrv> {
     protected coinArray: Coin[] = [];
 
@@ -1525,7 +1528,7 @@ export class GCaptureTarget extends LiveActor {
     }
 }
 
-const enum FountainBigNrv { Wait, Sign, SignStop, Spout, SpoutEnd }
+enum FountainBigNrv { Wait, Sign, SignStop, Spout, SpoutEnd }
 export class FountainBig extends LiveActor<FountainBigNrv> {
     private upVec = vec3.create();
 
@@ -1542,7 +1545,7 @@ export class FountainBig extends LiveActor<FountainBigNrv> {
         hideModel(this);
         startBtk(this, "FountainBig");
 
-        this.initWaitPhase = getRandomInt(0, 300);
+        this.initWaitPhase = randomRangeInt(0, 300);
 
         this.initNerve(FountainBigNrv.Wait);
     }
@@ -1687,7 +1690,7 @@ export class Sky extends LiveActor {
     }
 }
 
-const enum AirNrv { In, Out }
+enum AirNrv { In, Out }
 export class Air extends LiveActor<AirNrv> {
     private distInThresholdSq: number;
     private distOutThresholdSq: number;
@@ -1767,7 +1770,7 @@ export class PriorDrawAir extends Air {
     }
 }
 
-const enum ShootingStarNrv { PreShooting, Shooting, WaitForNextShoot }
+enum ShootingStarNrv { PreShooting, Shooting, WaitForNextShoot }
 export class ShootingStar extends LiveActor<ShootingStarNrv> {
     private delay: number;
     private distance: number;
@@ -1810,7 +1813,7 @@ export class ShootingStar extends LiveActor<ShootingStarNrv> {
         startBpk(this, 'ShootingStar');
 
         hideModel(this);
-        this.initWaitPhase = getRandomInt(0, this.delay);
+        this.initWaitPhase = randomRangeInt(0, this.delay);
     }
 
     private appearPreShooting(sceneObjHolder: SceneObjHolder): void {
@@ -1866,7 +1869,7 @@ export class ShootingStar extends LiveActor<ShootingStarNrv> {
     }
 }
 
-const enum ChipBaseNrv { Wait, Hide, Controled }
+enum ChipBaseNrv { Wait, Hide, Controled }
 class ChipBase extends LiveActor<ChipBaseNrv> {
     private groupID: number = -1;
     private airBubble: PartsModel | null = null;
@@ -2198,8 +2201,8 @@ function createDummyModelCrystalItem(sceneObjHolder: SceneObjHolder, parentActor
     return dummyModel;
 }
 
-const enum CrystalCageSize { S, M, L }
-const enum CrystalCageNrv { Wait, Break, BreakAfter }
+enum CrystalCageSize { S, M, L }
+enum CrystalCageNrv { Wait, Break, BreakAfter }
 export class CrystalCage extends LiveActor<CrystalCageNrv> {
     private size: CrystalCageSize;
     private breakMtx = mat4.create();
@@ -2434,7 +2437,7 @@ export class CrystalCage extends LiveActor<CrystalCageNrv> {
     }
 }
 
-const enum LavaSteamNrv { Wait, Steam }
+enum LavaSteamNrv { Wait, Steam }
 export class LavaSteam extends LiveActor<LavaSteamNrv> {
     private effectScale = vec3.create();
 
@@ -2485,7 +2488,7 @@ export class LavaSteam extends LiveActor<LavaSteamNrv> {
     }
 }
 
-const enum WoodBoxNrv { Wait, Hit, Killed }
+enum WoodBoxNrv { Wait, Hit, Killed }
 export class WoodBox extends LiveActor<WoodBoxNrv> {
     private hitPoints = 1;
     private coinCount = 0;
@@ -2843,7 +2846,7 @@ class SpinDriverShootPath {
     }
 }
 
-const enum SpinDriverColor { Normal, Green, Pink }
+enum SpinDriverColor { Normal, Green, Pink }
 
 class SpinDriverPathDrawer extends LiveActor {
     private ddraw: TDDraw = new TDDraw();
@@ -2907,7 +2910,7 @@ class SpinDriverPathDrawer extends LiveActor {
             return;
 
         const ddraw = this.ddraw;
-        ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
 
         const width = 100;
 
@@ -3052,7 +3055,7 @@ export function createSuperSpinDriverPink(zoneAndLayer: ZoneAndLayer, sceneObjHo
     return new SuperSpinDriver(zoneAndLayer, sceneObjHolder, infoIter, 2);
 }
 
-const enum FishNrv { Approach, Wander }
+enum FishNrv { Approach, Wander }
 class Fish extends LiveActor<FishNrv> {
     private followPointPos = vec3.create();
     private offset = vec3.create();
@@ -3063,8 +3066,8 @@ class Fish extends LiveActor<FishNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, private fishGroup: FishGroup, modelName: string) {
         super(zoneAndLayer, sceneObjHolder, modelName);
 
-        getRandomVector(this.offset, 150);
-        this.approachThreshold = getRandomFloat(100, 500);
+        randomRangeVec3(this.offset, 150);
+        this.approachThreshold = randomRangeFloat(100, 500);
 
         this.updateFollowPointPos();
         vec3.copy(this.translation, this.followPointPos);
@@ -3102,7 +3105,7 @@ class Fish extends LiveActor<FishNrv> {
                 }
 
                 vec3.scaleAndAdd(this.velocity, this.velocity, this.direction, 5);
-                this.counter = getRandomInt(5, 30);
+                this.counter = randomRangeInt(5, 30);
             }
 
             if (vec3.squaredDistance(this.followPointPos, this.translation) < (this.approachThreshold ** 2.0))
@@ -3114,7 +3117,7 @@ class Fish extends LiveActor<FishNrv> {
             --this.counter;
             if (this.counter < 1) {
                 vec3.add(this.velocity, this.velocity, this.direction);
-                this.counter = getRandomInt(60, 180);
+                this.counter = randomRangeInt(60, 180);
             }
 
             if (vec3.squaredDistance(this.followPointPos, this.translation) > (this.approachThreshold ** 2.0))
@@ -3215,7 +3218,7 @@ function explerp(dst: vec3, target: vec3, k: number): void {
     dst[2] += (target[2] - dst[2]) * k;
 }
 
-const enum SeaGullNrv { HoverFront, HoverLeft, HoverRight }
+enum SeaGullNrv { HoverFront, HoverLeft, HoverRight }
 class SeaGull extends LiveActor<SeaGullNrv> {
     private direction: boolean;
     private updatePosCounter: number;
@@ -3242,17 +3245,17 @@ class SeaGull extends LiveActor<SeaGullNrv> {
         connectToSceneEnvironment(sceneObjHolder, this);
 
         const totalLength = getRailTotalLength(this.seaGullGroup);
-        const coord = getRandomFloat(1.0, totalLength - 1.0);
+        const coord = randomRangeFloat(1.0, totalLength - 1.0);
         this.chasePointIndex = (coord / 500.0) | 0;
         calcRailPosAtCoord(this.translation, this.seaGullGroup, coord);
 
         this.direction = isHalfProbability();
-        this.updatePosCounter = getRandomInt(0, 180);
+        this.updatePosCounter = randomRangeInt(0, 180);
 
         this.chasePointIndex = this.seaGullGroup.updatePosInfoIndex(this.chasePointIndex, this.direction);
 
-        vec3.scale(scratchVec3a, this.axisX, getRandomFloat(-1.0, 1.0));
-        vec3.scale(scratchVec3b, this.axisZ, getRandomFloat(-1.0, 1.0));
+        vec3.scale(scratchVec3a, this.axisX, randomRangeFloat(-1.0, 1.0));
+        vec3.scale(scratchVec3b, this.axisZ, randomRangeFloat(-1.0, 1.0));
 
         vec3.add(this.axisZ, scratchVec3a, scratchVec3b);
         vec3.normalize(this.axisZ, this.axisZ);
@@ -3284,7 +3287,7 @@ class SeaGull extends LiveActor<SeaGullNrv> {
             if (dist >= 500.0) {
                 --this.maintainHeightCounter;
                 if (dist > 500.0 || this.maintainHeightCounter < 1)
-                    this.flyUpCounter = getRandomInt(30, 180);
+                    this.flyUpCounter = randomRangeInt(30, 180);
             } else {
                 this.maintainHeightCounter = 300;
             }
@@ -3292,7 +3295,7 @@ class SeaGull extends LiveActor<SeaGullNrv> {
             vec3.scaleAndAdd(this.velocity, this.velocity, this.axisY, 0.04);
             --this.flyUpCounter;
             if (this.flyUpCounter < 1)
-                this.maintainHeightCounter = getRandomInt(60, 300);
+                this.maintainHeightCounter = randomRangeInt(60, 300);
         }
     }
 
@@ -3332,7 +3335,7 @@ class SeaGull extends LiveActor<SeaGullNrv> {
 
         if (currentNerve === SeaGullNrv.HoverFront) {
             if (isFirstStep(this))
-                this.hoverStep = getRandomInt(0, 60);
+                this.hoverStep = randomRangeInt(0, 60);
 
             this.bankRotation *= Math.pow(0.995, deltaTimeFrames);
             if (isGreaterStep(this, this.hoverStep)) {
@@ -3348,7 +3351,7 @@ class SeaGull extends LiveActor<SeaGullNrv> {
             }
         } else if (currentNerve === SeaGullNrv.HoverLeft) {
             if (isFirstStep(this))
-                this.hoverStep = getRandomInt(60, 120);
+                this.hoverStep = randomRangeInt(60, 120);
 
             this.bankRotation -= 0.1 * deltaTimeFrames;
 
@@ -3356,7 +3359,7 @@ class SeaGull extends LiveActor<SeaGullNrv> {
                 this.setNerve(SeaGullNrv.HoverFront);
         } else if (currentNerve === SeaGullNrv.HoverRight) {
             if (isFirstStep(this))
-                this.hoverStep = getRandomInt(60, 120);
+                this.hoverStep = randomRangeInt(60, 120);
 
             this.bankRotation += 0.1 * deltaTimeFrames;
 
@@ -3531,14 +3534,14 @@ class CoconutTreeLeaf extends LiveActor {
 
                 if (this.waitCounter < 1) {
                     vec3.scale(this.accel, this.treeAxisZ, scaleZ);
-                    vec3.scaleAndAdd(this.accel, this.accel, this.upVec, scaleX * getRandomFloat(-1.0, 1.0));
-                    this.accelCounter = getRandomFloat(10, 30);
+                    vec3.scaleAndAdd(this.accel, this.accel, this.upVec, scaleX * randomRangeFloat(-1.0, 1.0));
+                    this.accelCounter = randomRangeFloat(10, 30);
                 }
             } else {
                 vec3.add(this.velocity, this.velocity, this.accel);
                 --this.accelCounter;
                 if (this.accelCounter < 1)
-                    this.waitCounter = getRandomInt(15, 150);
+                    this.waitCounter = randomRangeInt(15, 150);
             }
         }
 
@@ -3604,7 +3607,7 @@ export class CoconutTreeLeafGroup extends LiveActor {
     }
 }
 
-const enum AirBubbleNrv { Wait, Move, KillWait }
+enum AirBubbleNrv { Wait, Move, KillWait }
 export class AirBubble extends LiveActor<AirBubbleNrv> {
     private lifetime: number = 180;
     private spawnLocation = vec3.create();
@@ -3659,7 +3662,7 @@ export class AirBubble extends LiveActor<AirBubbleNrv> {
             vec3.transformMat4(this.accel, this.accel, scratchMatrix);
             vec3.scaleAndAdd(this.accel, this.accel, this.gravityVector, -vec3.dot(this.gravityVector, this.accel));
             if (isNearZeroVec3(this.accel, 0.001))
-                getRandomVector(this.accel, 1.0);
+                randomRangeVec3(this.accel, 1.0);
             vec3.normalize(this.accel, this.accel);
 
             vec3.scaleAndAdd(this.velocity, this.velocity, this.accel, 0.1);
@@ -3701,7 +3704,7 @@ export class AirBubbleHolder extends LiveActorGroup<AirBubble> {
     }
 }
 
-const enum AirBubbleGeneratorNrv { Wait, Generate }
+enum AirBubbleGeneratorNrv { Wait, Generate }
 export class AirBubbleGenerator extends LiveActor<AirBubbleGeneratorNrv> {
     private delay: number;
     private lifetime: number;
@@ -3747,8 +3750,8 @@ export class AirBubbleGenerator extends LiveActor<AirBubbleGeneratorNrv> {
     }
 }
 
-const enum TreasureBoxType { Normal, Cracked, Gold }
-const enum TreasureBoxNrv { Wait, AlwaysOpen }
+enum TreasureBoxType { Normal, Cracked, Gold }
+enum TreasureBoxNrv { Wait, AlwaysOpen }
 export class TreasureBoxCracked extends LiveActor<TreasureBoxNrv> {
     private type: TreasureBoxType;
 
@@ -3835,7 +3838,7 @@ export class SubmarineSteam extends LiveActor {
     }
 }
 
-const enum PalmIslandNrv { Wait, Float }
+enum PalmIslandNrv { Wait, Float }
 export class PalmIsland extends LiveActor<PalmIslandNrv> {
     private floatDelay: number;
     private rippleTranslation = vec3.create();
@@ -3848,7 +3851,7 @@ export class PalmIsland extends LiveActor<PalmIslandNrv> {
         connectToSceneMapObj(sceneObjHolder, this);
         this.initEffectKeeper(sceneObjHolder, null);
 
-        this.floatDelay = getRandomInt(0, 60);
+        this.floatDelay = randomRangeInt(0, 60);
 
         this.initNerve(PalmIslandNrv.Wait);
 
@@ -4125,7 +4128,8 @@ export class WarpPod extends LiveActor {
             this.warpPathPoints.push(v);
         }
 
-        this.pathDrawer = new WarpPodPathDrawer(sceneObjHolder, this.resourceHolder.arc, this.warpPathPoints, this.color);
+        const resourceHolder = this.modelManager!.resourceHolder;
+        this.pathDrawer = new WarpPodPathDrawer(sceneObjHolder, resourceHolder.arc, this.warpPathPoints, this.color);
     }
 
     private lookForPair(sceneObjHolder: SceneObjHolder): WarpPod | null {
@@ -4150,7 +4154,7 @@ export class WarpPod extends LiveActor {
             return;
 
         if (this.pathDrawer !== null)
-            this.pathDrawer.draw(sceneObjHolder.modelCache.cache, renderInstManager, viewerInput);
+            this.pathDrawer.draw(sceneObjHolder.modelCache.renderCache, renderInstManager, viewerInput);
     }
 
     private glowEffect(sceneObjHolder: SceneObjHolder): void {
@@ -4294,8 +4298,8 @@ export class WaterPlant extends LiveActor {
             const plantData = new WaterPlantData();
 
             for (let j = 0; j < 10; j++) {
-                const x = getRandomFloat(-this.radius, this.radius);
-                const z = getRandomFloat(-this.radius, this.radius);
+                const x = randomRangeFloat(-this.radius, this.radius);
+                const z = randomRangeFloat(-this.radius, this.radius);
                 vec3.set(plantData.position, this.translation[0] + x, this.translation[1] + 500.0, this.translation[2] + z);
                 if (calcMapGround(sceneObjHolder, plantData.position, plantData.position, 1000.0))
                     break;
@@ -4303,7 +4307,7 @@ export class WaterPlant extends LiveActor {
 
             vec3.copy(plantData.axisZ, axisZ);
 
-            plantData.height = getRandomFloat(this.height, 2.0 * this.height);
+            plantData.height = randomRangeFloat(this.height, 2.0 * this.height);
             plantData.swingPosIdx0 = swingPosIdx + 6;
             plantData.swingPosIdx1 = swingPosIdx + 3;
             plantData.swingPosIdx2 = swingPosIdx;
@@ -4330,7 +4334,7 @@ export class WaterPlant extends LiveActor {
 
         const waterPlantDrawInit = sceneObjHolder.waterPlantDrawInit!;
 
-        this.ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        this.ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
         this.ddraw.allocPrimitives(GX.Command.DRAW_TRIANGLE_STRIP, 8);
 
         for (let i = 0; i < this.plantData.length; i++) {
@@ -4376,8 +4380,8 @@ export class WaterPlant extends LiveActor {
     }
 }
 
-const enum ShellfishItemType { Coin, YellowChip, BlueChip, KinokoOneUp }
-const enum ShellfishNrv { Wait, Open, OpenWait, CloseSignal, Close }
+enum ShellfishItemType { Coin, YellowChip, BlueChip, KinokoOneUp }
+enum ShellfishNrv { Wait, Open, OpenWait, CloseSignal, Close }
 const shellfishChipOffset = vec3.fromValues(0, 100, 50);
 const shellfishCoinOffset = vec3.fromValues(0, 50, 30);
 export class Shellfish extends LiveActor<ShellfishNrv> {
@@ -4750,7 +4754,7 @@ export class SwingRope extends LiveActor {
     }
 
     private drawStop(sceneObjHolder: SceneObjHolder, renderInstManager: GfxRenderInstManager, viewerInput: Viewer.ViewerRenderInput): void {
-        this.ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        this.ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
         this.ddraw.allocPrimitives(GX.Command.DRAW_TRIANGLE_STRIP, 12);
 
         const ty = 0.13 * (this.height / 50.0);
@@ -5003,7 +5007,7 @@ export class Trapeze extends LiveActor {
         if (!isValidDraw(this))
             return;
 
-        this.ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        this.ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
 
         // Neg
         vec3.scaleAndAdd(scratchVec3a, this.translation, this.axisX, -60.0);
@@ -5172,7 +5176,7 @@ export class Creeper extends LiveActor {
         if (!isValidDraw(this))
             return;
 
-        this.ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        this.ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
 
         this.ddraw.begin(GX.Command.DRAW_TRIANGLE_STRIP);
         for (let i = 0; i < this.creeperPoints.length; i++) {
@@ -5345,7 +5349,7 @@ class OceanRingDrawer {
     }
 
     public draw(sceneObjHolder: SceneObjHolder, renderInstManager: GfxRenderInstManager, viewerInput: Viewer.ViewerRenderInput): void {
-        this.ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        this.ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
 
         const p = this.oceanRing.points, pointsPerSegment = this.oceanRing.pointsPerSegment;
 
@@ -5632,7 +5636,7 @@ class OceanRingPipe extends LiveActor {
 
     private initPoints(sceneObjHolder: SceneObjHolder): vec3[] {
         const device = sceneObjHolder.modelCache.device;
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
 
         // Initializes the vertex & index buffers.
 
@@ -5729,8 +5733,8 @@ class OceanRingPipe extends LiveActor {
             moveCoord(this.oceanRing, segmentSize);
         }
 
-        this.vertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, vertexData.buffer);
-        this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, indexData.buffer);
+        this.vertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, vertexData.buffer);
+        this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, indexData.buffer);
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
             { location: getVertexInputLocation(VertexAttributeInput.POS), format: GfxFormat.F32_RGB, bufferIndex: 0, bufferByteOffset: 0*0x04, },
@@ -5747,8 +5751,8 @@ class OceanRingPipe extends LiveActor {
             vertexBufferDescriptors,
         });
 
-        this.vertexBufferDescriptors = [{ buffer: this.vertexBuffer, byteOffset: 0, }];
-        this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+        this.vertexBufferDescriptors = [{ buffer: this.vertexBuffer }];
+        this.indexBufferDescriptor = { buffer: this.indexBuffer };
         return points;
     }
 
@@ -6195,7 +6199,7 @@ export class Flag extends LiveActor {
         if (!isValidDraw(this))
             return;
 
-        this.ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        this.ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
 
         for (let i = 1; i < this.fixPoints.length; i++) {
             this.ddraw.begin(GX.Command.DRAW_TRIANGLE_STRIP);
@@ -6288,20 +6292,20 @@ export class Flag extends LiveActor {
         // Random acceleration
         if (this.vertical) {
             // Vertical flags give a swing point some acceleration every few frames.
-            if (getRandomInt(0, 2) === 0) {
-                const fpi = getRandomInt(0, this.fixPointCount);
-                const spi = getRandomInt(0, this.swingPointCount);
+            if (randomRangeInt(0, 2) === 0) {
+                const fpi = randomRangeInt(0, this.fixPointCount);
+                const spi = randomRangeInt(0, this.swingPointCount);
 
-                vec3.set(scratchVec3a, getRandomFloat(-1.0, 1.0), 0.0, getRandomFloat(-1.0, 1.0));
+                vec3.set(scratchVec3a, randomRangeFloat(-1.0, 1.0), 0.0, randomRangeFloat(-1.0, 1.0));
                 vecKillElement(scratchVec3a, scratchVec3a, this.axisY);
-                vec3.scale(scratchVec3a, scratchVec3a, getRandomFloat(this.affectRndmMin, this.affectRndmMax));
+                vec3.scale(scratchVec3a, scratchVec3a, randomRangeFloat(this.affectRndmMin, this.affectRndmMax));
                 this.fixPoints[fpi].points[spi].addAccel(scratchVec3a);
             }
         } else {
             // Horizontal flags give the first swing point some random acceleration.
             for (let i = 0; i < this.fixPoints.length; i++) {
-                vec3.set(scratchVec3a, getRandomFloat(-1.0, 1.0), 0.0, getRandomFloat(-1.0, 1.0));
-                vec3.scale(scratchVec3a, scratchVec3a, getRandomFloat(this.affectRndmMin, this.affectRndmMax));
+                vec3.set(scratchVec3a, randomRangeFloat(-1.0, 1.0), 0.0, randomRangeFloat(-1.0, 1.0));
+                vec3.scale(scratchVec3a, scratchVec3a, randomRangeFloat(this.affectRndmMin, this.affectRndmMax));
                 this.fixPoints[i].points[0].addAccel(scratchVec3a);
             }
         }
@@ -6365,7 +6369,7 @@ export class Flag extends LiveActor {
     }
 }
 
-const enum ElectricRailType {
+enum ElectricRailType {
     Normal0,
     Normal1,
     Moving0,
@@ -6424,6 +6428,8 @@ export class ElectricRailHolder extends NameObj {
     public override draw(sceneObjHolder: SceneObjHolder, renderInstManager: GfxRenderInstManager, viewerInput: Viewer.ViewerRenderInput): void {
         super.draw(sceneObjHolder, renderInstManager, viewerInput);
 
+        const camera = viewerInput.camera;
+
         const cache = renderInstManager.gfxRenderCache;
         for (let i = 0; i < ElectricRailType.Count; i++) {
             const modelObj = this.models[i];
@@ -6433,7 +6439,7 @@ export class ElectricRailHolder extends NameObj {
             const template = renderInstManager.pushTemplate();
 
             const modelInstance = modelObj.modelInstance!;
-            mat4.copy(drawParams.u_PosMtx[0], viewerInput.camera.viewMatrix);
+            mat4.copy(drawParams.u_PosMtx[0], camera.viewMatrix);
 
             const materialInstance = modelInstance.materialInstances[0];
             materialInstance.setOnRenderInst(cache, template);
@@ -6447,7 +6453,7 @@ export class ElectricRailHolder extends NameObj {
                 if (!rail.visibleScenario || !rail.visibleAlive)
                     continue;
 
-                materialInstance.fillOnMaterialParams(materialParams, modelInstance.materialInstanceState, viewerInput.camera, modelInstance.modelMatrix, drawParams);
+                materialInstance.fillOnMaterialParams(materialParams, modelInstance.materialInstanceState, camera.projectionMatrix, camera.viewMatrix, modelInstance.modelMatrix, drawParams);
                 const railTemplate = renderInstManager.pushTemplate();
                 railTemplate.setSamplerBindingsFromTextureMappings(materialParams.m_TextureMapping);
                 rail.drawRail(sceneObjHolder, renderInstManager, materialInstance.materialHelper, materialParams);
@@ -6685,7 +6691,7 @@ export class ElectricRail extends LiveActor implements ElectricRailBase {
     }
 
     private drawAndUploadRail(sceneObjHolder: SceneObjHolder): void {
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
         this.ddraw.beginDraw(cache);
 
         this.drawPlane(this.ddraw, this.size, this.size, -this.size, -this.size);
@@ -6936,7 +6942,7 @@ export class ElectricRailMoving extends LiveActor implements ElectricRailBase {
     }
 
     private drawAndUploadRail(sceneObjHolder: SceneObjHolder): void {
-        const cache = sceneObjHolder.modelCache.cache;
+        const cache = sceneObjHolder.modelCache.renderCache;
         this.ddraw.beginDraw(cache);
         this.drawPlane(sceneObjHolder, this.ddraw, this.size, this.size, -this.size, -this.size);
         this.drawPlane(sceneObjHolder, this.ddraw, -this.size, this.size, this.size, -this.size);
@@ -6968,7 +6974,7 @@ export class ElectricRailMoving extends LiveActor implements ElectricRailBase {
     }
 }
 
-const enum FluffWindEffectNrv { Init, BrowWind }
+enum FluffWindEffectNrv { Init, BrowWind }
 class FluffWindEffect extends LiveActor<FluffWindEffectNrv> {
     private effectHostMtx = mat4.create();
     private effectName: string;
@@ -6996,14 +7002,14 @@ class FluffWindEffect extends LiveActor<FluffWindEffectNrv> {
             // we don't have the same clip system. Perhaps we should add it. For now, we just
             // fudge the start time a bit.
             if (isFirstStep(this))
-                this.lifetime = getRandomInt(0, 600);
+                this.lifetime = randomRangeInt(0, 600);
 
             if (isGreaterStep(this, this.lifetime))
                 this.setNerve(FluffWindEffectNrv.BrowWind);
         } else if (currentNerve === FluffWindEffectNrv.BrowWind) {
             if (isFirstStep(this)) {
                 emitEffect(sceneObjHolder, this, this.effectName);
-                this.lifetime = getRandomInt(60, 240);
+                this.lifetime = randomRangeInt(60, 240);
             }
 
             if (isGreaterStep(this, this.lifetime))
@@ -7036,7 +7042,7 @@ export class FluffWind extends LiveActor {
     }
 }
 
-const enum OceanFloaterLandPartsNrv { Wait, Move, Done }
+enum OceanFloaterLandPartsNrv { Wait, Move, Done }
 export class OceanFloaterLandParts extends LiveActor<OceanFloaterLandPartsNrv> {
     private railMover: MapPartsRailMover | null = null;
     private endPos = vec3.create();
@@ -7118,7 +7124,7 @@ export class OceanFloaterLandParts extends LiveActor<OceanFloaterLandPartsNrv> {
     }
 }
 
-const enum PlantMemberNrv { Wait, Hint }
+enum PlantMemberNrv { Wait, Hint }
 class PlantMember extends LiveActor<PlantMemberNrv> {
     public hasItem: boolean = false;
 
@@ -7166,10 +7172,10 @@ class PlantMember extends LiveActor<PlantMemberNrv> {
         calcMtxFromGravityAndZAxis(scratchMatrix, this, this.gravityVector, scratchVec3a);
 
         // Rotate randomly around the gravity vector.
-        const angle = getRandomFloat(-Math.PI, Math.PI);
+        const angle = randomRangeFloat(-Math.PI, Math.PI);
         mat4.rotateY(scratchMatrix, scratchMatrix, angle);
 
-        computeEulerAngleRotationFromSRTMatrix(this.rotation, scratchMatrix);
+        calcEulerAngleRotationFromSRTMatrix(this.rotation, scratchMatrix);
     }
 
     public tryEmitHint(): boolean {
@@ -7220,7 +7226,7 @@ export class PlantGroup extends LiveActor {
         setEffectHostSRT(this, 'HintShakeLeaf', this.effectTranslation, this.effectRotation, null);
         // initStarPointerTarget
         // switches
-        this.hintTimer = getRandomInt(3, 10) * 10;
+        this.hintTimer = randomRangeInt(3, 10) * 10;
     }
 
     protected override control(sceneObjHolder: SceneObjHolder): void {
@@ -7293,7 +7299,7 @@ export class PlantGroup extends LiveActor {
 
         // Shuffle around items.
         for (let i = 0; i < this.count; i++) {
-            const j = getRandomInt(0, i + 1);
+            const j = randomRangeInt(0, i + 1);
             const hasItem = this.members[j].hasItem;
             this.members[j].hasItem = this.members[i].hasItem;
             this.members[i].hasItem = hasItem;
@@ -7377,7 +7383,7 @@ export class MovieStarter extends LiveActor {
     }
 }
 
-const enum WaterLeakPipeNrv { Wait, Freeze }
+enum WaterLeakPipeNrv { Wait, Freeze }
 export class WaterLeakPipe extends LiveActor<WaterLeakPipeNrv> {
     private jointTop: mat4;
     private jointBottom: mat4;
@@ -7422,7 +7428,7 @@ export class WaterLeakPipe extends LiveActor<WaterLeakPipeNrv> {
     }
 }
 
-const enum UFOBaseNrv { Wait, Move, WaitForPlayerOn }
+enum UFOBaseNrv { Wait, Move, WaitForPlayerOn }
 class UFOBase extends LiveActor<UFOBaseNrv> {
     private front = vec3.create();
     private railMover: MapPartsRailMover | null = null;
@@ -7684,7 +7690,7 @@ export class BrightSun extends LiveActor {
         quatSetRotate(scratchQuat, Vec3UnitZ, scratchVec3);
         mat4.fromQuat(scratchMatrix, scratchQuat);
 
-        computeEulerAngleRotationFromSRTMatrix(this.sun.rotation, scratchMatrix);
+        calcEulerAngleRotationFromSRTMatrix(this.sun.rotation, scratchMatrix);
     }
 
     public static override requestArchives(sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter): void {
@@ -7714,7 +7720,7 @@ export class BrightObj extends LiveActor {
     }
 }
 
-const enum FirePressureRadiateNrv { Relax, Wait, PrepareToRadiate, Radiate, RadiateMargin, SyncWait, }
+enum FirePressureRadiateNrv { Relax, Wait, PrepareToRadiate, Radiate, RadiateMargin, SyncWait, }
 export class FirePressureRadiate extends LiveActor<FirePressureRadiateNrv> {
     private effectHostMtx = mat4.create();
     private waitStep: number;
@@ -7905,7 +7911,7 @@ export class CoconutTree extends LiveActor {
     }
 }
 
-const enum AstroDomeSkyNrv { Wait }
+enum AstroDomeSkyNrv { Wait }
 export class AstroDomeSky extends LiveActor<AstroDomeSkyNrv> {
     private isSkybox = true;
 
@@ -8068,7 +8074,7 @@ class AstroDomeOrbit extends LiveActor {
     }
 
     private drawOrbitPath(sceneObjHolder: SceneObjHolder, renderInstManager: GfxRenderInstManager, viewerInput: Viewer.ViewerRenderInput, ddraw: TDDraw, width: number, height: number, color: number): void {
-        ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
         this.drawCeiling(ddraw, width, true, height);
         this.drawCeiling(ddraw, width, false, height);
         this.drawSide(ddraw, width, true, height);
@@ -8199,8 +8205,8 @@ class AstroDomeOrbit extends LiveActor {
     }
 }
 
-const enum MiniatureGalaxyNrv { Wait }
-const enum MiniatureGalaxyType { Normal, ExGalaxy, Boss }
+enum MiniatureGalaxyNrv { Wait }
+enum MiniatureGalaxyType { Normal, ExGalaxy, Boss }
 export class MiniatureGalaxy extends LiveActor<MiniatureGalaxyNrv> {
     public galaxyType: MiniatureGalaxyType;
 
@@ -8310,7 +8316,7 @@ export class MiniatureGalaxy extends LiveActor<MiniatureGalaxyNrv> {
     }
 }
 
-const enum ScrewSwitchNrv { Wait, End }
+enum ScrewSwitchNrv { Wait, End }
 export class ScrewSwitch extends LiveActor<ScrewSwitchNrv> {
     private mapObjConnector: MapObjConnector;
 
@@ -8423,7 +8429,7 @@ class Button extends NameObj {
     }
 }
 
-const enum ScrewSwitchReverseNrv { Wait, Screw }
+enum ScrewSwitchReverseNrv { Wait, Screw }
 export class ScrewSwitchReverse extends LiveActor<ScrewSwitchReverseNrv> {
     private button: Button;
 
@@ -8488,7 +8494,7 @@ export class ScrewSwitchReverse extends LiveActor<ScrewSwitchReverseNrv> {
     }
 }
 
-const enum SpinLeverSwitchNrv { Wait, SwitchOn, End }
+enum SpinLeverSwitchNrv { Wait, SwitchOn, End }
 export class SpinLeverSwitch extends LiveActor<SpinLeverSwitchNrv> {
     private button: Button;
     private mapObjConnector: MapObjConnector;
@@ -8565,7 +8571,7 @@ export class SpinLeverSwitch extends LiveActor<SpinLeverSwitchNrv> {
     }
 }
 
-const enum LavaGeyserNrv { Wait, WaitSwitch, Sign, ShootUp, ShootKeep, ShootDown }
+enum LavaGeyserNrv { Wait, WaitSwitch, Sign, ShootUp, ShootKeep, ShootDown }
 export class LavaGeyser extends LiveActor<LavaGeyserNrv> {
     private waitTime: number = 0;
     private keepWaitTime: number = 0;
@@ -8593,7 +8599,7 @@ export class LavaGeyser extends LiveActor<LavaGeyserNrv> {
         else
             this.initNerve(LavaGeyserNrv.Wait);
 
-        this.initWaitPhase = getRandomInt(0, this.waitTime);
+        this.initWaitPhase = randomRangeInt(0, this.waitTime);
 
         this.makeActorAppeared(sceneObjHolder);
     }
@@ -8667,7 +8673,7 @@ class HeatHazeEffect extends LiveActor {
         getMatrixTranslation(this.translation, sceneObjHolder.viewerInput.camera.worldMatrix);
         vec3.scaleAndAdd(this.translation, this.translation, scratchVec3, this.depth);
 
-        computeEulerAngleRotationFromSRTMatrix(this.rotation, sceneObjHolder.viewerInput.camera.worldMatrix);
+        calcEulerAngleRotationFromSRTMatrix(this.rotation, sceneObjHolder.viewerInput.camera.worldMatrix);
 
         const scale = this.depth / 1000.0;
         vec3SetAll(this.scale, scale);
@@ -8706,7 +8712,7 @@ export class HeatHazeDirector extends NameObj {
     }
 }
 
-const enum LavaProminenceNrv { Wait, WaitSwitch, Sign, MoveStartExtra, MoveLoop, MoveEndExtra, }
+enum LavaProminenceNrv { Wait, WaitSwitch, Sign, MoveStartExtra, MoveLoop, MoveEndExtra, }
 function calcUpVecFromGravity(dst: vec3, sceneObjHolder: SceneObjHolder, actor: LiveActor, pos: vec3): void {
     calcGravityVector(sceneObjHolder, actor, pos, dst);
     if (isNearZeroVec3(dst, 0.001))
@@ -8776,7 +8782,7 @@ export class LavaProminence extends LiveActor<LavaProminenceNrv> {
         this.bloomModel = createBloomModel(sceneObjHolder, this, this.bloomModelMtx)!;
         startBtk(this.bloomModel, 'LavaProminenceBloom');
 
-        this.initWaitPhase = getRandomInt(0, 100);
+        this.initWaitPhase = randomRangeInt(0, 100);
 
         this.makeActorAppeared(sceneObjHolder);
     }
@@ -9031,7 +9037,7 @@ export class WhirlPoolAccelerator extends LiveActor {
         if (!isValidDraw(this))
             return;
 
-        this.ddraw.beginDraw(sceneObjHolder.modelCache.cache);
+        this.ddraw.beginDraw(sceneObjHolder.modelCache.renderCache);
         this.drawPlane(this.ddraw,  0.5,  Math.SQRT1_2, -0.5,  Math.SQRT1_2, this.texCoordS + 0/6, this.texCoordS + 1/6);
         this.drawPlane(this.ddraw, -0.5,  Math.SQRT1_2, -1.0,  0.0,          this.texCoordS + 1/6, this.texCoordS + 2/6);
         this.drawPlane(this.ddraw, -1.0,  0.0,          -0.5, -Math.SQRT1_2, this.texCoordS + 2/6, this.texCoordS + 3/6);
@@ -9076,7 +9082,7 @@ export class WhirlPoolAccelerator extends LiveActor {
     }
 }
 
-const enum RainCloudNrv { Wait, Disappear, Appear, End, }
+enum RainCloudNrv { Wait, Disappear, Appear, End, }
 export class RainCloud extends LiveActor<RainCloudNrv> {
     private railMover: MapPartsRailMover | null = null;
     private rainCylinder: ModelObj | null = null;
@@ -9285,7 +9291,7 @@ export class RainCloud extends LiveActor<RainCloudNrv> {
     }
 }
 
-const enum LavaProminenceType { LavaProminenceTriple, LavaProminenceEnvironment }
+enum LavaProminenceType { LavaProminenceTriple, LavaProminenceEnvironment }
 export class LavaProminenceTriple extends LiveActor {
     private bloomModel: PartsModel | null;
     private bloomMtx = mat4.create();
@@ -9367,7 +9373,7 @@ export class LavaProminenceTriple extends LiveActor {
     }
 }
 
-const enum FallingSmallRockNrv { Move }
+enum FallingSmallRockNrv { Move }
 export class FallingSmallRock extends LiveActor<FallingSmallRockNrv> {
     constructor(zoneAndLayer: ZoneAndLayer, sceneObjHolder: SceneObjHolder, infoIter: JMapInfoIter) {
         super(zoneAndLayer, sceneObjHolder, getObjectName(infoIter));
@@ -9396,9 +9402,9 @@ export class FallingSmallRock extends LiveActor<FallingSmallRockNrv> {
     }
 }
 
-const enum MorphItemObjNeoNrv { Wait, Appear, Fly, SwitchAppear }
-const enum MorphItemObjNeoType { Hopper, Bee, Teresa, Ice, Fire, Foo }
-const enum MorphItemObjNeoContainerType { None, CrystalBox, ItemBubble }
+enum MorphItemObjNeoNrv { Wait, Appear, Fly, SwitchAppear }
+enum MorphItemObjNeoType { Hopper, Bee, Teresa, Ice, Fire, Foo }
+enum MorphItemObjNeoContainerType { None, CrystalBox, ItemBubble }
 export class MorphItemObjNeo extends LiveActor<MorphItemObjNeoNrv> {
     private type: MorphItemObjNeoType;
     private containerType: MorphItemObjNeoContainerType;

@@ -30,29 +30,33 @@ layout(std140) uniform ub_MaterialParams {
 varying vec2 v_LightIntensity;
 varying vec2 v_TexCoord0;
 
-#ifdef VERT
+#if defined VERT
 void mainVS() {
-    Mat4x3 t_WorldFromLocalMatrix = CalcWorldFromLocalMatrix();
-    vec3 t_PositionWorld = Mul(t_WorldFromLocalMatrix, vec4(a_Position, 1.0));
+    mat4x3 t_WorldFromLocalMatrix = CalcWorldFromLocalMatrix();
+    vec3 t_PositionWorld = t_WorldFromLocalMatrix * vec4(a_Position, 1.0);
     vec3 t_LightDirection = normalize(vec3(.2, -1, .5));
     vec3 normal = MulNormalMatrix(t_WorldFromLocalMatrix, normalize(a_Normal));
     float t_LightIntensityF = dot(-normal, t_LightDirection);
     float t_LightIntensityB = dot( normal, t_LightDirection);
 
-    gl_Position = Mul(u_ProjectionView, vec4(t_PositionWorld, 1.0));
+    gl_Position = UnpackMatrix(u_ProjectionView) * vec4(t_PositionWorld, 1.0);
     v_LightIntensity = vec2(t_LightIntensityF, t_LightIntensityB);
     v_TexCoord0 = CalcScaleBias(a_TexCoord0, u_MainTexST);
 }
 #endif
 
-#ifdef FRAG
+#if defined FRAG
 uniform sampler2D u_Texture;
 
 void mainPS() {
-    vec4 t_Color = u_Color * texture(u_Texture, v_TexCoord0);
+    vec4 t_Color = u_Color;
+
+#if defined USE_TEXTURE
+    t_Color *= texture(u_Texture, v_TexCoord0);
 
     if (t_Color.a < u_AlphaCutoff)
         discard;
+#endif
 
     float t_LightIntensity = gl_FrontFacing ? v_LightIntensity.x : v_LightIntensity.y;
     float t_LightTint = 0.2 * t_LightIntensity;
@@ -73,7 +77,9 @@ class TempMaterial extends UnityMaterialInstance {
     constructor(runtime: UnityRuntime, private materialData: UnityMaterialData) {
         super();
 
-        this.materialData.fillTextureMapping(this.textureMapping[0], '_MainTex');
+        const hasMainTex = this.materialData.fillTextureMapping(this.textureMapping[0], '_MainTex');
+        this.program.setDefineBool('USE_TEXTURE', hasMainTex);
+
         this.alphaCutoff = fallback(this.materialData.getFloat('_Cutoff'), 0.0);
 
         if (this.materialData.name.includes('Terrain'))
@@ -120,14 +126,14 @@ uniform sampler2D u_Splat3;
 
 #ifdef VERT
 void mainVS() {
-    Mat4x3 t_WorldFromLocalMatrix = CalcWorldFromLocalMatrix();
-    vec3 t_PositionWorld = Mul(t_WorldFromLocalMatrix, vec4(a_Position, 1.0));
+    mat4x3 t_WorldFromLocalMatrix = CalcWorldFromLocalMatrix();
+    vec3 t_PositionWorld = t_WorldFromLocalMatrix * vec4(a_Position, 1.0);
     vec3 t_LightDirection = normalize(vec3(.2, -1, .5));
     vec3 normal = MulNormalMatrix(t_WorldFromLocalMatrix, normalize(a_Normal));
     float t_LightIntensityF = dot(-normal, t_LightDirection);
     float t_LightIntensityB = dot( normal, t_LightDirection);
 
-    gl_Position = Mul(u_ProjectionView, vec4(t_PositionWorld, 1.0));
+    gl_Position = UnpackMatrix(u_ProjectionView) * vec4(t_PositionWorld, 1.0);
     v_LightIntensity = vec2(t_LightIntensityF, t_LightIntensityB);
 
     for (int i = 0; i < 6; i++)
@@ -202,8 +208,7 @@ class TerrainMaterial extends UnityMaterialInstance {
 
 class AShortHikeMaterialFactory extends UnityMaterialFactory {
     public createMaterialInstance(runtime: UnityRuntime, materialData: UnityMaterialData): UnityMaterialInstance {
-        // TODO(jstpierre): Pull out serialized shader data
-        if (materialData.name.includes('_Splat3'))
+        if (materialData.shader?.name?.startsWith('Custom Unlit/Unlit Terrain'))
             return new TerrainMaterial(runtime, materialData);
         else
             return new TempMaterial(runtime, materialData);
@@ -243,6 +248,8 @@ class UnityRenderer implements Viewer.SceneGfx {
     }
 
     public render(device: GfxDevice, viewerInput: Viewer.ViewerRenderInput) {
+        viewerInput.camera.setClipPlanes(1);
+
         const mainColorDesc = makeBackbufferDescSimple(GfxrAttachmentSlot.Color0, viewerInput, standardFullClearRenderPassDescriptor);
         const mainDepthDesc = makeBackbufferDescSimple(GfxrAttachmentSlot.DepthStencil, viewerInput, standardFullClearRenderPassDescriptor);
 
@@ -283,7 +290,6 @@ class AShortHikeSceneDesc implements Viewer.SceneDesc {
         const renderer = new UnityRenderer(runtime);
         return renderer;
     }
-
 }
 
 const id = 'AShortHike';

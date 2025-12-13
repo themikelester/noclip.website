@@ -353,7 +353,7 @@ export function parse(buffer: ArrayBufferSlice): AnimGroup {
         const dispMode = view.getUint32(shapeIdx + 0xA0);
 
         const cullModeRaw = view.getUint32(shapeIdx + 0xA4);
-        const cullModeTable: GX.CullMode[] = [GX.CullMode.BACK, GX.CullMode.FRONT, GX.CullMode.ALL, GX.CullMode.NONE];
+        const cullModeTable: GX.CullMode[] = [GX.CullMode.BACK, GX.CullMode.FRONT, GX.CullMode.NONE, GX.CullMode.NONE];
         const cullMode = cullModeTable[cullModeRaw];
 
         const shape: AnimGroupData_Shape = { name, vtxArrays, draws, dispMode, cullMode };
@@ -546,7 +546,8 @@ export class AnimGroupData {
     }
 }
 
-function translateSampler(device: GfxDevice, cache: GfxRenderCache, sampler: TEX1_SamplerSub, wrapS: GX.WrapMode, wrapT: GX.WrapMode): GfxSampler {
+function translateSampler(cache: GfxRenderCache, sampler: TEX1_SamplerSub, wrapS: GX.WrapMode, wrapT: GX.WrapMode): GfxSampler {
+    const isNoMip = sampler.minFilter === GX.TexFilter.LINEAR || sampler.minFilter === GX.TexFilter.NEAR;
     const [minFilter, mipFilter] = translateTexFilterGfx(sampler.minFilter);
     const [magFilter]            = translateTexFilterGfx(sampler.magFilter);
 
@@ -555,7 +556,7 @@ function translateSampler(device: GfxDevice, cache: GfxRenderCache, sampler: TEX
         wrapT: translateWrapModeGfx(wrapT),
         minFilter, mipFilter, magFilter,
         minLOD: sampler.minLOD,
-        maxLOD: sampler.maxLOD,
+        maxLOD: isNoMip ? sampler.minLOD : sampler.maxLOD,
     });
 
     return gfxSampler;
@@ -579,7 +580,7 @@ class AnimGroupData_ShapeDraw {
 }
 
 class AnimGroupInstance_Shape {
-    private shapeHelper: AnimGroupData_ShapeDraw[];
+    private shapeDraw: AnimGroupData_ShapeDraw[];
     private materialHelper: GXMaterialHelperGfx[];
     private renderLayers: GfxRendererLayer[] = [];
     private vtxBuffer: GfxBuffer;
@@ -592,11 +593,11 @@ class AnimGroupInstance_Shape {
             vtxByteCount += this.shape.draws[i].loadedVertexData.byteLength;
             idxByteCount += this.shape.draws[i].loadedIndexData.byteLength;
         }
-        this.vtxBuffer = device.createBuffer(align(vtxByteCount, 4) / 4, GfxBufferUsage.Vertex, this.animGroupData.animGroup.hasAnyVtxAnm ? GfxBufferFrequencyHint.Dynamic : GfxBufferFrequencyHint.Static);
-        this.idxBuffer = device.createBuffer(align(idxByteCount, 4) / 4, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static);
+        this.vtxBuffer = device.createBuffer(vtxByteCount, GfxBufferUsage.Vertex, this.animGroupData.animGroup.hasAnyVtxAnm ? GfxBufferFrequencyHint.Dynamic : GfxBufferFrequencyHint.Static);
+        this.idxBuffer = device.createBuffer(idxByteCount, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static);
 
         let vtxByteOffset = 0, idxByteOffset = 0;
-        this.shapeHelper = this.shape.draws.map((draw, i) => {
+        this.shapeDraw = this.shape.draws.map((draw, i) => {
             const vertexBuffer: GfxVertexBufferDescriptor = { buffer: this.vtxBuffer, byteOffset: vtxByteOffset };
             const indexBuffer: GfxIndexBufferDescriptor = { buffer: this.idxBuffer, byteOffset: idxByteOffset };
             device.uploadBufferData(this.vtxBuffer, vtxByteOffset, new Uint8Array(draw.loadedVertexData));
@@ -669,11 +670,11 @@ class AnimGroupInstance_Shape {
     
         for (let i = 0; i < this.shape.draws.length; i++) {
             const draw = this.shape.draws[i];
-            const shapeHelper = this.shapeHelper[i];
+            const shapeDraw = this.shapeDraw[i];
             const materialHelper = this.materialHelper[i];
 
             const renderInst = renderInstManager.newRenderInst();
-            shapeHelper.setOnRenderInst(renderInst);
+            shapeDraw.setOnRenderInst(renderInst);
             materialHelper.setOnRenderInst(renderInstManager.gfxRenderCache, renderInst);
 
             mat4.mul(drawParams.u_PosMtx[0], viewerInput.camera.viewMatrix, modelMatrix);
@@ -693,7 +694,7 @@ class AnimGroupInstance_Shape {
                 if (texBase.wrapFlags >= 0) {
                     const wrapS = !!(texBase.wrapFlags & 0x04) ? GX.WrapMode.MIRROR : !!(texBase.wrapFlags & 0x01) ? GX.WrapMode.REPEAT : GX.WrapMode.CLAMP;
                     const wrapT = !!(texBase.wrapFlags & 0x08) ? GX.WrapMode.MIRROR : !!(texBase.wrapFlags & 0x02) ? GX.WrapMode.REPEAT : GX.WrapMode.CLAMP;
-                    materialParams.m_TextureMapping[j].gfxSampler = translateSampler(device, renderInstManager.gfxRenderCache, this.animGroupData.textureData[texArcIdx].btiTexture, wrapS, wrapT);
+                    materialParams.m_TextureMapping[j].gfxSampler = translateSampler(renderInstManager.gfxRenderCache, this.animGroupData.textureData[texArcIdx].btiTexture, wrapS, wrapT);
                 }
             }
 
@@ -1003,15 +1004,20 @@ export class AnimGroupInstance {
         mat4.copy(this.nodeMatrixStack.get(0), this.modelMatrix);
         this.prepareToRenderGroup(device, renderInstManager, viewerInput, this.animGroupData.animGroup.groups.length - 1);
     }
+
+    public destroy(device: GfxDevice): void {
+        for (let i = 0; i < this.shapes.length; i++)
+            this.shapes[i].destroy(device);
+    }
 }
 
 export class AnimGroupDataCache {
     public animGroupDataCache = new Map<string, AnimGroupData>();
     public promiseCache = new Map<string, Promise<AnimGroupData>>();
-    private cache: GfxRenderCache;
+    private renderCache: GfxRenderCache;
 
     constructor(private device: GfxDevice, private dataFetcher: DataFetcher, private pathBase: string) {
-        this.cache = new GfxRenderCache(device);
+        this.renderCache = new GfxRenderCache(device);
     }
 
     private async requestAnimGroupDataInternal(ag: string, abortedCallback: AbortedCallback): Promise<AnimGroupData> {
@@ -1026,7 +1032,7 @@ export class AnimGroupDataCache {
         const tgData = await this.dataFetcher.fetchData(`${this.pathBase}/a/${tg}-`, { abortedCallback });
 
         const tpl = TPL.parse(tgData, textureNames);
-        const animGroupData = new AnimGroupData(this.device, this.cache, animGroup, tpl);
+        const animGroupData = new AnimGroupData(this.device, this.renderCache, animGroup, tpl);
         this.animGroupDataCache.set(ag, animGroupData);
         return animGroupData;
     }
@@ -1043,7 +1049,7 @@ export class AnimGroupDataCache {
     }
 
     public destroy(device: GfxDevice): void {
-        this.cache.destroy();
+        this.renderCache.destroy();
         for (const animGroupData of this.animGroupDataCache.values())
             animGroupData.destroy(device);
     }

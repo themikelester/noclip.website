@@ -189,18 +189,16 @@ class ModelCache {
     public textureHolder = new PVRTextureHolder();
     private archiveCache = new Map<string, AFS.AFS>();
     private archivePromiseCache = new Map<string, Promise<AFS.AFS>>();
+    private actionData: NjsActionData[] = [];
     private texOpaqueMagenta: GfxTexture;
-    private texOpaqueYellow: GfxTexture;
     private texOpaqueWhite: GfxTexture;
 
-    constructor(public device: GfxDevice, public cache: GfxRenderCache, private dataFetcher: DataFetcher, private stageData: StageData) {
-        this.cache = new GfxRenderCache(device);
+    constructor(public device: GfxDevice, public renderCache: GfxRenderCache, private dataFetcher: DataFetcher, private stageData: StageData) {
+        this.renderCache = new GfxRenderCache(device);
 
         this.texOpaqueMagenta = makeSolidColorTexture2D(device, Magenta);
-        this.texOpaqueYellow = makeSolidColorTexture2D(device, Yellow);
         this.texOpaqueWhite = makeSolidColorTexture2D(device, White);
         this.textureHolder.setTextureOverride('_magenta', { gfxTexture: this.texOpaqueMagenta, width: 1, height: 1, flipY: false });
-        this.textureHolder.setTextureOverride('_yellow', { gfxTexture: this.texOpaqueYellow, width: 1, height: 1, flipY: false });
         this.textureHolder.setTextureOverride('_white', { gfxTexture: this.texOpaqueWhite, width: 1, height: 1, flipY: false });
     }
 
@@ -262,41 +260,34 @@ class ModelCache {
         return texlist;
     }
 
-    public loadModelData(id: number): NjsActionData {
-        if (this.modelData.has(id))
-            return this.modelData.get(id)!;
-
-        const model = this.stageData.Models[id];
-        //console.warn(`${hexzero0x(id)}`)
-        const binData = this.getAFSRef(model);
-        const stageLoadAddr = this.stageData.BaseAddress;
-        const objects = Ninja.parseNjsObjects(binData, stageLoadAddr, model.Offset);
-        const action: Ninja.NJS_ACTION = { frames: 0, objects, motions: [] };
-        const actionData = new NjsActionData(this.device, this.cache, action, 0);
-        actionData.texlist = this.loadTexlistIndex(model.TexlistIndex);
-        this.modelData.set(id, actionData);
-        return actionData;
-    }
-
     public loadFromModelData(dat: ModelData) {
         const model = dat;
         const binData = this.getAFSRef(model);
         const stageLoadAddr = this.stageData.BaseAddress;
         const objects = Ninja.parseNjsObjects(binData, stageLoadAddr, model.Offset);
         const action: Ninja.NJS_ACTION = { frames: 0, objects, motions: [] };
-        const actionData = new NjsActionData(this.device, this.cache, action, 0);
+        const actionData = new NjsActionData(this.device, this.renderCache, action, 0);
         actionData.texlist = this.loadTexlistIndex(model.TexlistIndex);
+        this.actionData.push(actionData);
+        return actionData;
+    }
+
+    public loadModelData(id: number): NjsActionData {
+        if (this.modelData.has(id))
+            return this.modelData.get(id)!;
+
+        const actionData = this.loadFromModelData(this.stageData.Models[id]);
+        this.modelData.set(id, actionData);
         return actionData;
     }
 
     public destroy(device: GfxDevice): void {
-        this.cache.destroy();
+        this.renderCache.destroy();
         this.textureHolder.destroy(device);
         device.destroyTexture(this.texOpaqueMagenta);
-        device.destroyTexture(this.texOpaqueYellow);
         device.destroyTexture(this.texOpaqueWhite);
-        for (const v of this.modelData.values())
-            v.destroy(device);
+        for (let i = 0; i < this.actionData.length; i++)
+            this.actionData[i].destroy(device);
     }
 }
 
@@ -316,7 +307,7 @@ class JetSetRadioSceneDesc implements SceneDesc {
         for (let i = 0; i < stageData.Objects.length; i++) {
             const object = stageData.Objects[i];
             const modelData = modelCache.loadModelData(object.ModelID);
-            const actionInstance = new NjsActionInstance(modelCache.cache, modelData, modelData.texlist, modelCache.textureHolder);
+            const actionInstance = new NjsActionInstance(modelCache.renderCache, modelData, modelData.texlist, modelCache.textureHolder);
             actionInstance.modelID = object.ModelID;
             const modelMatrix = mat4.create();
             mat4.fromTranslation(modelMatrix, object.Translation);
@@ -331,7 +322,7 @@ class JetSetRadioSceneDesc implements SceneDesc {
         if (stageData.Skybox !== null) {
             for (const mesh of stageData.Skybox.Meshes) {
                 const modelDataOuter = modelCache.loadFromModelData(mesh);
-                const actionInstanceOuter = new NjsActionInstance(modelCache.cache, modelDataOuter, modelDataOuter.texlist, modelCache.textureHolder);
+                const actionInstanceOuter = new NjsActionInstance(modelCache.renderCache, modelDataOuter, modelDataOuter.texlist, modelCache.textureHolder);
                 renderer.actions.push(actionInstanceOuter);
             }
         }

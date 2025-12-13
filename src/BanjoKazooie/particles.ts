@@ -4,11 +4,11 @@ import { GfxRenderInstManager, makeSortKey, GfxRendererLayer } from "../gfx/rend
 import { ViewerRenderInput } from "../viewer.js";
 import { FlipbookRenderer, MovementController, FlipbookData, GeometryData, SpawnedObjects, BKLayer } from "./render.js";
 import { nArray, hexzero } from "../util.js";
-import { MathConstants, lerp, randomRange } from "../MathHelpers.js";
+import { MathConstants, lerp, randomRangeFloat } from "../MathHelpers.js";
 import { FlipbookMode } from "./flipbook.js";
 import { LavaRock, SnowballChunk } from "./actors.js";
 
-export const enum ParticleType {
+export enum ParticleType {
     Sparkle,
     SnowSparkle,
     Carpet,
@@ -17,7 +17,7 @@ export const enum ParticleType {
     AirBubble, // actually an object in the game
 }
 
-const enum MotionType {
+enum MotionType {
     Static,
     ConstantVelocity,
     Projectile,
@@ -84,9 +84,9 @@ class Particle {
                 this.timer = 20 / 30;
                 this.motionType = MotionType.ConstantVelocity;
                 this.velocity[1] = -200;
-                this.modelMatrix[12] += randomRange(30);
-                this.modelMatrix[13] += randomRange(30);
-                this.modelMatrix[14] += randomRange(30);
+                this.modelMatrix[12] += randomRangeFloat(30);
+                this.modelMatrix[13] += randomRangeFloat(30);
+                this.modelMatrix[14] += randomRangeFloat(30);
 
                 let index = SparkleColor.Purple;
                 if (Math.random() < .25)
@@ -99,12 +99,12 @@ class Particle {
                 this.timer = 14/30;
                 this.velocity[1] = -40;
                 this.motionType = MotionType.ConstantVelocity;
-                this.modelMatrix[12] += randomRange(40);
-                this.modelMatrix[14] += randomRange(40);
+                this.modelMatrix[12] += randomRangeFloat(40);
+                this.modelMatrix[14] += randomRangeFloat(40);
                 vec4.set(this.flipbook.primColor,
-                    randomRange(210 / 255, 1),
-                    randomRange(190 / 255, 1),
-                    randomRange(200 / 255, 1),
+                    randomRangeFloat(210 / 255, 1),
+                    randomRangeFloat(190 / 255, 1),
+                    randomRangeFloat(200 / 255, 1),
                     1,
                 );
                 this.flipbook.changeData(manager.getFlipbook(0xf), FlipbookMode.Opaque, true);
@@ -248,7 +248,7 @@ export function emitAt(emitter: Emitter, m: mat4, count: number): void {
     emitter.emitCount = count;
 }
 
-export const enum SparkleColor {
+export enum SparkleColor {
     Purple = 0x10,
     DarkBlue = 0x11,
     Green = 0x12,

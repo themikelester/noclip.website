@@ -1,48 +1,55 @@
 
 import { ReadonlyMat4, ReadonlyVec3, mat4, quat, vec2, vec3 } from "gl-matrix";
-import { TransparentBlack, colorCopy, colorFromRGBA8, colorNewCopy, colorNewFromRGBA8 } from "../Color.js";
+import { TransparentBlack, White, colorCopy, colorFromRGBA8, colorNewCopy, colorNewFromRGBA, colorNewFromRGBA8 } from "../Color.js";
+import { calcANK1JointAnimationTransform } from "../Common/JSYSTEM/J3D/J3DGraphAnimator.js";
 import { J3DModelData, J3DModelInstance, buildEnvMtx } from "../Common/JSYSTEM/J3D/J3DGraphBase.js";
-import { LoopMode, TRK1, TTK1 } from "../Common/JSYSTEM/J3D/J3DLoader.js";
+import { JointTransformInfo, LoopMode, TRK1, TTK1 } from "../Common/JSYSTEM/J3D/J3DLoader.js";
 import { JPABaseEmitter, JPASetRMtxSTVecFromMtx } from "../Common/JSYSTEM/JPA.js";
 import { BTIData } from "../Common/JSYSTEM/JUTTexture.js";
 import { Vec3One, Vec3UnitY, Vec3UnitZ, Vec3Zero, clamp, computeMatrixWithoutTranslation, computeModelMatrixR, computeModelMatrixS, lerp, saturate, scaleMatrix, transformVec3Mat4w0, transformVec3Mat4w1 } from "../MathHelpers.js";
 import { GlobalSaveManager } from "../SaveManager.js";
 import { TDDraw, TSDraw } from "../SuperMarioGalaxy/DDraw.js";
+import { TextureMapping } from "../TextureHolder.js";
 import { Endianness } from "../endian.js";
 import { compareDepthValues } from "../gfx/helpers/ReversedDepthHelpers.js";
 import { GfxClipSpaceNearZ, GfxCompareMode, GfxDevice } from "../gfx/platform/GfxPlatform.js";
 import { GfxRenderCache } from "../gfx/render/GfxRenderCache.js";
-import { GfxRenderInst, GfxRenderInstManager } from "../gfx/render/GfxRenderInstManager.js";
+import { GfxRenderInst, GfxRenderInstManager, GfxRendererLayer } from "../gfx/render/GfxRenderInstManager.js";
 import { GXMaterialBuilder } from "../gx/GXMaterialBuilder.js";
 import * as GX from '../gx/gx_enum.js';
 import { TevDefaultSwapTables } from "../gx/gx_material.js";
 import { ColorKind, DrawParams, GXMaterialHelperGfx, MaterialParams } from "../gx/gx_render.js";
 import { arrayRemove, assert, assertExists, nArray } from "../util.js";
 import { ViewerRenderInput } from "../viewer.js";
-import { cLib_addCalc, cLib_addCalc2, cLib_addCalcAngleRad2, cLib_addCalcAngleS, cLib_addCalcAngleS2, cLib_addCalcPosXZ2, cLib_chasePosXZ, cLib_distanceSqXZ, cLib_distanceXZ, cLib_targetAngleX, cLib_targetAngleY, cM_s2rad, cM_atan2s, cM_rndF, cM_rndFX } from "./SComponent.js";
+import { dGlobals } from "./Main.js";
+import { cLib_addCalc, cLib_addCalc0, cLib_addCalc2, cLib_addCalcAngleRad2, cLib_addCalcAngleS, cLib_addCalcAngleS2, cLib_addCalcPosXZ2, cLib_chasePosXZ, cLib_distanceSqXZ, cLib_distanceXZ, cLib_targetAngleX, cLib_targetAngleY, cM_atan2s, cM_rndF, cM_rndFX, cM_s2rad } from "./SComponent.js";
 import { dLib_getWaterY, dLib_waveInit, dLib_waveRot, dLib_wave_c, d_a_sea } from "./d_a_sea.js";
 import { cBgW_Flags, dBgS_GndChk, dBgW } from "./d_bg.js";
+import { EDemoActorFlags, dDemo_setDemoData } from "./d_demo.js";
 import { PeekZResult } from "./d_dlst_peekZ.js";
+import { dDlst_alphaModel__Type } from "./d_drawlist.js";
 import { LIGHT_INFLUENCE, LightType, WAVE_INFO, dKy_change_colpat, dKy_checkEventNightStop, dKy_plight_cut, dKy_plight_set, dKy_setLight__OnMaterialParams, dKy_setLight__OnModelInstance, dKy_tevstr_c, dKy_tevstr_init, setLightTevColorType, settingTevStruct } from "./d_kankyo.js";
-import { ThunderMode, dKyr_get_vectle_calc, dKyw_get_AllWind_vecpow, dKyw_get_wind_pow, dKyw_get_wind_vec, dKyw_rain_set, loadRawTexture } from "./d_kankyo_wether.js";
-import { dPa_splashEcallBack, dPa_trackEcallBack, dPa_waveEcallBack } from "./d_particle.js";
+import { ThunderMode, dKyr_get_vectle_calc, dKyw_get_AllWind_vecpow, dKyw_get_wind_pow, dKyw_get_wind_vec, dKyw_get_wind_vecpow, dKyw_rain_set, loadRawTexture } from "./d_kankyo_wether.js";
+import { dPa_splashEcallBack, dPa_trackEcallBack, dPa_waveEcallBack, ParticleGroup } from "./d_particle.js";
+import { dProcName_e } from "./d_procname.js";
 import { ResType, dComIfG_resLoad } from "./d_resorce.js";
 import { dPath, dPath_GetRoomPath, dPath__Point, dStage_Multi_c, dStage_stagInfo_GetSTType } from "./d_stage.js";
-import { cPhs__Status, fGlobals, fpcPf__Register, fpcSCtRq_Request, fpc_bs__Constructor } from "./framework.js";
-import { mDoExt_McaMorf, mDoExt_bckAnm, mDoExt_brkAnm, mDoExt_btkAnm, mDoExt_btpAnm, mDoExt_modelEntryDL, mDoExt_modelUpdateDL, mDoLib_project } from "./m_do_ext.js";
+import { fopAcIt_JudgeByID, fopAcM_create, fopAcM_prm_class, fopAcM_searchFromName, fopAc_ac_c } from "./f_op_actor.js";
+import { base_process_class, cPhs__Status, fGlobals, fpcEx_Search, fpcPf__Register, fpcSCtRq_Request, fpc_bs__Constructor } from "./framework.js";
+import { mDoExt_3DlineMat1_c, mDoExt_McaMorf, mDoExt_bckAnm, mDoExt_brkAnm, mDoExt_btkAnm, mDoExt_btpAnm, mDoExt_modelEntryDL, mDoExt_modelUpdateDL } from "./m_do_ext.js";
 import { MtxPosition, MtxTrans, calc_mtx, mDoMtx_XYZrotM, mDoMtx_XrotM, mDoMtx_YrotM, mDoMtx_YrotS, mDoMtx_ZXYrotM, mDoMtx_ZrotM, mDoMtx_ZrotS, quatM } from "./m_do_mtx.js";
-import { dGlobals } from "./Main.js";
-import { dDlst_alphaModel__Type } from "./d_drawlist.js";
-import { dDemo_setDemoData } from "./d_demo.js";
-import { fopAc_ac_c, fopAcIt_JudgeByID, fopAcM_create, fopAcM_prm_class } from "./f_op_actor.js";
-import { dProcName_e } from "./d_procname.js";
+import { J2DAnchorPos, J2DPane, J2DScreen } from "../Common/JSYSTEM/J2Dv1.js";
 
 // Framework'd actors
 
 const scratchMat4a = mat4.create();
+const scratchMat4b = mat4.create();
+const scratchMat4c = mat4.create();
 const scratchVec3a = vec3.create();
 const scratchVec3b = vec3.create();
 const scratchVec3c = vec3.create();
+const scratchVec3d = vec3.create();
+const scratchVec3e = vec3.create();
 
 class d_a_grass extends fopAc_ac_c {
     public static PROCESS_NAME = dProcName_e.d_a_grass;
@@ -143,7 +150,7 @@ class d_a_grass extends fopAc_ac_c {
     ];
 
     public override subload(globals: dGlobals): cPhs__Status {
-        const enum FoliageType {
+        enum FoliageType {
             Grass,
             Tree,
             WhiteFlower,
@@ -210,6 +217,11 @@ class d_a_ep extends fopAc_ac_c {
     private lightPower: number = 0.0;
     private lightPowerTarget: number = 0.0;
 
+    private burstEmitter: JPABaseEmitter | null = null;
+    private burstRotY: number = 0;
+    private burstRotZ: number = 0;
+    private burstTimer = 0;
+
     private timers = nArray(3, () => 0);
     private alphaModelMtx = mat4.create();
     private alphaModelRotX = 0;
@@ -239,20 +251,6 @@ class d_a_ep extends fopAc_ac_c {
 
         dKy_plight_set(globals.g_env_light, this.light);
 
-        // Create particle systems.
-
-        // TODO(jstpierre): Implement the real thing.
-        const pa = globals.particleCtrl.set(globals, 0, 0x0001, null)!;
-        vec3.copy(pa.globalTranslation, this.posTop);
-        pa.globalTranslation[1] += -240 + 235 + 15;
-        if (this.type !== 2) {
-            const pb = globals.particleCtrl.set(globals, 0, 0x4004, null)!;
-            vec3.copy(pb.globalTranslation, pa.globalTranslation);
-            pb.globalTranslation[1] += 20;
-        }
-        const pc = globals.particleCtrl.set(globals, 0, 0x01EA, null)!;
-        vec3.copy(pc.globalTranslation, this.posTop);
-        pc.globalTranslation[1] += -240 + 235 + 8;
         // TODO(jstpierre): ga
 
         return cPhs__Status.Next;
@@ -261,8 +259,8 @@ class d_a_ep extends fopAc_ac_c {
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
         if (this.type === 0 || this.type === 3) {
             settingTevStruct(globals, LightType.BG0, this.pos, this.tevStr);
-            setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
-            mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput);
+            setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
+            mDoExt_modelUpdateDL(globals, this.model, renderInstManager);
 
             // TODO(jstpierre): ga
         }
@@ -301,8 +299,8 @@ class d_a_ep extends fopAc_ac_c {
             }
         }
 
-        this.alphaModelAlpha = cLib_addCalc2(this.alphaModelAlpha, this.alphaModelAlphaTarget, 1.0, 1.0);
-        this.alphaModelScale = cLib_addCalc2(this.alphaModelScale, this.alphaModelScaleTarget, 0.4, 0.04);
+        this.alphaModelAlpha = cLib_addCalc2(this.alphaModelAlpha, this.alphaModelAlphaTarget, 1.0 * deltaTimeFrames, 1.0);
+        this.alphaModelScale = cLib_addCalc2(this.alphaModelScale, this.alphaModelScaleTarget, 0.4 * deltaTimeFrames, 0.04);
         MtxTrans(this.posTop, false);
         mDoMtx_YrotM(calc_mtx, this.alphaModelRotY);
         mDoMtx_XrotM(calc_mtx, this.alphaModelRotX);
@@ -310,10 +308,9 @@ class d_a_ep extends fopAc_ac_c {
         vec3.set(scratchVec3a, scale, scale, scale);
         mat4.scale(calc_mtx, calc_mtx, scratchVec3a);
         mat4.copy(this.alphaModelMtx, calc_mtx);
+        this.ep_move(globals, deltaTimeFrames);
         this.alphaModelRotY += 0xD0 * deltaTimeFrames;
         this.alphaModelRotX += 0x100 * deltaTimeFrames;
-
-        this.ep_move();
     }
 
     public override delete(globals: dGlobals): void {
@@ -342,18 +339,26 @@ class d_a_ep extends fopAc_ac_c {
         // TODO(jstpierre): ga
     }
 
-    private ep_move(): void {
+    private ep_move(globals: dGlobals, deltaTimeFrames: number): void {
+        const flamePos = vec3.set(scratchVec3a, this.posTop[0], this.posTop[1] + -240 + 235 + 15, this.posTop[2]);
+
         // tons of fun timers and such
         if (this.state === 0) {
             // check switches
             this.state = 3;
             this.lightPowerTarget = this.scale[0];
         } else if (this.state === 3 || this.state === 4) {
-            this.lightPower = cLib_addCalc2(this.lightPower, this.lightPowerTarget, 0.5, 0.2);
-            if (this.type !== 2) {
-                // check a bunch of stuff, collision, etc.
-                // setSimple 0x4004
+            this.lightPower = cLib_addCalc2(this.lightPower, this.lightPowerTarget, 0.5 * deltaTimeFrames, 0.2);
+
+            // TODO: Type 2 flames should be handled by d_a_lamp, but for now lets just handle them here 
+            if (true || this.type !== 2) {
+                if (this.burstTimer < 7) globals.particleCtrl.setSimple(0x0001, flamePos, 0xFF, White, White, false);
+                // Check for collision. If hit, set the burst timer to emit a quick burst of flame 
+                flamePos[1] += 20;
+                globals.particleCtrl.setSimple(0x4004, flamePos, 0xFF, White, White, false);
             }
+
+            // check a bunch of stuff, collision, etc.
         }
 
         vec3.copy(this.light.pos, this.posTop);
@@ -363,7 +368,27 @@ class d_a_ep extends fopAc_ac_c {
         this.light.power = this.lightPower * 150.0;
         this.light.fluctuation = 250.0;
 
-        // other emitter stuff
+        // When hit with an attack, emit a quick burst of flame before returning to normal
+        if (this.burstTimer >= 0) {
+            if (this.burstTimer == 0x28 && !this.burstEmitter) {
+                const pos = vec3.set(scratchVec3a, this.posTop[0], this.posTop[1] + -240 + 235 + 8, this.posTop[2]);
+                this.burstEmitter = globals.particleCtrl.set(globals, 0, 0x01EA, pos)!;
+            }
+            if (this.burstEmitter) {
+                mDoMtx_YrotS(scratchMat4a, this.burstRotY);
+                const target = (this.burstTimer > 10) ? 4.0 : 0.0;
+                this.burstRotZ = cLib_addCalc2(this.burstRotZ, target, 1.0 * deltaTimeFrames, 0.5)
+                const emitterDir = vec3.set(scratchVec3b, 0.0, 1.0, this.burstRotZ);
+                MtxPosition(emitterDir, emitterDir, scratchMat4a);
+                vec3.copy(this.burstEmitter.localDirection, emitterDir);
+
+                if (this.burstTimer <= 1.0) {
+                    this.burstEmitter.becomeInvalidEmitterImmediate();
+                    this.burstEmitter = null;
+                }
+            }
+            this.burstTimer -= deltaTimeFrames;
+        }
     }
 }
 
@@ -494,7 +519,7 @@ class d_a_bg extends fopAc_ac_c {
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
         // TODO(jstpierre): Proper culling check
-        // if (!this.cullingCheck(viewerInput.camera))
+        // if (!this.cullingCheck(globals.camera))
         //     return;
 
         // force far plane to 100000.0 ?
@@ -504,9 +529,9 @@ class d_a_bg extends fopAc_ac_c {
                 continue;
 
             settingTevStruct(globals, LightType.BG0 + i, null, this.bgTevStr[i]!);
-            setLightTevColorType(globals, this.bgModel[i]!, this.bgTevStr[i]!, viewerInput.camera);
+            setLightTevColorType(globals, this.bgModel[i]!, this.bgTevStr[i]!, globals.camera);
             // this is actually mDoExt_modelEntryDL
-            mDoExt_modelUpdateDL(globals, this.bgModel[i]!, renderInstManager, viewerInput);
+            mDoExt_modelUpdateDL(globals, this.bgModel[i]!, renderInstManager);
         }
 
         const roomNo = this.parameters;
@@ -615,12 +640,12 @@ class d_a_vrbox extends fopAc_ac_c {
         if (fili !== null)
             skyboxOffsY = fili.skyboxY;
 
-        MtxTrans(globals.cameraPosition, false);
-        calc_mtx[13] -= 0.09 * (globals.cameraPosition[1] - skyboxOffsY);
+        MtxTrans(globals.camera.cameraPos, false);
+        calc_mtx[13] -= 0.09 * (globals.camera.cameraPos[1] - skyboxOffsY);
         mat4.copy(this.model.modelMatrix, calc_mtx);
 
-        dKy_setLight__OnModelInstance(envLight, this.model, viewerInput.camera);
-        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput, globals.dlst.sky);
+        dKy_setLight__OnModelInstance(envLight, this.model, globals.camera);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, globals.dlst.sky);
     }
 }
 
@@ -670,7 +695,7 @@ class d_a_vrbox2 extends fopAc_ac_c {
         }
 
         // Camera forward in XZ plane
-        vec3.copy(scratchVec3a, globals.cameraFwd);
+        vec3.copy(scratchVec3a, globals.camera.cameraFwd);
         scratchVec3a[1] = 0;
         vec3.normalize(scratchVec3a, scratchVec3a);
 
@@ -732,26 +757,26 @@ class d_a_vrbox2 extends fopAc_ac_c {
         if (fili !== null)
             skyboxOffsY = fili.skyboxY;
 
-        MtxTrans(globals.cameraPosition, false);
-        calc_mtx[13] -= 0.09 * (globals.cameraPosition[1] - skyboxOffsY);
+        MtxTrans(globals.camera.cameraPos, false);
+        calc_mtx[13] -= 0.09 * (globals.camera.cameraPos[1] - skyboxOffsY);
 
         if (this.usoUmi !== null) {
             mat4.copy(this.usoUmi.modelMatrix, calc_mtx);
-            mDoExt_modelUpdateDL(globals, this.usoUmi, renderInstManager, viewerInput, globals.dlst.sky);
+            mDoExt_modelUpdateDL(globals, this.usoUmi, renderInstManager, globals.dlst.sky);
         }
 
         if (this.kasumiMae !== null) {
             mat4.copy(this.kasumiMae.modelMatrix, calc_mtx);
-            mDoExt_modelUpdateDL(globals, this.kasumiMae, renderInstManager, viewerInput, globals.dlst.sky);
+            mDoExt_modelUpdateDL(globals, this.kasumiMae, renderInstManager, globals.dlst.sky);
         }
 
         calc_mtx[13] += 100.0;
         mat4.copy(this.backCloud.modelMatrix, calc_mtx);
-        mDoExt_modelUpdateDL(globals, this.backCloud, renderInstManager, viewerInput, globals.dlst.sky);
+        mDoExt_modelUpdateDL(globals, this.backCloud, renderInstManager, globals.dlst.sky);
     }
 }
 
-const enum Kytag00EffectMode {
+enum Kytag00EffectMode {
     None = 0x00,
     Rain = 0x01,
     Snow = 0x02,
@@ -812,10 +837,10 @@ class d_a_kytag00 extends fopAc_ac_c {
 
     private get_check_pos(globals: dGlobals): vec3 {
         // Return the closer of the two.
-        if (this.alwaysCheckPlayerPos || vec3.distance(this.pos, globals.playerPosition) < vec3.distance(this.pos, globals.cameraPosition))
+        if (this.alwaysCheckPlayerPos || vec3.distance(this.pos, globals.playerPosition) < vec3.distance(this.pos, globals.camera.cameraPos))
             return globals.playerPosition;
         else
-            return globals.cameraPosition;
+            return globals.camera.cameraPos;
     }
 
     private wether_tag_efect_move(globals: dGlobals): void {
@@ -1072,15 +1097,15 @@ class d_a_obj_Ygush00 extends fopAc_ac_c {
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.BG1, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
 
         this.btkAnm.entry(this.model);
         this.bckAnm.entry(this.model);
-        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager);
     }
 }
 
@@ -1154,7 +1179,7 @@ class d_a_obj_lpalm extends fopAc_ac_c {
             this.animDir[i] = cLib_addCalcAngleRad2(this.animDir[i], cM_s2rad(animDirTarget), cM_s2rad(0x04), cM_s2rad(0x20));
 
             // Rock back and forth.
-            this.animWave[i] += cM_s2rad((windPow * 0x800) + cM_rndFX(0x80)) *deltaTimeFrames;
+            this.animWave[i] += cM_s2rad((windPow * 0x800) + cM_rndFX(0x80)) * deltaTimeFrames;
             const wave = Math.sin(this.animWave[i]);
 
             vec3.set(scratchVec3a, wave, 0, wave);
@@ -1163,12 +1188,12 @@ class d_a_obj_lpalm extends fopAc_ac_c {
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.BG0, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
-        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager);
     }
 }
 
@@ -1193,7 +1218,7 @@ function dDlst_texSpecmapST(dst: mat4, globals: dGlobals, pos: ReadonlyVec3, tev
     mat4.mul(dst, dst, scratchMat4a);
 
     // Half-vector lookAt transform.
-    vec3.sub(scratchVec3a, pos, globals.cameraPosition);
+    vec3.sub(scratchVec3a, pos, globals.camera.cameraPos);
     dKyr_get_vectle_calc(tevStr.lightObj.Position, pos, scratchVec3b);
     vecHalfAngle(scratchVec3a, scratchVec3a, scratchVec3b);
     mat4.lookAt(scratchMat4a, Vec3Zero, scratchVec3a, Vec3UnitY);
@@ -1247,14 +1272,14 @@ class d_a_obj_zouK extends fopAc_ac_c {
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
         this.setEffectMtx(globals, this.pos, 0.5);
         this.bckAnm.entry(this.model);
-        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager);
     }
 }
 
@@ -1298,17 +1323,17 @@ class d_a_swhit0 extends fopAc_ac_c {
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.BG0, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
 
         this.model.setColorOverride(ColorKind.C1, d_a_swhit0.color1Normal);
         this.model.setColorOverride(ColorKind.C2, d_a_swhit0.color2Normal);
         this.bckAnm.entry(this.model);
         this.btkAnm.entry(this.model);
-        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager);
     }
 }
 
@@ -1505,8 +1530,7 @@ class dDlst_2DObject_c extends dDlst_2DBase_c {
         super();
     }
 
-    public draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        const device = globals.modelCache.device;
+    public draw(globals: dGlobals, renderInstManager: GfxRenderInstManager): void {
         const renderInst = renderInstManager.newRenderInst();
 
         globals.quadStatic.setOnRenderInst(renderInst);
@@ -1518,7 +1542,7 @@ class dDlst_2DObject_c extends dDlst_2DBase_c {
         this.materialHelper.allocateMaterialParamsDataOnInst(renderInst, materialParams);
         renderInst.setSamplerBindingsFromTextureMappings(materialParams.m_TextureMapping);
 
-        mat4.mul(drawParams.u_PosMtx[0], viewerInput.camera.viewMatrix, this.modelMatrix);
+        mat4.mul(drawParams.u_PosMtx[0], globals.camera.viewFromWorldMatrix, this.modelMatrix);
         this.materialHelper.allocateDrawParamsDataOnInst(renderInst, drawParams);
 
         renderInstManager.submitRenderInst(renderInst);
@@ -1546,8 +1570,7 @@ class dDlst_2DNumber_c extends dDlst_2DBase_c {
         return cPhs__Status.Complete;
     }
 
-    public draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        const device = globals.modelCache.device;
+    public draw(globals: dGlobals, renderInstManager: GfxRenderInstManager): void {
         const template = renderInstManager.pushTemplate();
 
         globals.quadStatic.setOnRenderInst(template);
@@ -1568,7 +1591,7 @@ class dDlst_2DNumber_c extends dDlst_2DBase_c {
 
             vec3.set(scratchVec3a, x, 0, 0);
             mat4.translate(scratchMat4a, this.modelMatrix, scratchVec3a);
-            mat4.mul(drawParams.u_PosMtx[0], viewerInput.camera.viewMatrix, scratchMat4a);
+            mat4.mul(drawParams.u_PosMtx[0], globals.camera.viewFromWorldMatrix, scratchMat4a);
             x -= this.spacing * 2;
 
             this.materialHelper.allocateDrawParamsDataOnInst(renderInst, drawParams);
@@ -1904,7 +1927,7 @@ class d_a_mgameboard extends fopAc_ac_c {
     }
 
     private MinigameMain(globals: dGlobals): void {
-        const inputManager = globals.context.inputManager;
+        const inputManager = globals.sceneContext.inputManager;
         if (inputManager.isKeyDownEventTriggered('ArrowDown'))
             this.down();
         if (inputManager.isKeyDownEventTriggered('ArrowUp'))
@@ -1939,7 +1962,7 @@ class d_a_mgameboard extends fopAc_ac_c {
     }
 
     public override execute(globals: dGlobals, deltaTimeFrames: number): void {
-        const inputManager = globals.context.inputManager;
+        const inputManager = globals.sceneContext.inputManager;
         if (this.minigameResetTimer >= 0) {
             this.minigameResetTimer -= deltaTimeFrames;
             if (this.minigameResetTimer <= 0 || inputManager.isKeyDownEventTriggered('KeyF'))
@@ -1956,49 +1979,49 @@ class d_a_mgameboard extends fopAc_ac_c {
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.boardModel, this.tevStr, viewerInput.camera);
-        mDoExt_modelUpdateDL(globals, this.boardModel, renderInstManager, viewerInput);
+        setLightTevColorType(globals, this.boardModel, this.tevStr, globals.camera);
+        mDoExt_modelUpdateDL(globals, this.boardModel, renderInstManager);
 
         if (!this.minigameActive)
             return;
 
-        setLightTevColorType(globals, this.cursorModel, this.tevStr, viewerInput.camera);
-        mDoExt_modelUpdateDL(globals, this.cursorModel, renderInstManager, viewerInput, globals.dlst.ui);
+        setLightTevColorType(globals, this.cursorModel, this.tevStr, globals.camera);
+        mDoExt_modelUpdateDL(globals, this.cursorModel, renderInstManager, globals.dlst.ui);
 
         for (let i = 0; i < this.hitModelCount; i++) {
             const model = this.hitModels[i];
-            setLightTevColorType(globals, model, this.tevStr, viewerInput.camera);
-            mDoExt_modelUpdateDL(globals, model, renderInstManager, viewerInput, globals.dlst.ui);
+            setLightTevColorType(globals, model, this.tevStr, globals.camera);
+            mDoExt_modelUpdateDL(globals, model, renderInstManager, globals.dlst.ui);
         }
 
         for (let i = 0; i < this.missModelCount; i++) {
             const model = this.missModels[i];
-            setLightTevColorType(globals, model, this.tevStr, viewerInput.camera);
-            mDoExt_modelUpdateDL(globals, model, renderInstManager, viewerInput, globals.dlst.ui);
+            setLightTevColorType(globals, model, this.tevStr, globals.camera);
+            mDoExt_modelUpdateDL(globals, model, renderInstManager, globals.dlst.ui);
         }
 
         // Show ships after the game ends.
         if (this.minigame.bulletNum === 0) {
             for (let i = 0; i < this.minigame.ships.length; i++) {
                 const model = this.shipModels[i];
-                setLightTevColorType(globals, model, this.tevStr, viewerInput.camera);
-                mDoExt_modelUpdateDL(globals, model, renderInstManager, viewerInput, globals.dlst.ui);
+                setLightTevColorType(globals, model, this.tevStr, globals.camera);
+                mDoExt_modelUpdateDL(globals, model, renderInstManager, globals.dlst.ui);
             }
         }
 
         renderInstManager.setCurrentList(globals.dlst.ui[1]);
         for (let i = 0; i < this.bullet.length; i++)
-            this.bullet[i].draw(globals, renderInstManager, viewerInput);
+            this.bullet[i].draw(globals, renderInstManager);
         for (let i = 0; i < this.squid.length; i++)
-            this.squid[i].draw(globals, renderInstManager, viewerInput);
-        this.scoreNum.draw(globals, renderInstManager, viewerInput);
-        this.highscoreNum.draw(globals, renderInstManager, viewerInput);
-        this.highscoreLabel.draw(globals, renderInstManager, viewerInput);
-        this.highscorePad.draw(globals, renderInstManager, viewerInput);
+            this.squid[i].draw(globals, renderInstManager);
+        this.scoreNum.draw(globals, renderInstManager);
+        this.highscoreNum.draw(globals, renderInstManager);
+        this.highscoreLabel.draw(globals, renderInstManager);
+        this.highscorePad.draw(globals, renderInstManager);
     }
 }
 
@@ -2274,7 +2297,7 @@ class dCloth_packet_c {
         renderInstManager.submitRenderInst(renderInst);
     }
 
-    public cloth_draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
+    public cloth_draw(globals: dGlobals, renderInstManager: GfxRenderInstManager): void {
         /*
         const ctx = getDebugOverlayCanvas2D();
 
@@ -2282,14 +2305,14 @@ class dCloth_packet_c {
             for (let fly = 0; fly < this.flyGridSize; fly++) {
                 transformVec3Mat4w1(scratchVec3a, this.mtx, this.posArr[this.curArr][this.getIndex(fly, hoist)]);
                 transformVec3Mat4w0(scratchVec3b, this.mtx, this.nrmArr[this.getIndex(fly, hoist)]);
-                drawWorldSpaceVector(ctx, viewerInput.camera.clipFromWorldMatrix, scratchVec3a, scratchVec3b, 50);
+                drawWorldSpaceVector(ctx, globals.camera.clipFromWorldMatrix, scratchVec3a, scratchVec3b, 50);
             }
         }
         */
 
         const template = renderInstManager.pushTemplate();
 
-        dKy_setLight__OnMaterialParams(globals.g_env_light, materialParams, viewerInput.camera);
+        dKy_setLight__OnMaterialParams(globals.g_env_light, materialParams, globals.camera);
         this.flagTex.fillTextureMapping(materialParams.m_TextureMapping[0]);
         this.toonTex.fillTextureMapping(materialParams.m_TextureMapping[1]);
         template.setSamplerBindingsFromTextureMappings(materialParams.m_TextureMapping);
@@ -2297,7 +2320,7 @@ class dCloth_packet_c {
         colorCopy(materialParams.u_Color[ColorKind.C0], this.tevStr.colorC0);
         colorCopy(materialParams.u_Color[ColorKind.C1], this.tevStr.colorK0);
         colorCopy(materialParams.u_Color[ColorKind.C2], this.tevStr.colorK1);
-        mat4.mul(drawParams.u_PosMtx[0], viewerInput.camera.viewMatrix, this.mtx);
+        mat4.mul(drawParams.u_PosMtx[0], globals.camera.viewFromWorldMatrix, this.mtx);
         this.materialHelper.allocateDrawParamsDataOnInst(template, drawParams);
 
         const ddraw = this.ddraw;
@@ -2370,14 +2393,14 @@ class d_a_sie_flag extends fopAc_ac_c {
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.BG0, this.pos, this.tevStr);
         settingTevStruct(globals, LightType.Actor, this.pos, this.clothTevStr);
-        setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
-        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput);
-        this.cloth.cloth_draw(globals, renderInstManager, viewerInput);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager);
+        this.cloth.cloth_draw(globals, renderInstManager);
     }
 
     public override execute(globals: dGlobals, deltaTimeFrames: number): void {
@@ -2456,14 +2479,14 @@ class d_a_tori_flag extends fopAc_ac_c {
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.BG0, this.pos, this.tevStr);
         settingTevStruct(globals, LightType.Actor, this.pos, this.clothTevStr);
-        setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
-        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput);
-        this.cloth.cloth_draw(globals, renderInstManager, viewerInput);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager);
+        this.cloth.cloth_draw(globals, renderInstManager);
     }
 
     public override execute(globals: dGlobals, deltaTimeFrames: number): void {
@@ -2756,15 +2779,15 @@ class d_a_majuu_flag extends fopAc_ac_c {
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         // For reference.
         /*
         for (let i = 0; i < this.pointCount; i++) {
             transformVec3Mat4w1(scratchVec3a, this.mtx, this.posArr[0][i]);
-            drawWorldSpacePoint(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, scratchVec3a);
-            drawWorldSpaceText(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, scratchVec3a, '' + i);
+            drawWorldSpacePoint(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, scratchVec3a);
+            drawWorldSpaceText(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, scratchVec3a, '' + i);
         }
         */
 
@@ -2777,7 +2800,7 @@ class d_a_majuu_flag extends fopAc_ac_c {
 
         const template = renderInstManager.pushTemplate();
 
-        dKy_setLight__OnMaterialParams(globals.g_env_light, materialParams, viewerInput.camera);
+        dKy_setLight__OnMaterialParams(globals.g_env_light, materialParams, globals.camera);
         this.flagTex.fillTextureMapping(materialParams.m_TextureMapping[0]);
         this.toonTex.fillTextureMapping(materialParams.m_TextureMapping[1]);
         template.setSamplerBindingsFromTextureMappings(materialParams.m_TextureMapping);
@@ -2785,7 +2808,7 @@ class d_a_majuu_flag extends fopAc_ac_c {
         colorCopy(materialParams.u_Color[ColorKind.C0], this.tevStr.colorC0);
         colorCopy(materialParams.u_Color[ColorKind.C1], this.tevStr.colorK0);
         colorCopy(materialParams.u_Color[ColorKind.C2], this.tevStr.colorK1);
-        mat4.mul(drawParams.u_PosMtx[0], viewerInput.camera.viewMatrix, this.mtx);
+        mat4.mul(drawParams.u_PosMtx[0], globals.camera.viewFromWorldMatrix, this.mtx);
         this.materialHelper.allocateDrawParamsDataOnInst(template, drawParams);
 
         const ddraw = this.ddraw;
@@ -2875,7 +2898,7 @@ class d_a_majuu_flag extends fopAc_ac_c {
 
     private majuu_flag_move(globals: dGlobals, deltaTimeFrames: number): void {
         this.wave += this.waveSpeed * deltaTimeFrames;
-        const windSpeed = lerp(this.windSpeed1, this.windSpeed2,  Math.sin(cM_s2rad(this.wave)) * 0.5 + 0.5);
+        const windSpeed = lerp(this.windSpeed1, this.windSpeed2, Math.sin(cM_s2rad(this.wave)) * 0.5 + 0.5);
         const windpow = dKyw_get_wind_pow(globals.g_env_light);
         vec3.set(scratchVec3a, 0, 0, windSpeed * windpow * 2.0);
         mDoMtx_ZrotS(calc_mtx, -this.rot[2]);
@@ -3157,7 +3180,7 @@ class d_a_kamome extends fopAc_ac_c {
 
         if (this.use_path_move) {
             this.kamome_path_move(globals, deltaTimeFrames);
-        } if (this.type === 4) {
+        } else if (this.type === 4) {
             this.kamome_imuoto_move(globals, deltaTimeFrames);
         } else if (this.type === 5) {
             this.kamome_imuoto2_move(globals, deltaTimeFrames);
@@ -3177,16 +3200,16 @@ class d_a_kamome extends fopAc_ac_c {
         if (this.noDraw || this.switch_id !== 0)
             return;
 
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.morf.model, this.tevStr, viewerInput.camera);
-        this.morf.entryDL(globals, renderInstManager, viewerInput);
+        setLightTevColorType(globals, this.morf.model, this.tevStr, globals.camera);
+        this.morf.entryDL(globals, renderInstManager);
 
-        // drawWorldSpaceLine(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, this.pos, this.targetPos, Green, 2);
-        // drawWorldSpacePoint(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, this.pos, Magenta, 8);
-        // drawWorldSpacePoint(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, this.targetPos, Yellow, 6);
+        // drawWorldSpaceLine(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, this.pos, this.targetPos, Green, 2);
+        // drawWorldSpacePoint(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, this.pos, Magenta, 8);
+        // drawWorldSpacePoint(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, this.targetPos, Yellow, 6);
 
         // shadow
     }
@@ -3245,7 +3268,7 @@ function dLib_pathMove(dst: vec3, pointIdxCurr: number, path: dPath, speed: numb
     return pointIdxCurr;
 }
 
-const enum d_a_obj_ikada_mode { wait, stopTerry, pathMoveTerry }
+enum d_a_obj_ikada_mode { wait, stopTerry, pathMoveTerry }
 class d_a_obj_ikada extends fopAc_ac_c implements ModeFuncExec<d_a_obj_ikada_mode> {
     public static PROCESS_NAME = dProcName_e.d_a_obj_ikada;
 
@@ -3431,17 +3454,17 @@ class d_a_obj_ikada extends fopAc_ac_c implements ModeFuncExec<d_a_obj_ikada_mod
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
 
         if (this.isSv()) {
             // update bck
         }
 
-        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager);
 
         if (this.isSv()) {
             // rope, rope end
@@ -3650,7 +3673,7 @@ class d_a_obj_ikada extends fopAc_ac_c implements ModeFuncExec<d_a_obj_ikada_mod
     }
 }
 
-const enum d_a_oship_mode { wait, attack, damage, delete, rangeA, rangeB, rangeC, rangeD }
+enum d_a_oship_mode { wait, attack, damage, delete, rangeA, rangeB, rangeC, rangeD }
 class d_a_oship extends fopAc_ac_c implements ModeFuncExec<d_a_oship_mode> {
     public static PROCESS_NAME = dProcName_e.d_a_oship;
 
@@ -3749,7 +3772,7 @@ class d_a_oship extends fopAc_ac_c implements ModeFuncExec<d_a_oship_mode> {
     ];
 
     private changeModeByRange(globals: dGlobals): void {
-        const dist = cLib_distanceXZ(this.pos, globals.cameraPosition);
+        const dist = cLib_distanceXZ(this.pos, globals.camera.cameraPos);
         let mode = this.curMode;
         if (dist < 2500.0)
             mode = d_a_oship_mode.rangeA;
@@ -3823,7 +3846,7 @@ class d_a_oship extends fopAc_ac_c implements ModeFuncExec<d_a_oship_mode> {
     private modeAttackInit(globals: dGlobals): void {
         this.attackTimer = -1;
 
-        vec3.copy(this.targetPos, globals.cameraPosition);
+        vec3.copy(this.targetPos, globals.camera.cameraPos);
 
         // Aim at our target.
 
@@ -3901,7 +3924,7 @@ class d_a_oship extends fopAc_ac_c implements ModeFuncExec<d_a_oship_mode> {
     }
 
     private rangeTargetCommon(globals: dGlobals, deltaTimeFrames: number): void {
-        vec3.copy(this.targetPos, globals.cameraPosition);
+        vec3.copy(this.targetPos, globals.camera.cameraPos);
         this.calcY(globals);
 
         if (this.checkTgHit(globals))
@@ -3962,29 +3985,29 @@ class d_a_oship extends fopAc_ac_c implements ModeFuncExec<d_a_oship_mode> {
     };
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
-        if (!this.cullingCheck(viewerInput.camera))
+        if (!this.cullingCheck(globals.camera))
             return;
 
         settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
         const specScale = 0.75;
         dDlst_texSpecmapST(this.effectMtx, globals, this.pos, this.tevStr, specScale);
-        mDoExt_modelEntryDL(globals, this.model, renderInstManager, viewerInput);
+        mDoExt_modelEntryDL(globals, this.model, renderInstManager);
 
         /*
-        drawWorldSpaceText(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, this.pos, `PId: ${this.processId}`, 0, White, { outline: 2 });
-        drawWorldSpaceText(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, this.pos, `Mode: ${d_a_oship_mode[this.curMode]}`, 14, White, { outline: 2 });
-        drawWorldSpaceText(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, this.pos, `Aim  : ${hexzero0x(this.aimRotX, 4)} ${hexzero0x(this.aimRotY, 4)}`, 14*2, White, { outline: 2 });
-        drawWorldSpaceText(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, this.pos, `Aim T: ${hexzero0x(this.aimRotXTarget, 4)} ${hexzero0x(this.aimRotYTarget, 4)}`, 14*3, White, { outline: 2 });
-        drawWorldSpaceText(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, this.pos, `Tgt  : ${this.targetPos[0].toFixed(2)} ${this.targetPos[1].toFixed(2)} ${this.targetPos[2].toFixed(2)}`, 14*4, White, { outline: 2 });
-        drawWorldSpacePoint(getDebugOverlayCanvas2D(), viewerInput.camera.clipFromWorldMatrix, this.targetPos, Green, 10);
+        drawWorldSpaceText(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, this.pos, `PId: ${this.processId}`, 0, White, { outline: 2 });
+        drawWorldSpaceText(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, this.pos, `Mode: ${d_a_oship_mode[this.curMode]}`, 14, White, { outline: 2 });
+        drawWorldSpaceText(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, this.pos, `Aim  : ${hexzero0x(this.aimRotX, 4)} ${hexzero0x(this.aimRotY, 4)}`, 14*2, White, { outline: 2 });
+        drawWorldSpaceText(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, this.pos, `Aim T: ${hexzero0x(this.aimRotXTarget, 4)} ${hexzero0x(this.aimRotYTarget, 4)}`, 14*3, White, { outline: 2 });
+        drawWorldSpaceText(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, this.pos, `Tgt  : ${this.targetPos[0].toFixed(2)} ${this.targetPos[1].toFixed(2)} ${this.targetPos[2].toFixed(2)}`, 14*4, White, { outline: 2 });
+        drawWorldSpacePoint(getDebugOverlayCanvas2D(), globals.camera.clipFromWorldMatrix, this.targetPos, Green, 10);
         */
     }
 
     private setMtx(globals: dGlobals, deltaTimeFrames: number): void {
         dLib_waveRot(globals, this.wave, this.pos, this.attackSwayAmount, deltaTimeFrames);
 
-        const angleY = this.rot[1] + cLib_targetAngleY(this.pos, globals.cameraPosition);
+        const angleY = this.rot[1] + cLib_targetAngleY(this.pos, globals.camera.cameraPos);
         const swayAmount = Math.sin(cM_s2rad(this.attackSwayTimer)) * (this.attackSwayAmount * 10);
 
         if (this.curMode !== d_a_oship_mode.delete) {
@@ -4128,8 +4151,8 @@ class d_a_obj_wood extends fopAc_ac_c {
     }
 }
 
-const enum d_a_obj_flame_mode { wait, wait2, l_before, l_u, u, u_l, l_after }
-const enum d_a_obj_em_state { Off, TurnOn, On, TurnOff }
+enum d_a_obj_flame_mode { wait, wait2, l_before, l_u, u, u_l, l_after }
+enum d_a_obj_em_state { Off, TurnOn, On, TurnOff }
 class d_a_obj_flame extends fopAc_ac_c {
     public static PROCESS_NAME = dProcName_e.d_a_obj_flame;
 
@@ -4239,13 +4262,13 @@ class d_a_obj_flame extends fopAc_ac_c {
         super.draw(globals, renderInstManager, viewerInput);
 
         settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.model, this.tevStr, viewerInput.camera);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
 
         this.btkAnm.entry(this.model);
         if (this.brkAnm !== null)
             this.brkAnm.entry(this.model);
 
-        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, viewerInput, globals.dlst.wetherEffectSet);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, globals.dlst.wetherEffectSet);
     }
 
     private mode_wait(globals: dGlobals): void {
@@ -4425,19 +4448,34 @@ class d_a_obj_flame extends fopAc_ac_c {
     }
 
     private em_simple_set(globals: dGlobals): void {
-        /*
         if (this.em0State === d_a_obj_em_state.TurnOn) {
             vec3.copy(scratchVec3a, this.eyePos);
             scratchVec3a[1] += this.extraScaleY * this.eyePosY * -300.0;
-            globals.particleCtrl.setSimple(globals, 0x805A, scratchVec3a, 1.0, White, White, false);
+            globals.particleCtrl.setSimple(0x805A, scratchVec3a, 0xFF, White, White, false);
         }
 
         if (this.em1State === d_a_obj_em_state.TurnOn)
-            globals.particleCtrl.setSimple(globals, 0x805B, this.eyePos, 1.0, White, White, false);
+            globals.particleCtrl.setSimple(0x805B, this.eyePos, 0xFF, White, White, false);
 
         if (this.em2State === d_a_obj_em_state.TurnOn)
-            globals.particleCtrl.setSimple(globals, this.bubblesParticleID, this.eyePos, 1.0, White, White, false);
-        */
+            globals.particleCtrl.setSimple(this.bubblesParticleID, this.pos, 0xFF, White, White, false);
+    }
+
+    private em_simple_inv(globals: dGlobals): void {
+        const forceKillEm = false;
+        if (forceKillEm) {
+            if (this.em0State === d_a_obj_em_state.On)
+                this.em0State = d_a_obj_em_state.TurnOff;
+            if (this.em2State === d_a_obj_em_state.On)
+                this.em2State = d_a_obj_em_state.TurnOff;
+        }
+
+        if (this.em0State === d_a_obj_em_state.TurnOff)
+            this.em0 = null;
+        if (this.em1State === d_a_obj_em_state.TurnOff)
+            this.em1 = null;
+        if (this.em2State === d_a_obj_em_state.TurnOff)
+            this.em2 = null;
     }
 
     private mode_proc_call(globals: dGlobals, deltaTimeFrames: number): void {
@@ -4447,11 +4485,10 @@ class d_a_obj_flame extends fopAc_ac_c {
 
         this.mode_proc_tbl[this.mode].call(this, globals);
 
-        // TODO(jstpierre): Simple particle system
-        if (false && this.useSimpleEm) {
+        if (this.useSimpleEm) {
             this.em_position(globals);
             this.em_simple_set(globals);
-            // this.em_simple_inv(globals);
+            this.em_simple_inv(globals);
         } else {
             this.em_manual_set(globals);
             this.em_manual_inv(globals);
@@ -4569,7 +4606,7 @@ export class d_a_ff extends fopAc_ac_c {
         const peekZ = globals.dlst.peekZ;
         const dst = this.peekZResult;
 
-        mDoLib_project(scratchVec3a, this.pos, globals.camera);
+        vec3.transformMat4(scratchVec3a, this.pos, globals.camera.clipFromWorldMatrix);
         if (globals.camera.clipSpaceNearZ === GfxClipSpaceNearZ.NegativeOne)
             scratchVec3a[2] = scratchVec3a[2] * 0.5 + 0.5;
 
@@ -4701,13 +4738,13 @@ export class d_a_ff extends fopAc_ac_c {
             MtxTrans(this.pos, false);
             scaleMatrix(calc_mtx, calc_mtx, this.flyScale);
             mat4.copy(this.model[0].modelMatrix, calc_mtx);
-            mDoExt_modelUpdateDL(globals, this.model[0], renderInstManager, viewerInput, globals.dlst.effect);
+            mDoExt_modelUpdateDL(globals, this.model[0], renderInstManager, globals.dlst.effect);
 
             if (this.glowScale > 0.01) {
                 mDoMtx_YrotM(calc_mtx, this.liveTimer * 0x0100);
                 scaleMatrix(calc_mtx, calc_mtx, this.glowScale, this.glowScale * this.glowScaleY, this.glowScale);
                 mat4.copy(this.model[1].modelMatrix, calc_mtx);
-                mDoExt_modelUpdateDL(globals, this.model[1], renderInstManager, viewerInput, globals.dlst.effect);
+                mDoExt_modelUpdateDL(globals, this.model[1], renderInstManager, globals.dlst.effect);
             }
         }
     }
@@ -4733,6 +4770,7 @@ function dNpc_setAnmIDRes(globals: dGlobals, pMorf: mDoExt_McaMorf, loopMode: nu
     return false;
 }
 
+// Little Sister (Aryll)
 class d_a_npc_ls1 extends fopNpc_npc_c {
     public static PROCESS_NAME = dProcName_e.d_a_npc_ls1;
     private type: number;
@@ -4761,11 +4799,12 @@ class d_a_npc_ls1 extends fopNpc_npc_c {
         { anmIdx: 0, nextPrmIdx: 1, morf: 8.0, playSpeed: 1.0, loopMode: 2, },
         { anmIdx: 5, nextPrmIdx: 1, morf: 8.0, playSpeed: 1.0, loopMode: 2, },
         { anmIdx: 10, nextPrmIdx: 2, morf: 8.0, playSpeed: 1.0, loopMode: 2, },
-        { anmIdx: 5, nextPrmIdx: 1, morf: 8.0, playSpeed: 1.0, loopMode: 2, }];
+        { anmIdx: 5, nextPrmIdx: 1, morf: 8.0, playSpeed: 1.0, loopMode: 2, }
+    ];
 
     public override subload(globals: dGlobals): cPhs__Status {
         const success = this.decideType(this.parameters);
-        if (!success) { return cPhs__Status.Error; }
+        if (!success) { return cPhs__Status.Stop; }
 
         let status = dComIfG_resLoad(globals, this.arcName);
         if (status !== cPhs__Status.Complete)
@@ -4790,19 +4829,19 @@ class d_a_npc_ls1 extends fopNpc_npc_c {
         super.draw(globals, renderInstManager, viewerInput);
 
         settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
-        setLightTevColorType(globals, this.morf.model, this.tevStr, viewerInput.camera);
-        setLightTevColorType(globals, this.handModel, this.tevStr, viewerInput.camera);
+        setLightTevColorType(globals, this.morf.model, this.tevStr, globals.camera);
+        setLightTevColorType(globals, this.handModel, this.tevStr, globals.camera);
 
         // this.btkAnim.entry(this.morf.model, this.btkFrame);
         // this.btpAnim.entry(this.morf.model, this.btpFrame);
 
-        this.morf.entryDL(globals, renderInstManager, viewerInput);
+        this.morf.entryDL(globals, renderInstManager);
 
-        mDoExt_modelEntryDL(globals, this.handModel, renderInstManager, viewerInput);
+        mDoExt_modelEntryDL(globals, this.handModel, renderInstManager);
 
         if (this.itemModel) {
-            setLightTevColorType(globals, this.itemModel, this.tevStr, viewerInput.camera);
-            mDoExt_modelEntryDL(globals, this.itemModel, renderInstManager, viewerInput);
+            setLightTevColorType(globals, this.itemModel, this.tevStr, globals.camera);
+            mDoExt_modelEntryDL(globals, this.itemModel, renderInstManager);
         }
 
         this.drawShadow();
@@ -4912,10 +4951,10 @@ class d_a_npc_ls1 extends fopNpc_npc_c {
         // play_btk_anm(this);
 
         this.animStopped = this.morf.play(deltaTimeFrames);
-        if (this.morf.frameCtrl.currentTimeInFrames < this.animTime) {
+        if (this.morf.frameCtrl.getFrame() < this.animTime) {
             this.animStopped = true;
         }
-        this.animTime = this.morf.frameCtrl.currentTimeInFrames;
+        this.animTime = this.morf.frameCtrl.getFrame();
     }
 
     private setMtx(param: boolean) {
@@ -4955,6 +4994,1563 @@ class d_a_npc_ls1 extends fopNpc_npc_c {
     }
 }
 
+function setupDam(pref: string, model: J3DModelInstance): void {
+    const matInst = model.materialInstances.find((m) => m.name === `${pref}`)!;
+    const matInstA = model.materialInstances.find((m) => m.name === `${pref}damA`)!;
+    const matInstB = model.materialInstances.find((m) => m.name === `${pref}damB`)!;
+
+    // Render an alpha mask in the shape of the eyes. Needs to render after the body but before the hair so that it 
+    // can depth test against the scene but not against the hair. The eyes will then draw with depth testing enabled, 
+    // but will mask against this alpha tex. 
+    matInstA.setSortKeyLayer(GfxRendererLayer.OPAQUE + 6, false);
+    matInstA.setColorWriteEnabled(false);
+    matInstA.setAlphaWriteEnabled(true);
+
+    // @NOTE: This material is marked as translucent in the original BMD. It is manually drawn after the head but 
+    //        before the body. Since we don't actually need any translucent behavior, mark it as opaque so that it can 
+    //        be drawn before the body.
+    matInstA.materialData.material.translucent = false;
+
+    // Next, draw the eyes, testing against the alpha mask
+    matInst.setSortKeyLayer(GfxRendererLayer.OPAQUE + 8, false);
+
+    // Clear the alpha mask written by the *damA materials so it doesn't interfere with other translucent objects
+    matInstB.setSortKeyLayer(GfxRendererLayer.OPAQUE + 9, false);
+    matInstB.setColorWriteEnabled(false);
+    matInstB.setAlphaWriteEnabled(true);
+
+    // Ensure that any texture animations applied to `eyeL` or `eyeR` also apply to these two damA/B masks
+    matInstA.texNoCalc = matInst.texNoCalc;
+    matInstB.texNoCalc = matInst.texNoCalc;
+}
+
+// Tetra
+class d_a_npc_zl1 extends fopNpc_npc_c {
+    public static PROCESS_NAME = dProcName_e.d_a_npc_zl1;
+    private arcName = 'Zl';
+
+    private btkAnim = new mDoExt_btkAnm();
+    private btpAnim = new mDoExt_btpAnm();
+
+    public override subload(globals: dGlobals): cPhs__Status {
+        let status = dComIfG_resLoad(globals, this.arcName);
+        if (status !== cPhs__Status.Complete)
+            return status;
+
+        const modelData = globals.resCtrl.getObjectIDRes(ResType.Model, this.arcName, 0xF);
+        this.morf = new mDoExt_McaMorf(modelData, null, null, null, LoopMode.Once, 1.0, 0, -1);
+
+        // noclip modification: The game manually draws the eye/eyebrow filter before the body. Let's do that with sorting.
+        // Layer 5: Body
+        // Layer 6: Eye mask
+        // Layer 7: Hair
+        // Layer 8: Eyes/Eyebrows
+        // Layer 9: Eye Mask clear
+        this.morf.model.setSortKeyLayer(GfxRendererLayer.OPAQUE + 5, false);
+        this.morf.model.materialInstances[21].setSortKeyLayer(GfxRendererLayer.OPAQUE + 7, false);
+        setupDam('eyeL', this.morf.model);
+        setupDam('eyeR', this.morf.model);
+        setupDam('mayuL', this.morf.model);
+        setupDam('mayuR', this.morf.model);
+
+        this.cullMtx = this.morf.model.modelMatrix;
+        this.setCullSizeBox(-50.0, -20.0, -50.0, 50.0, 140.0, 50.0);
+
+        return cPhs__Status.Next;
+    }
+
+    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
+        super.draw(globals, renderInstManager, viewerInput);
+
+        settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
+        setLightTevColorType(globals, this.morf.model, this.tevStr, globals.camera);
+
+        if (this.btpAnim.anm) this.btpAnim.entry(this.morf.model);
+        if (this.btkAnim.anm) this.btkAnim.entry(this.morf.model);
+
+        this.morf.entryDL(globals, renderInstManager);
+    }
+
+    public override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        const isDemo = dDemo_setDemoData(globals, deltaTimeFrames, this, 0x6a, this.morf, this.arcName);
+
+        if (isDemo) {
+            const demoActor = globals.scnPlay.demo.getSystem().getActor(this.demoActorID);
+            const btk = demoActor.getBtkData(globals, this.arcName)
+            const btp = demoActor.getBtpData(globals, this.arcName)
+            if (btk) { this.btkAnim.init(this.morf.model.modelData, btk, true, btk.loopMode); }
+            if (btp) { this.btpAnim.init(this.morf.model.modelData, btp, true, btp.loopMode); }
+        } else {
+            this.morf.play(deltaTimeFrames);
+        }
+
+        this.btkAnim.play(deltaTimeFrames);
+        this.btpAnim.play(deltaTimeFrames);
+        this.setMtx();
+    }
+
+    private setMtx() {
+        vec3.copy(this.morf.model.baseScale, this.scale);
+        MtxTrans(this.pos, false, calc_mtx);
+        mDoMtx_ZXYrotM(calc_mtx, this.rot);
+        mat4.copy(this.morf.model.modelMatrix, calc_mtx);
+        this.morf.calc();
+    }
+}
+
+enum LkAnim {
+    WAITS = 0x00,
+    WALK = 0x01,
+    DASH = 0x02,
+    WAITB = 0x1C,
+    WAITATOB = 0x1D,
+    WAITQ = 0x9D,
+};
+
+enum LinkDemoMode {
+    None = 0x00,
+    Wait = 0x01,
+    Walk = 0x02,
+    Dash = 0x03,
+    SetPosRotEquip = 0x04,
+    WaitTurn = 0x05,
+    SetRot = 0x2B,
+    SetPosRot = 0x2C,
+    MAX = 0x4B,
+
+    Tool = 0x200,
+};
+
+interface LkAnimData {
+    underBckIdx: number;
+    upperBckIdx: number;
+    leftHandIdx: number;
+    rightHandIdx: number;
+    texAnmIdx: number;
+}
+
+interface LkFootData {
+    toePos: vec3,
+    heelPos: vec3,
+}
+
+enum ItemNo {
+    HerosSword = 0x38,
+    MasterSwordPowerless = 0x39,
+    MasterSwordHalfPower = 0x3A,
+    MasterSwordFullPower = 0x3E,
+    InvalidItem = 0xFF,
+}
+
+enum LkEquipItem {
+    None = 0x100,
+    Sword = 0x103,
+}
+
+enum LkHandStyle {
+    Idle = 0,
+    HoldSword = 3,
+    HoldWindWaker = 5,
+    HoldShield = 8,
+}
+
+enum LkJoint {
+    HandL = 0x08,
+    HandR = 0x0D,
+    Head = 0x0F,
+    Waist = 0x1E,
+    FootL = 0x22,
+    FootR = 0x27,
+}
+
+enum LkModelShape {
+    Chest = 0,
+    Arms = 1,
+    Face = 2,
+    Mouth = 3,
+    Hair = 4,
+    Hat = 5,
+    Legs = 6,
+    HandL = 7,
+    HandR = 8,
+    EyeL = 9,
+    EyeR = 10,
+    EyeDamAL = 11,
+    EyeDamAR = 12,
+    EyeDamBL = 13,
+    EyeDamBR = 14,
+    Nose = 15,
+    EyebrowL = 16,
+    EyebrowR = 17,
+    EyebrowDamAL = 18,
+    EyebrowDamAR = 19,
+    EyebrowDamBL = 20,
+    EyebrowDamBR = 21,
+    Scabbard = 22,
+    Buckle = 23,
+}
+
+enum d_a_py_lk_mode { unk, wait, tool }
+class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
+    public static PROCESS_NAME = dProcName_e.d_a_py_lk;
+    private static ARC_NAME = "Link";
+    private static LINK_BDL_CL = 0x18;
+    private static LINK_BTI_LINKTEXBCI4 = 0x71;
+    private static LINK_CLOTHES_TEX_IDX = 0x22;
+    private static LINK_BDL_KATSURA = 0x20;
+    private static LINK_BDL_SWA = 0x25; // Hero's sword blade
+    private static LINK_BDL_SWGRIPA = 0x26 // Hero's sword hilt
+    private static TOE_POS = vec3.fromValues(6.0, 3.25, 0.0);
+    private static HEEL_POS = vec3.fromValues(-6.0, 3.25, 0.0);
+
+    public curMode = d_a_py_lk_mode.wait;
+    public prevMode = d_a_py_lk_mode.wait;
+
+    private model: J3DModelInstance;
+    private modelSwordHilt: J3DModelInstance;
+    private modelKatsura: J3DModelInstance; // Wig. To replace the hat when wearing casual clothes.
+
+    private demoMode: number = LinkDemoMode.None;
+    private demoClampToGround = true;
+    private gndChk = new dBgS_GndChk()
+
+    private isWearingCasualClothes = false;
+    private texMappingClothes: TextureMapping;
+    private texMappingCasualClothes: TextureMapping = new TextureMapping();
+    private texMappingHeroClothes: TextureMapping = new TextureMapping();
+
+    private anmDataTable: LkAnimData[] = [];
+    private anmBck = new mDoExt_bckAnm(); // Joint animation
+    private anmBtp = new mDoExt_btpAnm(); // Texture flipbook animation (e.g. facial expressions)
+    private anmBtk = new mDoExt_btkAnm(); // UV animation (e.g. eyes get small when surprised)
+    private anmBckId: number;
+
+    private rawPos = vec3.create(); // The position before it is manipulated by anim root/foot motion
+    private vel = vec3.create(); // TODO: This should be part of fopAc_ac_c
+
+    private frontFoot: number = 2;
+    private footData: LkFootData[] = nArray(2, i => ({ toePos: vec3.create(), heelPos: vec3.create() }));
+    private anmTranslation = vec3.create();
+
+    private handStyleLeft: LkHandStyle; // @TODO: Handle non-standard hand rendering. See setDrawHandModel().
+    private handStyleRight: LkHandStyle;
+    private equippedItem: LkEquipItem;
+    private equippedItemModel: J3DModelInstance | null = null;
+
+    private mode_tbl = [
+        this.procUnkInit, this.procUnk,
+        this.procWaitInit, this.procWait,
+        this.procToolInit, this.procTool,
+    ];
+
+    protected override subload(globals: dGlobals, prm: fopAcM_prm_class | null): cPhs__Status {
+        const statusA = dComIfG_resLoad(globals, 'Link');
+        const statusB = dComIfG_resLoad(globals, 'LkD00');
+        const statusC = dComIfG_resLoad(globals, 'LkD01');
+        const statusD = dComIfG_resLoad(globals, 'LkAnm');
+
+        if (statusA !== cPhs__Status.Complete) return statusA;
+        if (statusB !== cPhs__Status.Complete) return statusB;
+        if (statusC !== cPhs__Status.Complete) return statusC;
+        if (statusD !== cPhs__Status.Complete) return statusD;
+
+        this.loadAnmTable(globals);
+
+        this.playerInit(globals);
+
+        // noclip modification: The game manually draws the eye/eyebrow filter before the body. Let's do that with sorting.
+        // Layer 5: Body
+        // Layer 6: Eye mask
+        // Layer 7: Hair
+        // Layer 8: Eyes/Eyebrows
+        // Layer 9: Eye Mask clear
+        this.model.setSortKeyLayer(GfxRendererLayer.OPAQUE + 5, false);
+        const HairMaterial = this.model.modelData.shapeData[LkModelShape.Hair].shape.materialIndex; // Name is mislabeled
+        this.model.materialInstances[HairMaterial].setSortKeyLayer(GfxRendererLayer.OPAQUE + 7, false);
+        setupDam('eyeL', this.model);
+        setupDam('eyeR', this.model);
+        setupDam('mayuL', this.model);
+        setupDam('mayuR', this.model);
+
+        // noclip modification:
+        this.setSingleMoveAnime(globals, LkAnim.WAITS);
+
+        return cPhs__Status.Next;
+    }
+
+    override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        // Update the current proc based on demo data
+        this.setDemoData(globals);
+        if (this.demoMode !== LinkDemoMode.WaitTurn) {
+            this.changeDemoProc(globals);
+        }
+
+        // Step our animations forward
+        this.anmBck.play(deltaTimeFrames);
+        this.anmBtp.play(deltaTimeFrames);
+        this.anmBtk.play(deltaTimeFrames);
+
+        // Run the current custom update process (Walk, Idle, Swim, etc)
+        modeProcExec(globals, this, this.mode_tbl, deltaTimeFrames);
+
+        // Apply root motion from the animation, and adjust position based on foot movement
+        const rawPos = vec3.copy(this.rawPos, this.pos);
+        this.posMove(globals);
+
+        // Evaluate for collisions, clamp to ground
+        this.gndChk.Reset();
+        vec3.scaleAndAdd(this.gndChk.pos, this.pos, Vec3UnitY, 30.1);
+        const groundHeight = globals.scnPlay.bgS.GroundCross(this.gndChk);
+        this.autoGroundHit();
+
+        // If we're pulling position directly from the JStudio tool, ignore collisions and animation root motion
+        if (this.curMode === d_a_py_lk_mode.tool) {
+            vec3.copy(this.pos, rawPos);
+            if (this.demoClampToGround && groundHeight !== -Infinity) {
+                this.pos[1] = groundHeight;
+            }
+        }
+
+        // setWorldMatrix()
+        MtxTrans(this.pos, false, this.model.modelMatrix);
+        mDoMtx_ZXYrotM(this.model.modelMatrix, this.rot);
+
+        // Update joints based on the currently playing animation
+        this.anmBck.entry(this.model);
+        this.model.calcAnim();
+        mat4.copy(this.modelKatsura.modelMatrix, this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.Head]);
+        this.modelKatsura.calcAnim();
+
+        // Update item transform and animations
+        this.setItemModel();
+    }
+
+    override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
+        // @TODO: This should use LightType.Player, but it's not yet implemented
+        settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
+
+        if (this.isWearingCasualClothes) {
+            this.model.setShapeVisible(LkModelShape.Hat, false);
+            this.model.setShapeVisible(LkModelShape.Scabbard, false);
+            this.model.setShapeVisible(LkModelShape.Buckle, false);
+
+            setLightTevColorType(globals, this.modelKatsura, this.tevStr, globals.camera);
+            mDoExt_modelEntryDL(globals, this.modelKatsura, renderInstManager);
+        }
+
+        if (this.equippedItem === LkEquipItem.Sword) {
+            setLightTevColorType(globals, this.equippedItemModel!, this.tevStr, globals.camera);
+            mDoExt_modelEntryDL(globals, this.equippedItemModel!, renderInstManager);
+
+            setLightTevColorType(globals, this.modelSwordHilt, this.tevStr, globals.camera);
+            mDoExt_modelEntryDL(globals, this.modelSwordHilt, renderInstManager);
+        }
+
+        // TODO:
+        // if (!checkNormalSwordEquip() && dStage_stagInfo_GetSTType(dComIfGp_getStageStagInfo()) != dStageType_FF1_e ||
+        //     checkCaughtShapeHide() || checkDemoShieldNoDraw()) {
+        //     mpCLModelData->getJointNodePointer(0x0D)->getMesh()->getShape()->hide(); // cl_podA joint
+        // } else {
+        //     mpCLModelData->getJointNodePointer(0x0D)->getMesh()->getShape()->show(); // cl_podA joint
+        // }
+
+        if (this.anmBtp.anm) this.anmBtp.entry(this.model);
+        if (this.anmBtk.anm) this.anmBtk.entry(this.model);
+
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
+        mDoExt_modelEntryDL(globals, this.model, renderInstManager);
+    }
+
+    private playerInit(globals: dGlobals) {
+        // createHeap()
+        this.model = this.initModel(globals, d_a_py_lk.LINK_BDL_CL);
+        this.modelKatsura = this.initModel(globals, d_a_py_lk.LINK_BDL_KATSURA);
+        this.modelSwordHilt = this.initModel(globals, d_a_py_lk.LINK_BDL_SWGRIPA);
+
+        // Fetch the casual clothes and the hero texture. They'll be be selected by the ShapeID set by a demo.
+        const casualTexData = globals.resCtrl.getObjectRes(ResType.Bti, d_a_py_lk.ARC_NAME, d_a_py_lk.LINK_BTI_LINKTEXBCI4);
+        casualTexData.fillTextureMapping(this.texMappingCasualClothes);
+
+        // Find the texture mapping for link's clothes in the model. There are two, the first has alpha enabled and is never
+        // used with the casual clothes. We want the second.
+        this.texMappingClothes = this.model.materialInstanceState.textureMappings[d_a_py_lk.LINK_CLOTHES_TEX_IDX];
+        this.texMappingHeroClothes.copy(this.texMappingClothes);
+
+        // Set the default state based on EventBit 0x2A80, except we can't, so just hardcode to use casual clothes on the title screen
+        this.isWearingCasualClothes = (globals.stageName === 'sea_T'); // dComIfGs_isEventBit(0x2A80)
+        if (this.isWearingCasualClothes) { this.texMappingClothes.copy(this.texMappingCasualClothes); }
+
+        MtxTrans(this.pos, false, this.model.modelMatrix);
+        mDoMtx_ZXYrotM(this.model.modelMatrix, this.rot);
+        this.cullMtx = this.model.modelMatrix;
+    }
+
+    private initModel(globals: dGlobals, fileIdx: number): J3DModelInstance {
+        const modelData = globals.resCtrl.getObjectRes(ResType.Model, d_a_py_lk.ARC_NAME, fileIdx);
+        const model = new J3DModelInstance(modelData);
+        assert(!!model);
+        return model;
+    }
+
+    private setDemoData(globals: dGlobals) {
+        const demoActor = globals.scnPlay.demo.getSystem().getActor(this.demoActorID);
+        if (!demoActor)
+            return false;
+
+        demoActor.actor = this;
+        demoActor.model = this.model;
+        demoActor.debugGetAnimName = (idx: number) => LinkDemoMode[idx].toString();
+
+        let targetPos: ReadonlyVec3 = this.pos;
+        let targetRot: number = this.rot[1];
+
+        const enable = demoActor.checkEnable(0xFF);
+        if (enable & EDemoActorFlags.HasPos) { targetPos = demoActor.translation; }
+        if (enable & EDemoActorFlags.HasRot) { targetRot = demoActor.rotation[1]; }
+
+        // The demo mode determines which 'Proc' action function will be called. It maps into the DemoProc*FuncTables.
+        // These functions can start anims (by indexing into AnmDataTable), play sounds, etc.
+        if (enable & EDemoActorFlags.HasAnim) {
+            this.demoMode = demoActor.nextBckId;
+        }
+
+        if (enable & EDemoActorFlags.HasShape) {
+            this.isWearingCasualClothes = (demoActor.shapeId === 1);
+            if (this.isWearingCasualClothes)
+                this.texMappingClothes.copy(this.texMappingCasualClothes);
+            else
+                this.texMappingClothes.copy(this.texMappingHeroClothes);
+        }
+
+        // Limit actor modifications based on the current mode. E.g. Mode 0x18 only allows rotation
+        switch (this.demoMode) {
+            case LinkDemoMode.SetPosRotEquip:
+            case LinkDemoMode.SetPosRot:
+                vec3.copy(this.pos, targetPos);
+                this.rot[1] = targetRot;
+                break;
+
+            case LinkDemoMode.SetRot: {
+                debugger;
+                const moveVec = vec3.sub(scratchVec3a, targetPos, this.pos);
+                const newRot = cM_atan2s(moveVec[0], moveVec[2]);
+                this.rot[1] = newRot;
+                break;
+            }
+
+            case LinkDemoMode.Walk:
+            case LinkDemoMode.Dash: {
+                const moveVec = vec3.sub(scratchVec3a, targetPos, this.pos);
+                const newRot = cM_atan2s(moveVec[0], moveVec[2]);
+                this.rot[1] = newRot;
+                this.setSingleMoveAnime(globals, (this.demoMode === LinkDemoMode.Walk) ? LkAnim.WALK : LkAnim.DASH)
+                break;
+            }
+        }
+
+        return true;
+    }
+
+    private changeDemoProc(globals: dGlobals): boolean {
+        assert(this.demoMode < LinkDemoMode.MAX || this.demoMode === LinkDemoMode.Tool)
+
+        switch (this.demoMode) {
+            case LinkDemoMode.None: return false;
+            case LinkDemoMode.Tool: modeProcInit(globals, this, this.mode_tbl, d_a_py_lk_mode.tool); break;
+            case LinkDemoMode.SetPosRotEquip: modeProcInit(globals, this, this.mode_tbl, d_a_py_lk_mode.wait); break;
+
+            default:
+                if (this.prevMode !== d_a_py_lk_mode.unk) {
+                    console.warn('Unsupported demo mode:', this.demoMode);
+                    modeProcInit(globals, this, this.mode_tbl, d_a_py_lk_mode.unk);
+                }
+                break;
+        }
+
+        this.prevMode = this.curMode;
+        return true;
+    }
+
+    private autoGroundHit() {
+        const groundHeight = this.gndChk.retY;
+        if (groundHeight === -Infinity) {
+            return;
+        }
+
+        const groundDiff = this.pos[1] - groundHeight;
+
+        // Our feet are near the ground, clamp to ground
+        if (groundDiff > 0.0) {
+            if (groundDiff <= 30.1) {
+                this.pos[1] = groundHeight;
+                this.vel[1] = 0.0;
+                return;
+            }
+        }
+
+        // TODO: Our feet are below the ground, use last frame's height
+        this.pos[1] = groundHeight;
+        this.vel[1] = 0.0;
+    }
+
+    private posMove(globals: dGlobals) {
+        if (this.anmBck) {
+            // Apply the root motion from the current animation (swaying)
+            const rootTransform = new JointTransformInfo();
+            calcANK1JointAnimationTransform(rootTransform, this.anmBck.anm.jointAnimationEntries[0], this.anmBck.frameCtrl.getFrame(), this.anmBck.frameCtrl.applyLoopMode(this.anmBck.frameCtrl.getFrame() + 1));
+
+            const prevTranslation = vec3.copy(scratchVec3a, this.anmTranslation);
+            vec3.scale(this.anmTranslation, rootTransform.translation, 1.0);
+
+            const frameTranslation = vec3.sub(scratchVec3b, prevTranslation, this.anmTranslation);
+
+            const sinTheta = Math.sin(cM_s2rad(this.rot[1]));
+            const cosTheta = Math.cos(cM_s2rad(this.rot[1]));
+            const worldTransX = frameTranslation[2] * sinTheta + frameTranslation[0] * cosTheta;
+            const worldTransZ = frameTranslation[2] * cosTheta - frameTranslation[0] * sinTheta;
+
+            this.pos[0] += worldTransX;
+            this.pos[2] += worldTransZ;
+
+            // Apply motion based on the movement of the feet
+            this.posMoveFromFootPos(globals);
+        }
+    }
+
+    private posMoveFromFootPos(globals: dGlobals) {
+        if (this.frontFoot === 2) {
+            vec3.zero(this.vel);
+            vec3.set(this.footData[0].toePos, -14.05, 0.0, 5.02);
+            vec3.set(this.footData[0].heelPos, -10.85, 0.0, -6.52);
+            vec3.set(this.footData[1].toePos, 14.05, 0.0, 5.02);
+            vec3.set(this.footData[1].heelPos, 10.85, 0.0, -6.52);
+            this.frontFoot = 0;
+            return;
+        }
+
+        // Compute local -> model transforms for foot and waist joints
+        const invModelMtx = mat4.invert(calc_mtx, this.model.modelMatrix);
+        const footLMtx = mat4.mul(scratchMat4a, invModelMtx, this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.FootL]);
+        const footRMtx = mat4.mul(scratchMat4b, invModelMtx, this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.FootR]);
+        const waistMtx = mat4.mul(scratchMat4c, invModelMtx, this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.Waist]);
+
+        // Compute model space positions of the feet
+        const toePos = [];
+        const heelPos = [];
+        toePos[0] = vec3.transformMat4(scratchVec3a, d_a_py_lk.TOE_POS, footRMtx);
+        toePos[1] = vec3.transformMat4(scratchVec3b, d_a_py_lk.TOE_POS, footLMtx);
+        heelPos[0] = vec3.transformMat4(scratchVec3c, d_a_py_lk.HEEL_POS, footRMtx);
+        heelPos[1] = vec3.transformMat4(scratchVec3d, d_a_py_lk.HEEL_POS, footLMtx);
+
+        // Compare the model space positions of the feet to determine which is in front
+        const footZPos = []
+        for (let i = 0; i < 2; i++) {
+            const footCenter = vec3.scale(scratchVec3e, vec3.add(scratchVec3e, toePos[i], heelPos[i]), 0.5);
+            footZPos[i] = footCenter[2];
+        }
+        if (footZPos[1] > footZPos[0]) { this.frontFoot = 1 }
+        else { this.frontFoot = 0; }
+
+        // Compute the horizontal distance moved by the front foot since last frame
+        const moveVec = vec3.sub(scratchVec3e, toePos[this.frontFoot], this.footData[this.frontFoot].toePos);
+        moveVec[1] = 0;
+        let moveVel = vec3.length(moveVec);
+
+        // Adjust speed when on slopes
+        let groundAngle = 0;
+        if (this.gndChk.polyInfo.bgIdx >= 0 && this.gndChk.polyInfo.triIdx >= 0) { // @TODO: Should be in cBgS::ChkPolySafe()
+            groundAngle = this.getGroundAngle(globals, this.rot[1]);
+        }
+        moveVel *= Math.cos(cM_s2rad(groundAngle));
+
+        // ... Reduce velocity even more for ascending slopes
+        if (groundAngle < 0) {
+            moveVel = moveVel * 0.85;
+        }
+
+        // Update actor vel and position
+        this.vel[0] = moveVel * Math.sin(cM_s2rad(this.rot[1]));
+        this.vel[2] = moveVel * Math.cos(cM_s2rad(this.rot[1]));
+        vec3.add(this.pos, this.pos, this.vel);
+
+        for (let i = 0; i < 2; i++) {
+            vec3.copy(this.footData[i].toePos, toePos[i]);
+            vec3.copy(this.footData[i].heelPos, heelPos[i]);
+        }
+    }
+
+    /**
+     * Get the angle of the ground based when facing a specific direction
+     * @param dir the s16 angle which the actor is facing
+     */
+    private getGroundAngle(globals: dGlobals, dir: number) {
+        const gndPlane = globals.scnPlay.bgS.GetTriPla(this.gndChk.polyInfo.bgIdx, this.gndChk.polyInfo.triIdx);
+        const norm = gndPlane.n;
+
+        if (gndPlane && norm[1] >= 0.5) {
+            const slopeDir = cM_atan2s(norm[0], norm[2]);
+            const slopeGrade = Math.hypot(norm[0], norm[2]);
+            return cM_atan2s(slopeGrade * Math.cos(cM_s2rad(slopeDir - dir)), norm[1]);
+        }
+        return 0;
+    }
+
+    private getAnmData(anmIdx: number): LkAnimData {
+        // @TODO: Different table if sword is drawn
+        return this.anmDataTable[anmIdx];
+    }
+
+    private setSingleMoveAnime(globals: dGlobals, anmIdx: number, rate?: number, start?: number, end?: number, morf: number = 0.0) {
+        const anmData = this.getAnmData(anmIdx);
+
+        const bck = globals.resCtrl.getObjectRes(ResType.Bck, "LkAnm", anmData.upperBckIdx);
+
+        if (this.anmBck.anm !== bck) {
+            this.anmBck.init(this.model.modelData, bck, true, LoopMode.Repeat, rate, start, end);
+        }
+    }
+
+    // Process used while a demo is telling Link to play a direct animation
+    private procToolInit() {
+
+    }
+
+    private procTool(globals: dGlobals) {
+        const demoActor = globals.scnPlay.demo.getSystem().getActor(this.demoActorID);
+        if (!demoActor)
+            return;
+
+        this.demoClampToGround = false;
+
+        let anmFrame = 0.0;
+        let anmBckId = 0xFFFF;
+        let anmBtpId = 0xFFFF;
+        let anmBtkId = 0xFFFF;
+
+        if (demoActor.flags & EDemoActorFlags.HasPos) { vec3.copy(this.pos, demoActor.translation); }
+        if (demoActor.flags & EDemoActorFlags.HasRot) { this.rot[1] = demoActor.rotation[1]; }
+        if (demoActor.flags & EDemoActorFlags.HasFrame) { anmFrame = demoActor.animFrame; }
+
+        if (demoActor.flags & EDemoActorFlags.HasData) {
+            const status = demoActor.stbData.getUint8(0);
+            let handIdxRight;
+            let handIdxLeft;
+
+            switch (demoActor.stbDataId) {
+                case 3:
+                    this.demoClampToGround = true;
+                // Fall through
+                case 1:
+                case 5:
+                    const count = demoActor.stbData.getUint8(1);
+                    assert(count === 3)
+                    anmBckId = demoActor.stbData.getUint16(2);
+                    anmBtpId = demoActor.stbData.getUint16(4);
+                    anmBtkId = demoActor.stbData.getUint16(6);
+
+                    handIdxRight = demoActor.stbData.getUint8(9);
+                    handIdxLeft = demoActor.stbData.getUint8(10);
+                    break;
+
+                case 2:
+                    this.demoClampToGround = true;
+                // Fall through
+                case 0:
+                case 4:
+                    anmBckId = demoActor.stbData.getUint16(1);
+                    break;
+
+                default:
+                    debugger;
+            }
+
+            // Set the hand model and/or equipped item based on the demo data
+            let item = ItemNo.InvalidItem;
+            if (handIdxLeft === 0xC8) { item = ItemNo.HerosSword; }
+            else if (handIdxLeft === 0xC9) { item = ItemNo.MasterSwordPowerless; }
+            else if (handIdxLeft === 0xCA) { item = ItemNo.MasterSwordHalfPower; }
+            else if (handIdxLeft === 0xCB) { item = ItemNo.MasterSwordFullPower; }
+
+            if (item === ItemNo.InvalidItem) {
+                if (handIdxLeft === 0xCC) {
+                    this.handStyleLeft = LkHandStyle.HoldWindWaker;
+                    // Set the Wind Waker as the equipped item
+                } else if (this.equippedItem !== LkEquipItem.None) {
+                    this.deleteEquipItem();
+                    this.handStyleLeft = handIdxLeft as LkHandStyle;
+                }
+            } else {
+                this.handStyleLeft = LkHandStyle.HoldSword;
+                if (this.equippedItem !== LkEquipItem.Sword) {
+                    // d_com_inf_game::dComIfGs_setSelectEquip(0, item);
+                    this.deleteEquipItem();
+                    this.setSwordModel(globals);
+                }
+            }
+
+            if (handIdxRight === 0xC8 || handIdxRight === 0xC9) {
+                this.handStyleRight = LkHandStyle.HoldShield;
+                if (handIdxRight === 0xC8) { /* equip HerosShield */ }
+                else { /* equip MirrorShield */ }
+            } else {
+                if (handIdxRight !== 0) {
+                    this.handStyleRight = (handIdxRight as LkHandStyle) + 6;
+                } else {
+                    this.handStyleRight = LkHandStyle.Idle;
+                }
+            }
+        }
+
+        if (anmBckId === 0xFFFF || this.anmBckId === anmBckId) {
+            if (demoActor.flags & EDemoActorFlags.HasFrame) {
+                this.anmBck.frameCtrl.setFrame(this.anmBck.frameCtrl.applyLoopMode(anmFrame));
+                this.anmBtp.frameCtrl.setFrame(this.anmBtp.frameCtrl.applyLoopMode(anmFrame));
+                demoActor.animFrameMax = this.anmBck.frameCtrl.endFrame;
+            }
+        } else {
+            // TODO: How should LkD00 arc be loaded?
+            const bck = globals.resCtrl.getObjectIDRes(ResType.Bck, 'LkD00', anmBckId);
+            this.anmBck.init(this.model.modelData, bck, true, bck.loopMode, 1.0, 0, bck.duration);
+            this.anmBck.frameCtrl.setFrame(anmFrame);
+            this.anmBckId = anmBckId;
+
+            if (anmBtpId !== 0xFFFF) {
+                const btp = globals.resCtrl.getObjectIDRes(ResType.Btp, 'LkD00', anmBtpId);
+                this.anmBtp.init(this.model.modelData, btp, true, btp.loopMode, 1.0, 0, btp.duration);
+            }
+
+            if (anmBtkId !== 0xFFFF) {
+                const btk = globals.resCtrl.getObjectIDRes(ResType.Btk, 'LkD00', anmBtkId);
+                this.anmBtk.init(this.model.modelData, btk, true, btk.loopMode, 1.0, 0, btk.duration);
+            }
+        }
+    }
+
+    private procUnkInit(globals: dGlobals) {
+    }
+
+    private procUnk(globals: dGlobals) {
+
+    }
+
+    private procWaitInit(globals: dGlobals) {
+        if (this.prevMode !== d_a_py_lk_mode.wait) {
+            this.setSingleMoveAnime(globals, LkAnim.WAITS);
+        }
+    }
+
+    private procWait() {
+
+    }
+
+    private setSwordModel(globals: dGlobals) {
+        this.equippedItem = LkEquipItem.Sword;
+        this.equippedItemModel = this.initModel(globals, d_a_py_lk.LINK_BDL_SWA);
+    }
+
+    private deleteEquipItem() {
+        this.equippedItem = LkEquipItem.None;
+        this.equippedItemModel = null;
+    }
+
+    private setItemModel() {
+        if (!this.equippedItemModel) {
+            return;
+        }
+
+        const handLJointMtx = this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.HandL];
+        const handRJointMtx = this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.HandR];
+
+        mat4.copy(this.equippedItemModel.modelMatrix, handLJointMtx);
+        this.equippedItemModel?.calcAnim();
+
+        if (this.equippedItem === LkEquipItem.Sword) {
+            mat4.copy(this.modelSwordHilt.modelMatrix, handLJointMtx);
+            this.modelSwordHilt.calcAnim();
+        }
+    }
+
+    private loadAnmTable(globals: dGlobals) {
+        const anmDataView = globals.findExtraSymbolData(`d_a_player_main.o`, `mAnmDataTable__9daPy_lk_c`).createDataView();
+        let offset = 0;
+        while (offset < anmDataView.byteLength) {
+            this.anmDataTable.push({
+                underBckIdx: anmDataView.getUint16(offset + 0),
+                upperBckIdx: anmDataView.getUint16(offset + 2),
+                leftHandIdx: anmDataView.getUint8(offset + 4),
+                rightHandIdx: anmDataView.getUint8(offset + 5),
+                texAnmIdx: anmDataView.getUint16(offset + 6),
+            })
+            offset += 8;
+        }
+    }
+}
+
+enum TitlePane {
+    MainTitle,
+    JapanSubtitle,
+    PressStart,
+    Nintendo,
+    ShipParticles,
+    Effect2,
+}
+
+class d_a_title extends fopAc_ac_c {
+    public static PROCESS_NAME = dProcName_e.d_a_title;
+    public static arcName = 'TlogoE' // Tlogo, TlogoE, TlogoE[0-9]
+
+    private modelShip: J3DModelInstance;
+    private modelSubtitle: J3DModelInstance;
+    private modelSubtitleShimmer: J3DModelInstance;
+    private bckShip = new mDoExt_bckAnm();
+    private bpkShip = new mDoExt_brkAnm();
+    private btkSubtitle = new mDoExt_btkAnm();
+    private btkShimmer = new mDoExt_btkAnm();
+    private screen: J2DScreen;
+    private panes: J2DPane[] = []; 
+    
+    private cloudEmitter: JPABaseEmitter | null = null;
+    private sparkleEmitter: JPABaseEmitter | null = null;
+    private sparklePos = vec3.create();
+
+    private anmFrameCounter = 0
+    private delayFrameCounter = 120;
+    private shipFrameCounter = -50;
+    private blinkFrameCounter = 0;
+    private shimmerFrameCounter = (cM_rndF(120) + 10 + 130.0);
+    private enterMode = 0;
+    private shipOffsetX: number = 0;
+
+    public override subload(globals: dGlobals): cPhs__Status {
+        const status = dComIfG_resLoad(globals, d_a_title.arcName);
+        if (status !== cPhs__Status.Complete)
+            return status;
+
+        this.proc_init2D(globals);
+        this.proc_init3D(globals);
+
+        return cPhs__Status.Next;
+    }
+
+    public override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        if (this.delayFrameCounter > 0) {
+            this.delayFrameCounter -= deltaTimeFrames;
+
+            if (this.delayFrameCounter == 0) {
+                // TODO: mDoAud_seStart(JA_SE_TITLE_WIND);
+            }
+        } else {
+            this.calc_2d_alpha(globals, deltaTimeFrames);
+        }
+
+        if (this.enterMode == 2) {
+            this.enterMode = 3;
+        } else if (this.enterMode == 3) {
+            this.shipFrameCounter += deltaTimeFrames;
+        }
+
+        this.bckShip.play(deltaTimeFrames);
+        this.set_mtx();
+    }
+
+    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
+        let oldViewMtx = globals.camera.viewFromWorldMatrix;
+        let oldProjMtx = globals.camera.clipFromViewMatrix;
+
+        // From mDoGph_Painter(). Set up new view and ortho proj matrices. 
+        // TODO: This should be set by the Opa2D draw list
+        const orthoCtx = globals.scnPlay.currentGrafPort;
+        mat4.fromTranslation(scratchMat4a, [orthoCtx.aspectRatioCorrection * 320, 240, 1000]);
+        mDoMtx_ZrotM(scratchMat4a, -0x8000);
+        globals.camera.viewFromWorldMatrix = scratchMat4a;
+        globals.camera.clipFromViewMatrix = orthoCtx.sceneParams.u_Projection;
+        mat4.mul(globals.camera.clipFromWorldMatrix, globals.camera.clipFromViewMatrix, globals.camera.viewFromWorldMatrix);
+        globals.camera.frustum.updateClipFrustum(globals.camera.clipFromWorldMatrix, globals.camera.clipSpaceNearZ);
+        const template = renderInstManager.pushTemplate();
+        orthoCtx.setOnRenderInst(template);
+
+        // TODO: This should be a global immediate light set by the Opa2D draw list
+        const light = this.modelShip.getGXLightReference(0);
+        light.Position = [-35000.0, 0.0, -30000.0];
+        light.Direction = [0, 0, 0];
+        light.Color = White;
+
+        {
+            this.model_draw(globals, renderInstManager);
+
+            renderInstManager.setCurrentList(globals.dlst.ui2D[0]);
+            this.screen.draw(renderInstManager, orthoCtx);
+        }
+
+        // TODO: This should be set by the Opa2D draw list
+        globals.camera.viewFromWorldMatrix = oldViewMtx;
+        globals.camera.clipFromViewMatrix = oldProjMtx;
+        mat4.mul(globals.camera.clipFromWorldMatrix, globals.camera.clipFromViewMatrix, globals.camera.viewFromWorldMatrix);
+        globals.camera.frustum.updateClipFrustum(globals.camera.clipFromWorldMatrix, globals.camera.clipSpaceNearZ);
+        renderInstManager.popTemplate();
+    }
+
+    private proc_init2D(globals: dGlobals) {
+        const screenData = globals.resCtrl.getObjectResByName(ResType.Blo, d_a_title.arcName, "title_logo_e.blo");
+        assert(screenData !== null);
+        this.screen = new J2DScreen(screenData, globals.renderer.renderCache, globals.resCtrl.getResResolver(d_a_title.arcName), J2DAnchorPos.Center);
+        this.screen.color = White;
+
+        this.panes[TitlePane.MainTitle] = this.screen.search('zeld')!;
+        this.panes[TitlePane.JapanSubtitle] = this.screen.search('zelj')!;
+        this.panes[TitlePane.PressStart] = this.screen.search('pres')!;
+        this.panes[TitlePane.Nintendo] = this.screen.search('nint')!;
+        this.panes[4] = this.screen.search('eft1')!;
+        this.panes[5] = this.screen.search('eft2')!;
+
+        for (let pane of this.panes) {
+            pane.setAlpha(0.0);
+        }
+    }
+
+    private proc_init3D(globals: dGlobals) {
+        const modelDataShip = globals.resCtrl.getObjectRes(ResType.Model, d_a_title.arcName, 0xD);
+        this.modelShip = new J3DModelInstance(modelDataShip);
+
+        const modelDataSub = globals.resCtrl.getObjectRes(ResType.Model, d_a_title.arcName, 0xC);
+        this.modelSubtitle = new J3DModelInstance(modelDataSub);
+
+        const modelDataKirari = globals.resCtrl.getObjectRes(ResType.Model, d_a_title.arcName, 0xB);
+        this.modelSubtitleShimmer = new J3DModelInstance(modelDataKirari);
+
+        const bckDataShip = globals.resCtrl.getObjectRes(ResType.Bck, d_a_title.arcName, 0x8);
+        this.bckShip.init(modelDataShip, bckDataShip, true, LoopMode.Repeat, 1.0, 0, -1, false);
+
+        const bpkDataShip = globals.resCtrl.getObjectRes(ResType.Bpk, d_a_title.arcName, 0x10);
+        this.bpkShip.init(modelDataShip, bpkDataShip, true, LoopMode.Repeat, 1.0, 0, -1, false);
+
+        this.bpkShip.frameCtrl.setFrame(0.0);
+        this.bpkShip.frameCtrl.setRate(1.0);
+
+        const btkDataSub = globals.resCtrl.getObjectRes(ResType.Btk, d_a_title.arcName, 0x14);
+        this.btkSubtitle.init(modelDataSub, btkDataSub, true, LoopMode.Once, 1.0, 0, -1, false);
+
+        const btkDataShimmer = globals.resCtrl.getObjectRes(ResType.Btk, d_a_title.arcName, 0x13);
+        this.btkShimmer.init(modelDataKirari, btkDataShimmer, true, LoopMode.Once, 1.0, 0, -1, false);
+
+        this.set_mtx();
+    }
+
+    private model_draw(globals: dGlobals, renderInstManager: GfxRenderInstManager) {
+
+        if (this.btkSubtitle.frameCtrl.getFrame() != 0.0) {
+            this.btkShimmer.entry(this.modelSubtitleShimmer)
+            mDoExt_modelUpdateDL(globals, this.modelSubtitleShimmer, renderInstManager, globals.dlst.ui);
+
+            this.btkSubtitle.entry(this.modelSubtitle);
+            mDoExt_modelUpdateDL(globals, this.modelSubtitle, renderInstManager, globals.dlst.ui);
+        }
+
+        if (this.bpkShip.frameCtrl.getFrame() != 0.0) {
+            this.bckShip.entry(this.modelShip);
+            this.bpkShip.entry(this.modelShip);
+            mDoExt_modelUpdateDL(globals, this.modelShip, renderInstManager, globals.dlst.ui);
+        }
+    }
+
+    private set_mtx() {
+        vec3.set(this.modelShip.baseScale, 0.9, 0.9, 0.9);
+        mat4.fromTranslation(this.modelShip.modelMatrix, [this.shipOffsetX, 0, 1000]);
+        mDoMtx_ZXYrotM(this.modelShip.modelMatrix, [0, 0x4000, 0]);
+
+        vec3.set(this.modelSubtitle.baseScale, 1.0, 1.0, 1.0);
+        vec3.set(this.modelSubtitleShimmer.baseScale, 1.0, 1.0, 1.0);
+
+        mat4.fromTranslation(this.modelSubtitle.modelMatrix, [-57.0, -3.0, -10000.0]);
+        mDoMtx_ZXYrotM(this.modelSubtitle.modelMatrix, [0, -0x8000, 0]);
+
+        mat4.fromTranslation(this.modelSubtitleShimmer.modelMatrix, [-57.0, -3.0, -10010.0]);
+        mDoMtx_ZXYrotM(this.modelSubtitleShimmer.modelMatrix, [0, -0x8000, 0]);
+    }
+
+    private calc_2d_alpha(globals: dGlobals, deltaTimeFrames: number) {
+        this.anmFrameCounter += deltaTimeFrames;
+        if (this.anmFrameCounter >= 200 && this.enterMode == 0) {
+            this.enterMode = 1;
+        }
+
+        const puffPos = vec3.set(scratchVec3a, 
+            ((this.panes[TitlePane.ShipParticles].data.x - 320.0) - this.shipOffsetX) + 85.0,
+            (this.panes[TitlePane.ShipParticles].data.y - 240.0) + 5.0,
+            0.0
+        );
+
+        if (this.enterMode == 0) {
+            if (this.shipFrameCounter < 0) {
+                this.shipFrameCounter += deltaTimeFrames;
+            }            
+
+            if (this.cloudEmitter === null) {
+                this.cloudEmitter = globals.particleCtrl.set(globals, ParticleGroup.TwoDback, 0x83F9, puffPos);
+            } else {    
+                this.cloudEmitter.setGlobalTranslation(puffPos);
+            }
+
+            if (this.anmFrameCounter <= 30) {
+                this.panes[TitlePane.MainTitle].setAlpha(0.0);
+            } else if (this.anmFrameCounter <= 80) {
+                this.panes[TitlePane.MainTitle].setAlpha((this.anmFrameCounter - 30) / 50.0);
+            } else {
+                this.panes[TitlePane.MainTitle].setAlpha(1.0);
+            }
+
+            // TODO: Viewable japanese version            
+            this.panes[TitlePane.JapanSubtitle].setAlpha(0.0);
+
+            if (this.anmFrameCounter >= 80 && !this.sparkleEmitter) {
+                // if (daTitle_Kirakira_Sound_flag == true) {
+                //     mDoAud_seStart(JA_SE_TITLE_KIRA);
+                //     daTitle_Kirakira_Sound_flag = false;
+                // }
+    
+                const sparklePane = this.panes[TitlePane.ShipParticles];
+                vec3.set(this.sparklePos, sparklePane.data.x - 320.0, sparklePane.data.y - 240.0, 0.0);
+                this.sparkleEmitter = globals.particleCtrl.set(globals, ParticleGroup.TwoDfore, 0x83FB, this.sparklePos);
+            } else if (this.anmFrameCounter > 80 && this.anmFrameCounter <= 115 && this.sparkleEmitter) {
+                this.sparklePos[0] += (this.panes[TitlePane.Effect2].data.x - this.panes[TitlePane.ShipParticles].data.x) / 35.0 * deltaTimeFrames;
+                this.sparkleEmitter.setGlobalTranslation(this.sparklePos);
+            }
+
+            if (this.anmFrameCounter >= 80) {
+                this.btkSubtitle.play(deltaTimeFrames);
+            }
+
+            if (this.anmFrameCounter <= 150) {
+                this.panes[TitlePane.Nintendo].setAlpha(0.0);
+            } else if (this.anmFrameCounter <= 170) {
+                this.panes[TitlePane.Nintendo].setAlpha((this.anmFrameCounter - 150) / 20.0);
+            } else {
+                this.panes[TitlePane.Nintendo].setAlpha(1.0);
+            }
+
+            if (this.anmFrameCounter <= 160) {
+                this.panes[TitlePane.PressStart].setAlpha(0.0);
+            } else if (this.anmFrameCounter <= 180) {
+                this.panes[TitlePane.PressStart].setAlpha((this.anmFrameCounter - 160) / 20.0);
+            } else {
+                this.panes[TitlePane.PressStart].setAlpha(1.0);
+            }
+        } else {
+            if (this.cloudEmitter === null) {
+                this.cloudEmitter = globals.particleCtrl.set(globals, ParticleGroup.TwoDback, 0x83F9, puffPos);
+            } else {
+                this.cloudEmitter.setGlobalTranslation(puffPos);
+            }
+
+            this.panes[TitlePane.MainTitle].setAlpha(1.0);
+            this.panes[TitlePane.JapanSubtitle].setAlpha(0.0);
+
+            if (this.sparkleEmitter) {
+                this.sparkleEmitter.becomeInvalidEmitter();
+                this.sparkleEmitter = null;
+            }
+
+            this.btkSubtitle.frameCtrl.setFrame(this.btkSubtitle.frameCtrl.endFrame);
+            this.panes[TitlePane.Nintendo].setAlpha(1.0);
+            this.blinkFrameCounter += deltaTimeFrames;
+            while (this.blinkFrameCounter >= 100)
+                this.blinkFrameCounter -= 100;
+
+            if (this.blinkFrameCounter >= 50) {
+                this.panes[TitlePane.PressStart].setAlpha((this.blinkFrameCounter - 50) / 50.0);
+            } else {
+                this.panes[TitlePane.PressStart].setAlpha((50 - this.blinkFrameCounter) / 50.0);
+            }
+        }
+
+        if (this.shimmerFrameCounter <= 0) {
+            const finished = this.btkShimmer.play(deltaTimeFrames);
+            if (finished) {
+                this.btkShimmer.frameCtrl.setFrame(0.0);
+                this.btkShimmer.frameCtrl.setRate(1.0);
+                this.shimmerFrameCounter = cM_rndF(120) + 10;
+            }
+        } else {
+            this.shimmerFrameCounter -= deltaTimeFrames;
+        }
+
+        if (this.shipFrameCounter <= 0) {
+            this.shipOffsetX = (this.shipFrameCounter * this.shipFrameCounter) * -0.1;
+            this.bpkShip.frameCtrl.setFrame(100.0 + (this.shipFrameCounter * 2));
+        } else {
+            this.shipOffsetX = (this.shipFrameCounter * this.shipFrameCounter) * 0.1;
+            this.bpkShip.frameCtrl.setFrame(100.0 - (this.shipFrameCounter * 2));
+        }
+    }
+}
+
+class br_s {
+    public model: J3DModelInstance;
+    public flags: number = 0;
+    public posSim = vec3.create();
+    public pos = vec3.create();
+    public rot = vec3.create();
+    public scale = vec3.create();
+    public ropePosLeft = nArray(3, () => vec3.create());
+    public ropePosRight = nArray(3, () => vec3.create());
+
+    public modelChainLeft: J3DModelInstance | null = null;
+    public modelChainRight: J3DModelInstance | null = null;
+    public lineRope: mDoExt_3DlineMat1_c | null = null;
+
+    public rotYExtra: number = 0;
+    public biasY: number = 0;
+    public biasUnk: number = 0;
+
+    public destroy(globals: dGlobals): void {
+        if (this.lineRope !== null)
+            this.lineRope.destroy(globals.modelCache.device);
+    }
+}
+
+enum BridgeFlags {
+    IsMetal = 1 << 0,
+    ConnectToPartner = 1 << 1,
+    NoRopes = 1 << 2,
+    UseDarkRopeTex = 1 << 3,
+}
+
+enum BridgeType {
+    Wood = 0,
+    Metal = 1
+}
+
+class d_a_bridge extends fopAc_ac_c {
+    public static PROCESS_NAME = dProcName_e.d_a_bridge;
+    public static arcName = 'Bridge';
+
+    private flags: number;
+    private type: BridgeType;
+    private pathId: number;
+    private cutRopeSwayPhase: number;
+
+    private startRot = vec3.create();
+    private startPos: ReadonlyVec3;
+    private endPos: ReadonlyVec3;
+    private visiblePlankCount: number;
+    private plankCount: number;
+    private planks: br_s[];
+    private ropeLines = new mDoExt_3DlineMat1_c();
+    private partner: d_a_bridge | null = null;
+
+    private windAngle: number;
+    private windPower: number;
+    private frameCount = 0;
+    private uncutRopeCount = 0;
+    private ropeEndPosLeft = vec3.create();
+    private ropeEndPosRight = vec3.create();
+    private static ropeColor = colorNewFromRGBA8(0x969696FF);
+
+    private swayPhaseXZ = 0;
+    private swayPhaseY = 0;
+    private swayVelXZ = 0x578;
+    private swayVelY = 3000;
+    private swayPlankMag = 0;
+    private swayRootMag = 0;
+    private swayMagY = 0;
+    private swayRideMag = 0;
+    private swayRootMagCalc = 0;
+    private swayScalar = 1.0; // How is this set in the original code? Ghidra can only find reads.
+
+    public override subload(globals: dGlobals): cPhs__Status {
+        const status = dComIfG_resLoad(globals, d_a_bridge.arcName);
+        if (status !== cPhs__Status.Complete)
+            return status;
+
+        this.flags = this.parameters & 0xFF;
+        if (this.flags === 0xFF) this.flags = 0;
+
+        this.cutRopeSwayPhase = (this.parameters >> 8) & 0xFF;
+        this.pathId = (this.parameters >> 16) & 0xFF;
+        assert(this.pathId !== 0xFF);
+
+        const path = dPath_GetRoomPath(globals, this.pathId, this.roomNo);
+        assert(!!path);
+
+        this.startPos = path.points[0].pos;
+        this.endPos = path.points[1].pos;
+
+        const diff = vec3.sub(scratchVec3a, this.endPos, this.startPos);
+        const distXZ = Math.hypot(diff[0], diff[2]);
+
+        this.startRot[1] = cM_atan2s(diff[0], diff[2]);
+        this.startRot[0] = -cM_atan2s(diff[1], distXZ);
+
+        const dist = vec3.length(diff);
+        const plankBias = (dist > 1300) ? 3.0 : 0.0;
+        this.plankCount = Math.floor(dist / ((plankBias + 47.0) * 1.5));
+        assert(this.plankCount < 50);
+        this.planks = nArray(this.plankCount, () => new br_s());
+
+        // createHeap
+        this.type = this.flags & 1;
+        if (!!(this.flags & BridgeFlags.NoRopes))
+            this.type = BridgeType.Metal;
+
+        const bmdIds = [0x04 /* Wood */, 0x05 /* Metal */];
+        const modelPlankData = globals.resCtrl.getObjectRes(ResType.Model, d_a_bridge.arcName, bmdIds[this.type]);
+        const modelChainData = globals.resCtrl.getObjectRes(ResType.Model, d_a_bridge.arcName, 0x06);
+
+        const ropeBias = (this.type === BridgeType.Metal) ? 0 : 2;
+
+        const ropeTexID = (this.flags & BridgeFlags.UseDarkRopeTex) ? 0x8D : 0x7E;
+        const ropeTexData = globals.resCtrl.getObjectRes(ResType.Bti, "Always", ropeTexID);
+        this.ropeLines.init(2, 14, ropeTexData, false);
+
+        for (let i = 0; i < this.plankCount; i++) {
+            const plank = this.planks[i];
+            plank.model = new J3DModelInstance(modelPlankData);
+            assert(!!plank.model);
+
+            // Attach ropes to every fourth plank
+            if ((this.flags & BridgeFlags.NoRopes) === 0) {
+                if (((i + ropeBias) % 4) === 0) {
+                    plank.flags = 0b111; // 0b100: HasRope, 0b010: RightRopeUncut, 0b001: LeftRopeUncut
+
+                    if (this.type === BridgeType.Metal) {
+                        plank.modelChainLeft = new J3DModelInstance(modelChainData);
+                        plank.modelChainRight = new J3DModelInstance(modelChainData);
+                    } else {
+                        plank.lineRope = new mDoExt_3DlineMat1_c();
+                        plank.lineRope.init(2, 2, ropeTexData, true);
+                    }
+                }
+            }
+
+            if (this.type === BridgeType.Wood) {
+                const r = cM_rndF(0.3);
+                plank.scale[1] = r + 1.0;
+                if ((i + ropeBias) % 3 === 0) {
+                    plank.scale[0] = 1.05;
+                } else {
+                    const r = cM_rndF(0.1);
+                    plank.scale[0] = r + 1.0;
+                }
+            } else {
+                plank.scale[0] = 1.0;
+                plank.scale[1] = 1.0;
+            }
+            plank.scale[2] = 1.5;
+
+            vec3.copy(plank.model.baseScale, plank.scale);
+
+            const r = cM_rndF(1.0);
+            if (r < 0.5) {
+                plank.rotYExtra = -0x8000;
+            }
+        }
+
+        this.cullMtx = this.planks[0].model.modelMatrix;
+        this.setCullSizeBox(-120.0, -30.0, -60.0, 120.0, 30.0, 60.0);
+        this.cullFarDistanceRatio = 10.0;
+
+        // Limit the number of visible planks. They are still simulated, but won't be drawn or collided. 
+        // I assume this is to keep the support ropes matching up.   
+        if ((this.flags & BridgeFlags.ConnectToPartner) === 0) {
+            this.visiblePlankCount = this.plankCount;
+        } else if (this.plankCount < 16) {
+            if (this.plankCount < 12) {
+                this.visiblePlankCount = 7;
+            } else {
+                this.visiblePlankCount = 11;
+            }
+        } else {
+            this.visiblePlankCount = 15;
+        }
+
+        return cPhs__Status.Next;
+    }
+
+    private control1(deltaTimeFrames: number) {
+        this.swayPhaseXZ += this.swayVelXZ * deltaTimeFrames;
+        this.swayPhaseY += this.swayVelY * deltaTimeFrames;
+
+        // Increase the sway phase for each plank so they appear to move snakelike
+        const swayPhaseStep = (this.plankCount > 10) ? 4000 : 8000;
+
+        // Bridge direction
+        mDoMtx_YrotS(calc_mtx, this.rot[1]);
+        vec3.set(scratchVec3a, 1, 0, 0);
+        MtxPosition(scratchVec3a);
+
+        // Wind
+        mDoMtx_YrotS(calc_mtx, this.windAngle);
+        vec3.set(scratchVec3b, 0, 0, this.windPower * 5.0);
+        MtxPosition(scratchVec3b);
+
+        const swayRootAmt = this.swayScalar * this.swayRootMag * Math.cos(cM_s2rad(this.swayPhaseXZ));
+
+        for (let i = 1; i < this.planks.length; i++) {
+            const curPlank = this.planks[i];
+            const prevPlank = this.planks[i - 1];
+
+            // Offset the root position based on wind strength
+            const swayPlankAmt = this.swayScalar * this.swayPlankMag * Math.sin(cM_s2rad(this.swayPhaseXZ + i * swayPhaseStep));
+            const swayAmt = swayPlankAmt + swayRootAmt;
+            const offsetX = (curPlank.posSim[0] - prevPlank.posSim[0]) + scratchVec3b[0] + scratchVec3a[0] * swayAmt;
+            const offsetZ = (curPlank.posSim[2] - prevPlank.posSim[2]) + scratchVec3b[2] + scratchVec3a[2] * swayAmt;
+            const offsetAngleXZ = cM_atan2s(offsetX, offsetZ);
+            const offsetDistXZ = Math.hypot(offsetX, offsetZ);
+
+            const swayY = Math.sin(cM_s2rad(this.swayPhaseY + i * (swayPhaseStep + 1000)));
+            const offsetAngleY = cM_atan2s(this.swayScalar * this.swayMagY * swayY +
+                (curPlank.posSim[1] - prevPlank.posSim[1]) + curPlank.biasUnk * 0.5 + curPlank.biasY * this.swayScalar * 0.5, offsetDistXZ);
+
+            mDoMtx_YrotS(calc_mtx, offsetAngleXZ);
+            mDoMtx_XrotM(calc_mtx, -offsetAngleY);
+
+            vec3.set(scratchVec3c, 0, 0, 75);
+            MtxPosition(scratchVec3c);
+            vec3.add(curPlank.posSim, prevPlank.posSim, scratchVec3c);
+        }
+    }
+
+    private control2() {
+        // Traverse the planks in reverse order, skipping the final plank
+        for (let i = this.plankCount - 2; i >= 0; i--) {
+            const curPlank = this.planks[i];
+            const nextPlank = this.planks[i + 1];
+
+            const offsetX = (curPlank.posSim[0] - nextPlank.posSim[0]);
+            const offsetZ = (curPlank.posSim[2] - nextPlank.posSim[2]);
+            const offsetAngleXZ = cM_atan2s(offsetX, offsetZ);
+            const offsetDistXZ = Math.hypot(offsetX, offsetZ);
+            const offsetAngleY = cM_atan2s((curPlank.posSim[1] + curPlank.biasY * 0.5) - nextPlank.posSim[1], offsetDistXZ);
+
+            nextPlank.rot[1] = offsetAngleXZ;
+            nextPlank.rot[0] = -offsetAngleY;
+
+            mDoMtx_YrotS(calc_mtx, offsetAngleXZ);
+            mDoMtx_XrotM(calc_mtx, -offsetAngleY);
+
+            vec3.set(scratchVec3a, 0, 0, 75);
+            MtxPosition(scratchVec3a);
+            vec3.add(curPlank.posSim, nextPlank.posSim, scratchVec3a);
+        }
+    }
+
+    private control3() {
+        const curPlank = this.planks[0];
+        const nextPlank = this.planks[1];
+
+        const offsetX = (curPlank.posSim[0] - nextPlank.posSim[0]);
+        const offsetZ = (curPlank.posSim[2] - nextPlank.posSim[2]);
+        const offsetAngleXZ = cM_atan2s(offsetX, offsetZ);
+        const offsetDistXZ = Math.hypot(offsetX, offsetZ);
+        const offsetAngleY = cM_atan2s(curPlank.posSim[1] - nextPlank.posSim[1], offsetDistXZ);
+
+        curPlank.rot[1] = offsetAngleXZ;
+        curPlank.rot[0] = -offsetAngleY;
+    }
+
+    private bridge_move(globals: dGlobals, deltaTimeFrames: number) {
+        vec3.copy(this.planks[0].posSim, this.startPos);
+
+        // Iteratively solve for a "rope bridge" constraint on each plank by iterating forward and backward
+        this.control1(deltaTimeFrames);
+        vec3.copy(this.planks[this.plankCount - 1].posSim, this.endPos);
+        this.control2();
+        this.control3();
+
+        const rootOffset = vec3.sub(scratchVec3a, this.startPos, this.planks[0].posSim);
+        vec3.copy(this.pos, this.planks[0].posSim);
+        vec3.copy(this.rot, this.planks[0].rot);
+
+        for (let i = 0; i < this.plankCount; i++) {
+            const plank = this.planks[i];
+
+            const rootOffsetMag = (this.plankCount - i) / this.plankCount * 0.75;
+            vec3.scaleAndAdd(plank.pos, plank.posSim, rootOffset, rootOffsetMag);
+
+            plank.biasY = cLib_addCalc2(plank.biasY, -15.0, 1.0, 5.0);
+            plank.biasUnk = cLib_addCalc0(plank.biasUnk, 1.0, 5.0);
+        }
+
+        this.swayMagY = this.swayRideMag;
+        this.swayPlankMag = this.swayRideMag;
+        this.swayRootMag = this.swayRootMagCalc;
+
+        const targetMag = (this.windPower < 0.1) ? 0.0 : 2.0;
+        this.swayRideMag = cLib_addCalc2(this.swayRideMag, targetMag, 0.1, 0.1);
+        this.swayRootMagCalc = cLib_addCalc2(this.swayRootMagCalc, targetMag * 0.3, 0.1, 0.05);
+    }
+
+    public override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        const windVec = dKyw_get_wind_vec(globals.g_env_light);
+        this.windAngle = cM_atan2s(windVec[0], windVec[2]);
+        this.windPower = dKyw_get_wind_pow(globals.g_env_light);
+
+        if (!!(this.flags & BridgeFlags.ConnectToPartner) && this.partner === null) {
+            // this.partner = fopAcIt_JudgeByID(globals.frameworkGlobals, this.processId);
+            this.partner = fpcEx_Search(globals.frameworkGlobals, (pc: base_process_class) => {
+                return (pc.processName === dProcName_e.d_a_bridge && pc !== this);
+            }, null) as d_a_bridge;
+        }
+
+        this.bridge_move(globals, deltaTimeFrames);
+
+        this.uncutRopeCount = 0;
+        for (let i = 0; i < this.plankCount; i++) {
+            const plank = this.planks[i];
+
+            MtxTrans(plank.pos, false);
+            mDoMtx_YrotM(calc_mtx, plank.rot[1]);
+            mDoMtx_XrotM(calc_mtx, plank.rot[0]);
+            mDoMtx_ZrotM(calc_mtx, plank.rot[2]);
+
+            // Compute rope positions on the plan for left/right/top/bottom
+            if (plank.flags & 4) {
+                const offset = vec3.set(scratchVec3a, plank.scale[0] * 99.0, 0, 0);
+                MtxPosition(plank.ropePosRight[1], offset);
+                offset[0] *= -1;
+                MtxPosition(plank.ropePosLeft[1], offset);
+                offset[1] -= 30.0;
+                MtxPosition(plank.ropePosLeft[2], offset);
+                offset[0] *= -1;
+                MtxPosition(plank.ropePosRight[2], offset);
+
+                const ropeHeight = this.flags & BridgeFlags.IsMetal ? 1000.0 : 200.0;
+                vec3.copy(plank.ropePosRight[0], plank.ropePosRight[1]);
+                vec3.copy(plank.ropePosLeft[0], plank.ropePosLeft[1]);
+                plank.ropePosRight[0][1] += ropeHeight;
+                plank.ropePosLeft[0][1] += ropeHeight;
+
+                if (this.flags & BridgeFlags.ConnectToPartner && i === (this.visiblePlankCount - 1)) {
+                    vec3.copy(this.ropeEndPosRight, plank.ropePosRight[0]);
+                    vec3.copy(this.ropeEndPosLeft, plank.ropePosLeft[0]);
+                }
+            }
+
+            // Lots of stuff here. Particles, collision, etc...
+
+            // Half the planks are rotated 180 degrees (to simulate island craftsmanship)
+            mDoMtx_YrotM(calc_mtx, plank.rotYExtra);
+
+            // Hide planks that exceed the max visible count
+            if (i >= this.visiblePlankCount) {
+                vec3.zero(plank.scale);
+                vec3.zero(plank.model.baseScale);
+                plank.flags = 0;
+            }
+
+            mat4.copy(plank.model.modelMatrix, calc_mtx);
+
+            // Compute the rope connection points for this plank (if this plank has ropes)
+            if ((this.flags & BridgeFlags.IsMetal) === 0 && (plank.flags & 4)) {
+                const lineRight = this.ropeLines.lines[0];
+                const lineLeft = this.ropeLines.lines[1];
+
+                if ((plank.flags & 1) === 0) {
+                    // If right side cut...
+                } else {
+                    vec3.copy(lineRight.segments[this.uncutRopeCount + 1], plank.ropePosRight[0]);
+                }
+
+                if ((plank.flags & 2) === 0) {
+                    // If left side cut...
+                } else {
+                    vec3.copy(lineLeft.segments[this.uncutRopeCount + 1], plank.ropePosLeft[0]);
+                }
+
+                this.uncutRopeCount += 1;
+            }
+        }
+
+        this.frameCount += deltaTimeFrames;
+
+        settingTevStruct(globals, LightType.BG0, this.pos, this.tevStr);
+    }
+
+    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
+        const mainRopeWidth = this.flags & BridgeFlags.UseDarkRopeTex ? 6.5 : 4.0;
+
+        for (let plank of this.planks) {
+            setLightTevColorType(globals, plank.model, this.tevStr, globals.camera);
+            mDoExt_modelUpdateDL(globals, plank.model, renderInstManager);
+
+            if (plank.flags & 4) {
+                if (this.flags & BridgeFlags.IsMetal) {
+                    assert(!!plank.modelChainRight);
+                    MtxTrans(plank.ropePosRight[1], false);
+                    mDoMtx_XrotM(calc_mtx, -0x4000);
+                    mat4.copy(plank.modelChainRight.modelMatrix, calc_mtx);
+                    setLightTevColorType(globals, plank.modelChainRight, this.tevStr, globals.camera);
+                    mDoExt_modelUpdateDL(globals, plank.modelChainRight, renderInstManager);
+
+                    assert(!!plank.modelChainLeft);
+                    MtxTrans(plank.ropePosLeft[1], false);
+                    mDoMtx_XrotM(calc_mtx, -0x4000);
+                    mat4.copy(plank.modelChainLeft.modelMatrix, calc_mtx);
+                    setLightTevColorType(globals, plank.modelChainLeft, this.tevStr, globals.camera);
+                    mDoExt_modelUpdateDL(globals, plank.modelChainLeft, renderInstManager);
+                } else {
+                    assert(!!plank.lineRope);
+                    const rightSegs = plank.lineRope.lines[0].segments;
+                    const leftSegs = plank.lineRope.lines[1].segments;
+
+                    vec3.copy(rightSegs[0], plank.ropePosRight[0]);
+                    vec3.copy(rightSegs[1], plank.ropePosRight[1]);
+                    vec3.copy(leftSegs[0], plank.ropePosLeft[0]);
+                    vec3.copy(leftSegs[1], plank.ropePosLeft[1]);
+
+                    plank.lineRope.updateWithScale(globals, 2, mainRopeWidth, d_a_bridge.ropeColor, 0, this.tevStr);
+                    plank.lineRope.setMaterial(globals);
+                    plank.lineRope.draw(globals, renderInstManager);
+                }
+            }
+        }
+
+        // Set start and end positions, then draw the main rope
+        if ((this.flags & (BridgeFlags.IsMetal | BridgeFlags.NoRopes)) === 0) {
+            const startSegRight = this.ropeLines.lines[0].segments[0];
+            const startSegLeft = this.ropeLines.lines[1].segments[0];
+            const endSegRight = this.ropeLines.lines[0].segments[this.uncutRopeCount + 1];
+            const endSegLeft = this.ropeLines.lines[1].segments[this.uncutRopeCount + 1];
+
+            const ropeOffset = scratchVec3a;
+            const ropeOffsetLocal = vec3.set(scratchVec3b, -120, 350.0, -40.0);
+            mDoMtx_YrotS(calc_mtx, this.startRot[1]);
+            MtxPosition(ropeOffset, ropeOffsetLocal);
+            vec3.add(startSegRight, this.startPos, ropeOffset);
+
+            ropeOffsetLocal[0] *= -1;
+            MtxPosition(ropeOffset, ropeOffsetLocal);
+            vec3.add(startSegLeft, this.startPos, ropeOffset);
+
+            if (this.flags & BridgeFlags.ConnectToPartner) {
+                if (this.partner) {
+                    vec3.copy(endSegRight, this.partner.ropeEndPosLeft);
+                    vec3.copy(endSegLeft, this.partner.ropeEndPosRight);
+                }
+            } else {
+                ropeOffsetLocal[2] *= -1;
+
+                MtxPosition(ropeOffset, ropeOffsetLocal);
+                vec3.add(endSegLeft, this.endPos, ropeOffset);
+
+                ropeOffsetLocal[0] *= -1;
+                MtxPosition(ropeOffset, ropeOffsetLocal);
+                vec3.add(endSegRight, this.endPos, ropeOffset);
+            }
+
+            this.ropeLines.updateWithScale(globals, this.uncutRopeCount + 2, mainRopeWidth, d_a_bridge.ropeColor, 0, this.tevStr);
+            this.ropeLines.setMaterial(globals);
+            this.ropeLines.draw(globals, renderInstManager);
+        }
+    }
+
+    public override delete(globals: dGlobals): void {
+        for (let i = 0; i < this.planks.length; i++)
+            this.planks[i].destroy(globals);
+        this.ropeLines.destroy(globals.modelCache.device);
+    }
+}
+
 interface constructor extends fpc_bs__Constructor {
     PROCESS_NAME: dProcName_e;
 }
@@ -4987,4 +6583,8 @@ export function d_a__RegisterConstructors(globals: fGlobals): void {
     R(d_a_obj_flame);
     R(d_a_ff);
     R(d_a_npc_ls1);
+    R(d_a_npc_zl1);
+    R(d_a_py_lk);
+    R(d_a_title);
+    R(d_a_bridge);
 }

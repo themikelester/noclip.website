@@ -1,19 +1,18 @@
 
-import { White, OpaqueBlack, TransparentBlack } from "../../Color.js";
-import { makeStaticDataBuffer } from "../../gfx/helpers/BufferHelpers.js";
+import { OpaqueBlack, TransparentBlack, White } from "../../Color.js";
+import { createBufferFromData } from "../../gfx/helpers/BufferHelpers.js";
 import { gfxDeviceNeedsFlipY } from "../../gfx/helpers/GfxDeviceHelpers.js";
 import { makeSolidColorTexture2D } from "../../gfx/helpers/TextureHelpers.js";
-import { GfxVertexBufferDescriptor, GfxIndexBufferDescriptor, GfxDevice, GfxVertexAttributeDescriptor, GfxInputLayoutBufferDescriptor, GfxVertexBufferFrequency, GfxBufferUsage, GfxTexFilterMode, GfxMipFilterMode, GfxWrapMode, GfxCompareMode } from "../../gfx/platform/GfxPlatform.js";
+import { GfxBuffer, GfxBufferFrequencyHint, GfxBufferUsage, GfxCompareMode, GfxDevice, GfxIndexBufferDescriptor, GfxInputLayout, GfxInputLayoutBufferDescriptor, GfxMipFilterMode, GfxSampler, GfxTexFilterMode, GfxTexture, GfxVertexAttributeDescriptor, GfxVertexBufferDescriptor, GfxVertexBufferFrequency, GfxWrapMode } from "../../gfx/platform/GfxPlatform.js";
 import { GfxFormat } from "../../gfx/platform/GfxPlatformFormat.js";
-import { GfxBuffer, GfxInputLayout, GfxTexture, GfxSampler } from "../../gfx/platform/GfxPlatformImpl.js";
-import { GfxRenderCache } from "../../gfx/render/GfxRenderCache.js";
-import { GfxRenderInst } from "../../gfx/render/GfxRenderInstManager.js";
-import { Cubemap } from "../BSPFile.js";
-import { SourceFileSystem } from "../Main.js";
+import type { GfxRenderCache } from "../../gfx/render/GfxRenderCache.js";
+import type { GfxRenderInst } from "../../gfx/render/GfxRenderInstManager.js";
+import type { Cubemap } from "../BSPFile.js";
+import type { SourceFileSystem } from "../Main.js";
 import { ParticleSystemCache } from "../ParticleSystem.js";
 import { VMT, parseVMT } from "../VMT.js";
 import { VTF } from "../VTF.js";
-import { MaterialShaderTemplateBase, LateBindingTexture, BaseMaterial } from "./MaterialBase.js";
+import { BaseMaterial, LateBindingTexture, MaterialShaderTemplateBase } from "./MaterialBase.js";
 import { Material_Eyes, ShaderTemplate_Eyes } from "./Material_Eyes.js";
 import { Material_Generic, ShaderTemplate_Generic } from "./Material_Generic.js";
 import { Material_Modulate, ShaderTemplate_Modulate } from "./Material_Modulate.js";
@@ -49,23 +48,23 @@ class StaticQuad {
         this.inputLayout = cache.createInputLayout({ vertexAttributeDescriptors, vertexBufferDescriptors, indexBufferFormat });
 
         const n0 = 1, n1 = -1;
-        this.vertexBufferQuad = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, new Float32Array([
+        this.vertexBufferQuad = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, new Float32Array([
             0, n0, n0, 1, 0, 1, 1, 1, 1,
             0, n0, n1, 1, 1, 1, 1, 1, 1,
             0, n1, n0, 0, 0, 1, 1, 1, 1,
             0, n1, n1, 0, 1, 1, 1, 1, 1,
         ]).buffer);
-        this.indexBufferQuad = makeStaticDataBuffer(device, GfxBufferUsage.Index, new Uint16Array([
+        this.indexBufferQuad = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, new Uint16Array([
             0, 1, 2, 2, 1, 3,
         ]).buffer);
 
-        this.zeroVertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, new ArrayBuffer(16));
+        this.zeroVertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, new ArrayBuffer(16));
 
         this.vertexBufferDescriptorsQuad = [
-            { buffer: this.vertexBufferQuad, byteOffset: 0 },
-            { buffer: this.zeroVertexBuffer, byteOffset: 0, },
+            { buffer: this.vertexBufferQuad },
+            { buffer: this.zeroVertexBuffer },
         ];
-        this.indexBufferDescriptorQuad = { buffer: this.indexBufferQuad, byteOffset: 0 };
+        this.indexBufferDescriptorQuad = { buffer: this.indexBufferQuad };
     }
 
     public setQuadOnRenderInst(renderInst: GfxRenderInst): void {

@@ -5,13 +5,13 @@ import {
     GfxDevice, GfxBuffer, GfxInputLayout, GfxBufferUsage, GfxVertexAttributeDescriptor, GfxFormat, GfxVertexBufferFrequency,
     GfxBindingLayoutDescriptor, GfxWrapMode, GfxMipFilterMode, GfxTexFilterMode,
     GfxSampler, GfxBlendFactor, GfxBlendMode, GfxTexture, GfxMegaStateDescriptor, GfxInputLayoutBufferDescriptor, makeTextureDescriptor2D, GfxProgram, GfxVertexBufferDescriptor, GfxIndexBufferDescriptor,
+    GfxBufferFrequencyHint,
 } from "../gfx/platform/GfxPlatform.js";
 import { SceneGfx, ViewerRenderInput, Texture } from "../viewer.js";
 import { SceneDesc, SceneContext, SceneGroup } from "../SceneBase.js";
 import ArrayBufferSlice from "../ArrayBufferSlice.js";
 import { readString, assert, hexzero, nArray } from "../util.js";
 import { decompress } from "../Common/Compression/MIO0.js";
-import { makeStaticDataBuffer } from "../gfx/helpers/BufferHelpers.js";
 import { DeviceProgram } from "../Program.js";
 import { GfxRenderInstManager, makeSortKey, GfxRendererLayer, setSortKeyDepth, getSortKeyLayer, GfxRenderInstList } from "../gfx/render/GfxRenderInstManager.js";
 import { fillMatrix4x3, fillMatrix4x4, fillMatrix4x2, fillVec4v, fillVec3v } from "../gfx/helpers/UniformBufferHelpers.js";
@@ -34,6 +34,8 @@ import { calcTextureScaleForShift } from '../Common/N64/RSP.js';
 import { colorNewFromRGBA } from '../Color.js';
 import { GfxrAttachmentSlot } from '../gfx/render/GfxRenderGraph.js';
 import { convertToCanvas } from '../gfx/helpers/TextureConversionHelpers.js';
+import { GfxShaderLibrary } from '../gfx/helpers/GfxShaderLibrary.js';
+import { createBufferFromData } from '../gfx/helpers/BufferHelpers.js';
 
 interface Pilotwings64FSFileChunk {
     tag: string;
@@ -978,7 +980,7 @@ function parseUPWL(file: Pilotwings64FSFile): UPWL {
     return { windObjects, landingPads, bonusStar };
 }
 
-const enum Vehicle {
+enum Vehicle {
     HangGlider = 0,
     RocketBelt = 1,
     Gyrocopter = 2,
@@ -988,7 +990,7 @@ const enum Vehicle {
     Birdman = 6,
 }
 
-const enum RotationAxis {
+enum RotationAxis {
     X = 0x78,
     Y = 0x79,
     Z = 0x7A,
@@ -1438,8 +1440,8 @@ class MeshData {
 
     constructor(cache: GfxRenderCache, public mesh: Mesh_Chunk) {
         const device = cache.device;
-        this.vertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, mesh.vertexData.buffer);
-        this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, mesh.indexData.buffer);
+        this.vertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, mesh.vertexData.buffer);
+        this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, mesh.indexData.buffer);
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
             { location: F3DEX_Program.a_Position, bufferIndex: 0, format: GfxFormat.F32_RGB, bufferByteOffset: 0 * 0x04, },
@@ -1457,9 +1459,9 @@ class MeshData {
         });
 
         this.vertexBufferDescriptors = [
-            { buffer: this.vertexBuffer, byteOffset: 0 },
+            { buffer: this.vertexBuffer },
         ];
-        this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+        this.indexBufferDescriptor = { buffer: this.indexBuffer };
     }
 
     public destroy(device: GfxDevice): void {
@@ -1606,7 +1608,7 @@ interface DecodeMaterialResult {
     combineOverride?: RDP.CombineParams;
 }
 
-const enum PilotwingsRSPFlag {
+enum PilotwingsRSPFlag {
     GOURAUD     = 1 << 1,
     CULL_FRONT  = 1 << 3,
     CULL_BACK   = 1 << 4,
@@ -1907,7 +1909,7 @@ class MaterialInstance {
     }
 }
 
-const enum TexCM {
+enum TexCM {
     WRAP = 0x00, MIRROR = 0x01, CLAMP = 0x02,
 }
 
@@ -2301,33 +2303,36 @@ class SnowProgram extends DeviceProgram {
     public static ub_DrawParams = 1;
 
     public override both = `
+${GfxShaderLibrary.MatrixLibrary}
+
 layout(std140) uniform ub_SceneParams {
     Mat4x4 u_Projection;
 };
 
 layout(std140) uniform ub_DrawParams {
-    Mat4x3 u_BoneMatrix;
+    Mat3x4 u_BoneMatrix;
     vec4 u_Shift;
 };`
     public override vert = `
 layout(location = 0) in vec3 a_Position;
 
 void main() {
-    gl_Position = vec4(a_Position, 1.0) + vec4(u_Shift.xyz, 0.0);
+    vec3 t_PositionLocal = a_Position + u_Shift.xyz;
     // slightly clumsy, force into 0-10k cube, then shift center to origin
     // just easier than dealing with negative mod values
     float cubeSide = 5000.0;
-    gl_Position = mod(gl_Position, 2.0*vec4(cubeSide)) - vec4(vec3(cubeSide), 0.0);
-    gl_Position = Mul(_Mat4x4(u_BoneMatrix), gl_Position);
+    t_PositionLocal = mod(t_PositionLocal, 2.0 * vec3(cubeSide)) - vec3(cubeSide);
+    t_PositionLocal = UnpackMatrix(u_BoneMatrix) * vec4(t_PositionLocal, 1.0);
     // shift snow cube in front of camera
-    gl_Position.z -= cubeSide;
+    t_PositionLocal.z -= cubeSide;
     // add offset based on which corner this is, undoing perspective correction so every flake is the same size
-    gl_Position += (u_Shift.w * gl_Position.z) * vec4(float(gl_VertexID & 1) - 0.5, float((gl_VertexID >> 1) & 1) - 0.5, 0.0, 0.0);
-    gl_Position = Mul(u_Projection, gl_Position);
+    t_PositionLocal += (u_Shift.w * t_PositionLocal.z) * vec3(float(gl_VertexID & 1) - 0.5, float((gl_VertexID >> 1) & 1) - 0.5, 0.0);
+    gl_Position = UnpackMatrix(u_Projection) * vec4(t_PositionLocal, 1.0);
     // game writes snow directly to the frame buffer, with a very simple projection
     // this effectively leads to a slightly larger FOV, so apply the same multiplier here
     gl_Position = gl_Position * vec4(0.81778, 0.81778, 1.0, 1.0);
 }`;
+
     public override frag = `
 void main() {
     gl_FragColor = vec4(1.0); // flakes are just white
@@ -2379,8 +2384,8 @@ class SnowRenderer {
         }
 
         const device = cache.device;
-        this.vertexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Vertex, flakeVertices.buffer);
-        this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.Index, flakeIndices.buffer);
+        this.vertexBuffer = createBufferFromData(device, GfxBufferUsage.Vertex, GfxBufferFrequencyHint.Static, flakeVertices.buffer);
+        this.indexBuffer = createBufferFromData(device, GfxBufferUsage.Index, GfxBufferFrequencyHint.Static, flakeIndices.buffer);
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
             { location: SnowProgram.a_Position, bufferIndex: 0, format: GfxFormat.F32_RGB, bufferByteOffset: 0, },
@@ -2396,9 +2401,9 @@ class SnowRenderer {
         });
 
         this.vertexBufferDescriptors = [
-            { buffer: this.vertexBuffer, byteOffset: 0, },
+            { buffer: this.vertexBuffer },
         ];
-        this.indexBufferDescriptor = { buffer: this.indexBuffer, byteOffset: 0 };
+        this.indexBufferDescriptor = { buffer: this.indexBuffer };
     }
 
     public prepareToRender(device: GfxDevice, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
@@ -2469,10 +2474,10 @@ class DataHolder {
     public uven: UVEN[] = [];
     public uvtp: UVTP[] = [];
     public splineData = new Map<number, SPTH>();
-    public gfxRenderCache: GfxRenderCache;
+    public renderCache: GfxRenderCache;
 
     constructor(device: GfxDevice) {
-        this.gfxRenderCache = new GfxRenderCache(device);
+        this.renderCache = new GfxRenderCache(device);
     }
 
     public destroy(device: GfxDevice): void {
@@ -2482,7 +2487,7 @@ class DataHolder {
             this.uvmdData[i].destroy(device);
         for (let i = 0; i < this.uvctData.length; i++)
             this.uvctData[i].destroy(device);
-        this.gfxRenderCache.destroy();
+        this.renderCache.destroy();
     }
 }
 
@@ -2775,13 +2780,13 @@ async function fetchDataHolder(dataFetcher: DataFetcher, device: GfxDevice): Pro
         const file = fs.files[i];
         if (file.type === 'UVCT') {
             const uvct = parseUVCT(file);
-            dataHolder.uvctData.push(new UVCTData(dataHolder.gfxRenderCache, uvct));
+            dataHolder.uvctData.push(new UVCTData(dataHolder.renderCache, uvct));
         } else if (file.type === 'UVTX') {
             const uvtx = parseUVTX(file);
-            dataHolder.textureData.push(new TextureData(dataHolder.gfxRenderCache, uvtx));
+            dataHolder.textureData.push(new TextureData(dataHolder.renderCache, uvtx));
         } else if (file.type === 'UVMD') {
             const uvmd = parseUVMD(file);
-            dataHolder.uvmdData.push(new ModelData(dataHolder.gfxRenderCache, uvmd, dataHolder.uvmdData.length));
+            dataHolder.uvmdData.push(new ModelData(dataHolder.renderCache, uvmd, dataHolder.uvmdData.length));
         } else if (file.type === 'UVTR') {
             dataHolder.uvtr.push(parseUVTR(file));
         } else if (file.type === 'UVLV') {
@@ -2806,7 +2811,7 @@ async function fetchDataHolder(dataFetcher: DataFetcher, device: GfxDevice): Pro
     return dataHolder;
 }
 
-const enum PW64Pass { SKYBOX, NORMAL, SNOW }
+enum PW64Pass { SKYBOX, NORMAL, SNOW }
 
 const toNoclipSpace = mat4.create();
 mat4.fromXRotation(toNoclipSpace, -90 * MathConstants.DEG_TO_RAD);
