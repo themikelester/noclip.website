@@ -22,7 +22,7 @@ import { ColorKind, DrawParams, GXMaterialHelperGfx, MaterialParams } from "../g
 import { arrayRemove, assert, assertExists, nArray } from "../util.js";
 import { ViewerRenderInput } from "../viewer.js";
 import { dGlobals } from "./Main.js";
-import { cLib_addCalc, cLib_addCalc0, cLib_addCalc2, cLib_addCalcAngleRad2, cLib_addCalcAngleS, cLib_addCalcAngleS2, cLib_addCalcPosXZ2, cLib_chasePosXZ, cLib_distanceSqXZ, cLib_distanceXZ, cLib_targetAngleX, cLib_targetAngleY, cM_atan2s, cM_rndF, cM_rndFX, cM_s2rad } from "./SComponent.js";
+import { cLib_addCalc, cLib_addCalc0, cLib_addCalc2, cLib_addCalcAngleRad2, cLib_addCalcAngleS, cLib_addCalcAngleS2, cLib_addCalcPosXZ2, cLib_chaseF, cLib_chasePosXZ, cLib_distanceSqXZ, cLib_distanceXZ, cLib_targetAngleX, cLib_targetAngleY, cM_atan2s, cM_rndF, cM_rndFX, cM_s2rad } from "./SComponent.js";
 import { dLib_getWaterY, dLib_waveInit, dLib_waveRot, dLib_wave_c, d_a_sea } from "./d_a_sea.js";
 import { cBgW_Flags, dBgS_GndChk, dBgW } from "./d_bg.js";
 import { EDemoActorFlags, dDemo_setDemoData } from "./d_demo.js";
@@ -6551,6 +6551,182 @@ class d_a_bridge extends fopAc_ac_c {
     }
 }
 
+class d_a_lod_bg extends fopAc_ac_c {
+    public static PROCESS_NAME = dProcName_e.d_a_lod_bg;
+
+    private executeFunc: ((globals: dGlobals, deltaTimeFrames: number) => boolean) | null = null;
+    private arcName: string;
+    private model: J3DModelInstance | null = null;
+    private model2: (J3DModelInstance | null)[] = [null, null];
+    private alpha = 0;
+    private drawModel2 = false;
+
+    public override subload(globals: dGlobals): cPhs__Status {
+        this.setExecute(this.execCreateWait);
+        this.scale[0] *= 20000.0;
+        this.scale[2] = this.scale[0] + 20000.0;
+        dKy_tevstr_init(this.tevStr, this.getRoomNo(), 0xFF);
+
+        this.arcName = `LOD${this.getRoomNo()}`;
+
+        return cPhs__Status.Next;
+    }
+
+    public override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        if (this.executeFunc !== null)
+            this.executeFunc.call(this, globals, deltaTimeFrames);
+    }
+
+    private execCreateWait = (globals: dGlobals, deltaTimeFrames: number): boolean => {
+        const dist = vec3.distance(this.pos, globals.playerPosition);
+        if (dist > this.scale[0])
+            return true;
+
+        // Start loading the LOD archive 
+        globals.modelCache.requestStageData(this.arcName);
+
+        this.setExecute(this.execReadWait);
+        return true;
+    };
+
+    private execReadWait = (globals: dGlobals, deltaTimeFrames: number): boolean => {
+        const status = globals.modelCache.requestStageData(this.arcName);
+        if (status !== cPhs__Status.Complete)
+            return true;
+
+        this.createModelData(globals);
+        assert(this.model !== null);
+
+        this.cullMtx = this.model.modelMatrix;
+        this.setExecute(this.execDeleteWait);
+        return true;
+    };
+
+    private execDeleteWait = (globals: dGlobals, deltaTimeFrames: number): boolean => {
+        if (this.model !== null) {
+            const dist = vec3.distance(this.pos, globals.playerPosition);
+            if (dist < this.scale[2]) {
+                const roomNo = this.getRoomNo();
+
+                // TODO:
+                const disp = dist > this.scale[0] || globals.roomCtrl.status[ roomNo ].visible;
+                this.alpha = cLib_chaseF(this.alpha, disp ? 255 : 0, 16 * deltaTimeFrames);
+
+                if (this.alpha !== 0) {
+                    // Simulate things coming up over the horizon. Neat. 
+                    let y = 150000.0 - dist;
+                    if (y >= 0.0)
+                        y = 0.0;
+                    else
+                        y *= 0.1;
+
+                    MtxTrans(vec3.set(scratchVec3a, this.pos[0], this.pos[1] + y, this.pos[2]), false);
+                    mDoMtx_YrotM(calc_mtx, this.rot[1]);
+                    mat4.copy(this.model.modelMatrix, calc_mtx);
+
+                    // TODO:
+                    // if (this.model2[0] !== null) {
+                    //     if (roomNo === 11) { // windfall
+                    //         this.drawModel2 = true; // daObjLight check omitted
+                    //         if (this.drawModel2) {
+                    //             MtxTrans(vec3.set(scratchVec3a, 630.46338, y + 4044.508, -202724.0), false);
+                    //             // mDoMtx_YrotM with light angle
+                    //             mat4.copy(this.model2[0]!.modelMatrix, calc_mtx);
+                    //             mDoMtx_YrotM(calc_mtx, -0x8000);
+                    //             mat4.copy(this.model2[1]!.modelMatrix, calc_mtx);
+                    //         }
+                    //     } else if (roomNo === 1) { // forsaken
+                    //         mat4.copy(this.model2[0]!.modelMatrix, calc_mtx);
+                    //         this.drawModel2 = true;
+                    //     }
+                    // }
+                }
+
+                return true;
+            }
+        }
+
+        this.alpha = 0;
+        this.model = null;
+        this.model2[0] = null;
+        this.model2[1] = null;
+        this.setExecute(this.execCreateWait);
+        return true;
+    };
+
+    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
+        if (this.model === null || this.alpha === 0)
+            return;
+
+        // TODO:
+        // const roomNo = this.getRoomNo();
+        // if (roomNo === 26 && !dComIfGs_isEventBit(globals, 0x1e40)) // totg
+        //     return;
+
+        settingTevStruct(globals, LightType.BG0, null, this.tevStr);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
+
+        for (let i = 0; i < this.model.modelMaterialData.materialData!.length; i++) {
+            const m0 = this.model.modelMaterialData.materialData![i].material;
+            this.model.modelMaterialData.materialData![i].material.colorConstants[3].a = this.alpha / 255.0;
+        }
+
+        // mDoLib_clipper::changeFar(500000.0);
+        this.model.calcAnim();
+        // mDoLib_clipper::clip(this.model);
+        mDoExt_modelEntryDL(globals, this.model, renderInstManager);
+
+        // if (this.model2[0] !== null && this.drawModel2) {
+        //     if (roomNo === 11) { // windfall
+        //         const modelData = this.model2[0]!.modelData;
+        //         for (let i = 0; i < modelData.materialData!.length; i++)
+        //             modelData.materialData![i].material.colorConstants[3].a = this.alpha / 255.0;
+
+        //         for (let i = 0; i < 2; i++) {
+        //             this.model2[i]!.calcAnim();
+        //             // mDoLib_clipper::clip(this.model2[i]);
+        //             mDoExt_modelEntryDL(globals, this.model2[i]!, renderInstManager);
+        //         }
+        //     } else if (roomNo === 1) { // forsaken
+        //         setLightTevColorType(globals, this.model2[0]!, this.tevStr, globals.camera);
+        //         const modelData = this.model2[0]!.modelData;
+        //         for (let i = 0; i < modelData.materialData!.length; i++)
+        //             modelData.materialData![i].material.colorConstants[3].a = this.alpha / 255.0;
+        //         this.model2[0]!.calcAnim();
+        //         // mDoLib_clipper::clip(this.model2[0]);
+        //         mDoExt_modelEntryDL(globals, this.model2[0]!, renderInstManager);
+        //     }
+        // }
+
+        // mDoLib_clipper::resetFar();
+    }
+
+    private createModelData(globals: dGlobals): boolean {
+        const modelData = assertExists(globals.resCtrl.getResByName(ResType.Model, this.arcName, `model.bdl`, globals.resCtrl.resStg));
+        this.model = new J3DModelInstance(modelData);
+
+        // TODO:
+        // const roomNo = this.getRoomNo();
+        // if (roomNo === 11) { // windfall
+        //     if (!this.loadModelData2('/lod11/bdl/shikari.bdl'))
+        //         return false;
+        // } else if (roomNo === 1 && !dComIfGs_isEventBit(globals, 0x1820)) { // forsaken
+        //     if (!this.loadModelData2('/lod01/bdl/model1.bdl'))
+        //         return false;
+        // }
+
+        return true;
+    }
+
+    private getRoomNo(): number {
+        return this.parameters;
+    }
+
+    private setExecute(func: (globals: dGlobals, deltaTimeFrames: number) => boolean): void {
+       this.executeFunc = func;
+    }
+}
+
 interface constructor extends fpc_bs__Constructor {
     PROCESS_NAME: dProcName_e;
 }
@@ -6587,4 +6763,5 @@ export function d_a__RegisterConstructors(globals: fGlobals): void {
     R(d_a_py_lk);
     R(d_a_title);
     R(d_a_bridge);
+    R(d_a_lod_bg);
 }
