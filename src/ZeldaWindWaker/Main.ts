@@ -663,6 +663,11 @@ export class ModelCache {
         this.resCtrl.mountRes(this.device, this.cache, arcName, archive, this.resCtrl.resSystem);
     }
 
+    public async fetchStageData(arcName: string): Promise<void> {
+        const archive = await this.fetchArchive(`Stage/${this.currentStage}/${arcName}.arc`);
+        this.resCtrl.mountRes(this.device, this.cache, arcName, archive, this.resCtrl.resStg);
+    }
+
     public requestFileData(path: string): cPhs__Status {
         if (this.fileDataCache.has(path))
             return cPhs__Status.Complete;
@@ -697,9 +702,16 @@ export class ModelCache {
         return cPhs__Status.Loading;
     }
 
-    public async fetchStageData(arcName: string): Promise<void> {
-        const archive = await this.fetchArchive(`Stage/${this.currentStage}/${arcName}.arc`);
-        this.resCtrl.mountRes(this.device, this.cache, arcName, archive, this.resCtrl.resStg);
+    public requestStageData(arcName: string): cPhs__Status {
+        const archivePath = `Stage/${this.currentStage}/${arcName}.arc`;
+
+        if (this.archiveCache.has(archivePath))
+            return cPhs__Status.Complete;
+
+        if (!this.archivePromiseCache.has(archivePath))
+            this.fetchStageData(arcName);
+
+        return cPhs__Status.Loading;
     }
 
     public destroy(device: GfxDevice): void {
