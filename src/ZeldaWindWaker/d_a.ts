@@ -40,6 +40,7 @@ import { MtxPosition, MtxTrans, calc_mtx, mDoMtx_XYZrotM, mDoMtx_XrotM, mDoMtx_Y
 import { J2DAnchorPos, J2DPane, J2DScreen } from "../Common/JSYSTEM/J2Dv1.js";
 import { parseTParagraphData, TParseData_fixed } from "../Common/JSYSTEM/JStudio.js";
 import { AABB } from "../Geometry.js";
+import { d_a_noclip_legacy } from "./LegacyActor.js";
 
 // Framework'd actors
 
@@ -7215,7 +7216,10 @@ class d_a_obj_pirateship extends fopAc_ac_c {
     public static PROCESS_NAME = dProcName_e.d_a_obj_pirateship;
 
     public model: J3DModelInstance;
-    public modelWheel: mDoExt_McaMorf;
+    
+    private modelWheel: mDoExt_McaMorf;
+    private idDoor: number = -1;
+    private actDoor: d_a_noclip_legacy | null = null;
 
     private static arcName = `Kaizokusen`;
     private static arcNameWheel = `Kaji`;
@@ -7232,8 +7236,6 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         const modelData = globals.resCtrl.getObjectRes(ResType.Model, d_a_obj_pirateship.arcName, 0xE);
         this.model = new J3DModelInstance(modelData);
 
-        this.partsCreate(globals);
-
         const shipCfgIdx = (this.parameters >> 0x18) & 0xFF;
         switch (shipCfgIdx) {
             case 0: this.piratesCreate(globals, [0, 1, 2, 3]); break;
@@ -7243,6 +7245,8 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         };
 
         this.set_mtx();
+        
+        this.partsCreate(globals);
 
         return cPhs__Status.Next;
     }
@@ -7255,6 +7259,8 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         }
 
         // Event handling
+
+        if (!this.actDoor) this.actDoor = fopAcIt_JudgeByID<d_a_noclip_legacy>(globals.frameworkGlobals, this.idDoor);
 
         if (this.modelWheel) {
             this.modelWheel.play(deltaTimeFrames);
@@ -7282,8 +7288,10 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         // TODO: Pirate flag
 
         const shipCfgIdx = (this.parameters >> 0x18) & 0xFF;
+        
+        // Catapult (this must remain a separate actor because demos need to reference it)
         if (shipCfgIdx !== 3) {
-            const pos = vec3.add(vec3.create(), this.pos, vec3.set(scratchVec3a, Math.sin(cM_s2rad(this.rot[1])) * 850.0, 700, Math.cos(cM_s2rad(this.rot[1])) * 850.0));
+            const pos = vec3.transformMat4(vec3.create(), vec3.set(scratchVec3a, 0, 700, 850), this.model.modelMatrix);
             const prm: fopAcM_prm_class = {
                 parameters: 0, pos, roomNo: this.tevStr.roomNo, rot: this.rot, scale: Vec3One,
                 subtype: 0xFF, parentPcId: this.processId, enemyNo: -1, gbaName: 0, layer: this.roomLayer
@@ -7291,11 +7299,23 @@ class d_a_obj_pirateship extends fopAc_ac_c {
             fpcSCtRq_Request(globals.frameworkGlobals, null, dProcName_e.d_a_obj_tousekiki, prm);
         }
 
+        // Steering Wheel
         if (shipCfgIdx !== 3 ) {
             const modelData = globals.resCtrl.getObjectRes(ResType.Model, d_a_obj_pirateship.arcNameWheel, 0x11);
             const anim = globals.resCtrl.getObjectRes(ResType.Bck, d_a_obj_pirateship.arcNameWheel, 0xE);
             this.modelWheel = new mDoExt_McaMorf(modelData, null, null, anim, LoopMode.Repeat, 1.0, 0, -1);
         }
+
+        // Door 
+        const doorId = (this.parameters >> 8) & 0xFF;
+        const doorParams = doorId == 0 ? 0x101000FF : 0x101004FF;
+        const pos = vec3.transformMat4(vec3.create(), vec3.set(scratchVec3a, 0, 400, 475), this.model.modelMatrix);
+        const rot = vec3.fromValues(0xFFF, this.rot[1] + 0x8000, 0);
+        const prm: fopAcM_prm_class = {
+            parameters: doorParams, pos, roomNo: this.tevStr.roomNo, rot, scale: Vec3One,
+            subtype: 0xFF, parentPcId: this.processId, enemyNo: -1, gbaName: 0, layer: this.roomLayer
+        };
+        this.idDoor = assertExists(fpcSCtRq_Request(globals.frameworkGlobals, null, 0x0133, prm));
     }
 
     private CreateWave(): void {
@@ -7340,6 +7360,14 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         vec3.copy(this.model.baseScale, this.scale);
         MtxTrans(this.pos, false, this.model.modelMatrix);
         mDoMtx_ZXYrotM(this.model.modelMatrix, this.rot);
+
+        if (this.actDoor) {
+            vec3.transformMat4(this.actDoor.pos, vec3.set(scratchVec3a, 0, 400, 475), this.model.modelMatrix);
+            vec3.set(this.actDoor.rot, 0, this.rot[1] + 0x8000, 0);
+            const dst = this.actDoor.objectRenderers[0].modelMatrix;
+            MtxTrans(this.actDoor.pos, false, dst);
+            mDoMtx_ZXYrotM(dst, this.actDoor.rot);
+        }
         
         if (this.modelWheel) {
             const offset = vec3.fromValues(0.0, 740.0, -858.0);
