@@ -7211,6 +7211,39 @@ class d_a_demo00 extends fopAc_ac_c {
     }
 }
 
+class d_a_obj_pirateship extends fopAc_ac_c {
+    public static PROCESS_NAME = dProcName_e.d_a_obj_pirateship;
+
+    private model: J3DModelInstance;
+
+    private static arcName = `Kaizokusen`;
+
+    public override subload(globals: dGlobals): cPhs__Status {
+        const status = dComIfG_resLoad(globals, d_a_obj_pirateship.arcName);
+        if (status !== cPhs__Status.Complete)
+            return status;
+
+        const modelData = globals.resCtrl.getObjectRes(ResType.Model, d_a_obj_pirateship.arcName, 0xE);
+        this.model = new J3DModelInstance(modelData);
+
+        this.set_mtx();
+
+        return cPhs__Status.Next;
+    }
+
+    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {  
+        settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
+        setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
+        mDoExt_modelUpdateDL(globals, this.model, renderInstManager, globals.dlst.bg);
+    }
+
+    private set_mtx(): void {
+        vec3.copy(this.model.baseScale, this.scale);
+        MtxTrans(this.pos, false, this.model.modelMatrix);
+        mDoMtx_ZXYrotM(this.model.modelMatrix, this.rot);
+    }
+}
+
 interface constructor extends fpc_bs__Constructor {
     PROCESS_NAME: dProcName_e;
 }
@@ -7248,5 +7281,6 @@ export function d_a__RegisterConstructors(globals: fGlobals): void {
     R(d_a_title);
     R(d_a_bridge);
     R(d_a_demo00);
+    R(d_a_obj_pirateship);
 }
 
