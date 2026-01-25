@@ -5531,7 +5531,7 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
                 } else {
                     this.targetSpeed = this.maxSpeed;
                 }
-                
+
                 // Immediately after setDemoData(), setStickData() is called. If the mode is Dash or Walk, set the stick to 1.0
                 // This value is used in procMove() to determine speed, which determines the blend of Walk vs Dash to play.
 
@@ -5560,9 +5560,9 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
 
         switch (this.demoMode) {
             case LinkDemoMode.None: return false;
-            case LinkDemoMode.Tool: 
+            case LinkDemoMode.Tool:
                 this.shouldChangeMode = true;
-                modeProcInit(globals, this, this.mode_tbl, d_a_py_lk_mode.tool); 
+                modeProcInit(globals, this, this.mode_tbl, d_a_py_lk_mode.tool);
                 return true;
 
             case LinkDemoMode.InitWait: modeProcInit(globals, this, this.mode_tbl, d_a_py_lk_mode.wait); break;
@@ -5849,7 +5849,7 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
             }
         } else {
             // The demo anim archive is toggled based on if Aryll has been rescued. See dComIfGp_getLkDemoAnmArchive() 
-            const arcName = (globals.scnPlay.linkDemoAnmNo === 1)  ? 'LkD01' : 'LkD00';
+            const arcName = (globals.scnPlay.linkDemoAnmNo === 1) ? 'LkD01' : 'LkD00';
             const bck = globals.resCtrl.getObjectIDRes(ResType.Bck, arcName, anmBckId);
             this.anmBck.init(this.model.modelData, bck, true, bck.loopMode, 1.0, 0, bck.duration);
             this.anmBck.frameCtrl.setFrame(anmFrame);
@@ -5876,7 +5876,7 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
 
     private procWaitInit(globals: dGlobals) {
         if (this.curMode === d_a_py_lk_mode.wait) {
-            return false; 
+            return false;
         }
 
         this.setSingleMoveAnime(globals, LkAnim.WAITS);
@@ -7214,7 +7214,7 @@ class d_a_demo00 extends fopAc_ac_c {
 class d_a_obj_pirateship extends fopAc_ac_c {
     public static PROCESS_NAME = dProcName_e.d_a_obj_pirateship;
 
-    private model: J3DModelInstance;
+    public model: J3DModelInstance;
 
     private static arcName = `Kaizokusen`;
 
@@ -7226,7 +7226,7 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         const modelData = globals.resCtrl.getObjectRes(ResType.Model, d_a_obj_pirateship.arcName, 0xE);
         this.model = new J3DModelInstance(modelData);
 
-        this.partsCreate();
+        this.partsCreate(globals);
 
         const pirateData: [string, number, vec3, number][] = [
             ["P2a", 0xFFFFFF00, vec3.fromValues(135.5, 2200.0, 198.0), 0x2900],
@@ -7244,10 +7244,19 @@ class d_a_obj_pirateship extends fopAc_ac_c {
 
         const shipCfgIdx = (this.parameters >> 0x18) & 0xFF;
         switch (shipCfgIdx) {
-            case 0: ([0, 1, 2, 3]).forEach(p => this.pirateCreate(globals, ...pirateData[p])); break;
-            case 1: ([0, 1, 4, 5, 6]).forEach(p => this.pirateCreate(globals, ...pirateData[p])); break;
-            case 2: ([1, 7, 8, 9, 10]).forEach(p => this.pirateCreate(globals, ...pirateData[p])); break;
-            case 4: ([0, 1, 5]).forEach(p => this.pirateCreate(globals, ...pirateData[p])); break;
+            case 0:
+                ([0, 1, 2, 3]).forEach(p => this.pirateCreate(globals, ...pirateData[p]));
+                break;
+            case 1:
+                ([0, 1, 4, 5, 6]).forEach(p => this.pirateCreate(globals, ...pirateData[p]));
+                this.CreateWave();
+                break;
+            case 2:
+                ([1, 7, 8, 9, 10]).forEach(p => this.pirateCreate(globals, ...pirateData[p]));
+                break;
+            case 4:
+                ([0, 1, 5]).forEach(p => this.pirateCreate(globals, ...pirateData[p]));
+                break;
         };
 
         this.set_mtx();
@@ -7255,13 +7264,23 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         return cPhs__Status.Next;
     }
 
-    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {  
+    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
         settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
         setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
         mDoExt_modelUpdateDL(globals, this.model, renderInstManager, globals.dlst.bg);
     }
 
-    private partsCreate(): void {
+    private partsCreate(globals: dGlobals): void {
+        const shipCfgIdx = (this.parameters >> 0x18) & 0xFF;
+        if (shipCfgIdx !== 3) {
+            const pos = vec3.add(vec3.create(), this.pos, vec3.set(scratchVec3a, Math.sin(cM_s2rad(this.rot[1])) * 850.0, 700, Math.cos(cM_s2rad(this.rot[1])) * 850.0));
+            const prm: fopAcM_prm_class = { parameters: 0, pos, roomNo: this.tevStr.roomNo, rot: this.rot, scale: Vec3One, 
+                subtype: 0, parentPcId: this.processId, enemyNo: -1, gbaName: 0, layer: this.roomLayer };
+            fpcSCtRq_Request(globals.frameworkGlobals, null, dProcName_e.d_a_obj_tousekiki, prm);
+        }
+    }
+
+    private CreateWave(): void {
         // TODO
     }
 
@@ -7272,16 +7291,74 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         const rot = vec3.fromValues(this.rot[0], this.rot[1] + rotYOffset, this.rot[2]);
 
         // Make sure the actors are created on the same noclip roomLayer, so they only appear on the same layer as the ship
-        const prm: fopAcM_prm_class = { parameters, pos, roomNo: this.tevStr.roomNo, rot, scale: Vec3One, subtype: objName.subtype,  
-            parentPcId: this.processId, enemyNo: -1, gbaName: objName.gbaName, layer: this.roomLayer };
+        const prm: fopAcM_prm_class = {
+            parameters, pos, roomNo: this.tevStr.roomNo, rot, scale: Vec3One, subtype: objName.subtype,
+            parentPcId: this.processId, enemyNo: -1, gbaName: objName.gbaName, layer: this.roomLayer
+        };
         fpcSCtRq_Request(globals.frameworkGlobals, null, objName.pcName, prm);
     };
-        
 
     private set_mtx(): void {
         vec3.copy(this.model.baseScale, this.scale);
         MtxTrans(this.pos, false, this.model.modelMatrix);
         mDoMtx_ZXYrotM(this.model.modelMatrix, this.rot);
+    }
+}
+
+class d_a_obj_tousekiki extends fopAc_ac_c {
+    public static PROCESS_NAME = dProcName_e.d_a_obj_tousekiki;
+
+    private morf: mDoExt_McaMorf;
+    private pirateShip: d_a_obj_pirateship;
+
+    private static arcName = `Touseki`;
+
+    public override subload(globals: dGlobals): cPhs__Status {
+        let status = dComIfG_resLoad(globals, d_a_obj_tousekiki.arcName);
+        if (status !== cPhs__Status.Complete)
+            return status;
+
+        this.pirateShip = assertExists(fopAcIt_JudgeByID<d_a_obj_pirateship>(globals.frameworkGlobals, this.parentPcId));
+
+        const modelData = globals.resCtrl.getObjectRes(ResType.Model, d_a_obj_tousekiki.arcName, 0x8);
+        const anm = globals.resCtrl.getObjectRes(ResType.Bck, d_a_obj_tousekiki.arcName, 0x5);
+        this.morf = new mDoExt_McaMorf(modelData, null, null, anm, LoopMode.Once, 1.0, 0, -1);
+        // this.morf.frameCtrl.setFrame(this.morf.frameCtrl.endFrame - 1);
+
+        this.set_mtx();
+
+        return cPhs__Status.Next;
+    }
+
+    public override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        this.demo_move(globals);
+        this.set_mtx();
+        this.morf.calc();
+    }
+
+    public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
+        settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
+        setLightTevColorType(globals, this.morf.model, this.tevStr, globals.camera);
+        this.morf.entryDL(globals, renderInstManager, globals.dlst.bg);
+    }
+
+    private set_mtx(): void {
+        MtxTrans(this.pos, false, this.morf.model.modelMatrix);
+        mDoMtx_ZXYrotM(this.morf.model.modelMatrix, this.rot);
+    }
+
+    private demo_move(globals: dGlobals): void {
+
+        // Transform offset by ship's base transform
+        const touseki_offset = vec3.fromValues(0.0, 700.0, 850.0);
+        transformVec3Mat4w1(this.pos, this.pirateShip.model.modelMatrix, touseki_offset);
+
+        const channelMask = EDemoActorFlags.HasAnimFrame | EDemoActorFlags.HasAnim | EDemoActorFlags.HasRot;
+        const isDemo = dDemo_setDemoData(globals, 1.0, this, channelMask, this.morf, d_a_obj_tousekiki.arcName);
+        
+        if (!isDemo) {
+            this.rot[1] = this.pirateShip.rot[1];
+        }
     }
 }
 
@@ -7323,5 +7400,6 @@ export function d_a__RegisterConstructors(globals: fGlobals): void {
     R(d_a_bridge);
     R(d_a_demo00);
     R(d_a_obj_pirateship);
+    R(d_a_obj_tousekiki);
 }
 
