@@ -1854,43 +1854,7 @@ function spawnLegacyActor(globals: dGlobals, legacy: d_a_noclip_legacy, actor: f
     else if (actorName === 'Skanran') fetchArchive(`Skanran`).then((rarc) => buildModel(rarc, `bdl/skanran.bdl`));
     else if (actorName === 'Stoudai') fetchArchive(`Skanran`).then((rarc) => buildModel(rarc, `bdl/stoudai.bdl`));
     // Pirate stuff
-    else if (actorName === 'Pirates') fetchArchive(`Kaizokusen`).then((rarc) => {
-        buildModel(rarc, `bdl/oba_kaizoku_a.bdl`);
-
-        const spawnPirate = (name: string, parameters: number, posOffset: vec3, rotYOffset: number) => {
-            const objName = assertExists(globals.dStage_searchName(name));
-            vec3.rotateY(posOffset, posOffset, Vec3Zero, cM_s2rad(legacy.rot[1]));
-            const pos = vec3.add(posOffset, legacy.pos, posOffset);
-            const rot = vec3.fromValues(legacy.rot[0], legacy.rot[1] + rotYOffset, legacy.rot[2]);
-
-            // Make sure the actors are created on the same noclip roomLayer, so they only appear on the same layer as the ship
-            const prm: fopAcM_prm_class = { parameters, pos, roomNo: legacy.tevStr.roomNo, rot, scale: Vec3One, subtype: objName.subtype,  
-                parentPcId: legacy.processId, enemyNo: -1, gbaName: objName.gbaName, layer: legacy.roomLayer };
-            fpcSCtRq_Request(globals.frameworkGlobals, null, objName.pcName, prm);
-        };
-
-        const pirateData: [string, number, vec3, number][] = [
-            ["P2a", 0xFFFFFF00, vec3.fromValues(135.5, 2200.0, 198.0), 0x2900],
-            ["P2c", 0xFFFFFF02, vec3.fromValues(275.0, 400.0, 216.0), 0x4D00],
-            ["P1b", 0xF0100000, vec3.fromValues(-150.0, 700.0, 950.0), 0x4000],
-            ["P1a", 0xF0000000, vec3.fromValues(150.0, 700.0, 950.0), 0xC000],
-            ["Zl1", 0xFFFFFF04, vec3.fromValues(-200.0, 680.0, -875.0), 0],
-            ["P1b", 0xF0100002, vec3.fromValues(163.0, 700.0, 822.0), 0xC000],
-            ["P1a", 0xF0000002, vec3.fromValues(0.0, 750.0, -860.0), 0],
-            ["Zl1", 0xFFFFFF03, vec3.fromValues(125.0, 2200.0, 100.0), 0],
-            ["P2a", 0xFFFFFF00, vec3.fromValues(-200.0, 680.0, -875.0), 0x0000],
-            ["P1b", 0xF0100003, vec3.fromValues(215.0, 700.0, 765.0), 0x3C00],
-            ["P1a", 0xF0000003, vec3.fromValues(275.0, 740.0, -1145.0), 0x1800],
-        ];
-
-        const piratesIdx = (actor.parameters >> 0x18) & 0xFF;
-        switch (piratesIdx) {
-            case 0: ([0, 1, 2, 3]).forEach(p => spawnPirate(...pirateData[p])); break;
-            case 1: ([0, 1, 4, 5, 6]).forEach(p => spawnPirate(...pirateData[p])); break;
-            case 2: ([1, 7, 8, 9, 10]).forEach(p => spawnPirate(...pirateData[p])); break;
-            case 4: ([0, 1, 5]).forEach(p => spawnPirate(...pirateData[p])); break;
-        };
-    });
+    else if (actorName === 'Pirates') fetchArchive(`Kaizokusen`).then((rarc) => buildModel(rarc, `bdl/oba_kaizoku_a.bdl`));
     else if (actorName === 'Ashut') fetchArchive(`Ashut`).then((rarc) => buildModel(rarc, `bdl/ashut.bdl`));
     else if (actorName === 'Ospbox') fetchArchive(`Ospbox`).then((rarc) => {
         buildModel(rarc, `bdl/ospbox.bdl`);
