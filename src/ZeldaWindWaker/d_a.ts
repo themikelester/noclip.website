@@ -7228,35 +7228,12 @@ class d_a_obj_pirateship extends fopAc_ac_c {
 
         this.partsCreate(globals);
 
-        const pirateData: [string, number, vec3, number][] = [
-            ["P2a", 0xFFFFFF00, vec3.fromValues(135.5, 2200.0, 198.0), 0x2900],
-            ["P2c", 0xFFFFFF02, vec3.fromValues(275.0, 400.0, 216.0), 0x4D00],
-            ["P1b", 0xF0100000, vec3.fromValues(-150.0, 700.0, 950.0), 0x4000],
-            ["P1a", 0xF0000000, vec3.fromValues(150.0, 700.0, 950.0), 0xC000],
-            ["Zl1", 0xFFFFFF04, vec3.fromValues(-200.0, 680.0, -875.0), 0],
-            ["P1b", 0xF0100002, vec3.fromValues(163.0, 700.0, 822.0), 0xC000],
-            ["P1a", 0xF0000002, vec3.fromValues(0.0, 750.0, -860.0), 0],
-            ["Zl1", 0xFFFFFF03, vec3.fromValues(125.0, 2200.0, 100.0), 0],
-            ["P2a", 0xFFFFFF00, vec3.fromValues(-200.0, 680.0, -875.0), 0x0000],
-            ["P1b", 0xF0100003, vec3.fromValues(215.0, 700.0, 765.0), 0x3C00],
-            ["P1a", 0xF0000003, vec3.fromValues(275.0, 740.0, -1145.0), 0x1800],
-        ];
-
         const shipCfgIdx = (this.parameters >> 0x18) & 0xFF;
         switch (shipCfgIdx) {
-            case 0:
-                ([0, 1, 2, 3]).forEach(p => this.pirateCreate(globals, ...pirateData[p]));
-                break;
-            case 1:
-                ([0, 1, 4, 5, 6]).forEach(p => this.pirateCreate(globals, ...pirateData[p]));
-                this.CreateWave();
-                break;
-            case 2:
-                ([1, 7, 8, 9, 10]).forEach(p => this.pirateCreate(globals, ...pirateData[p]));
-                break;
-            case 4:
-                ([0, 1, 5]).forEach(p => this.pirateCreate(globals, ...pirateData[p]));
-                break;
+            case 0: this.piratesCreate(globals, [0, 1, 2, 3]); break;
+            case 1: this.piratesCreate(globals, [0, 1, 4, 5, 6]); this.CreateWave(); break;
+            case 2: this.piratesCreate(globals, [1, 7, 8, 9, 10]); break;
+            case 4: this.piratesCreate(globals, [0, 1, 5]); break;
         };
 
         this.set_mtx();
@@ -7274,14 +7251,36 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         const shipCfgIdx = (this.parameters >> 0x18) & 0xFF;
         if (shipCfgIdx !== 3) {
             const pos = vec3.add(vec3.create(), this.pos, vec3.set(scratchVec3a, Math.sin(cM_s2rad(this.rot[1])) * 850.0, 700, Math.cos(cM_s2rad(this.rot[1])) * 850.0));
-            const prm: fopAcM_prm_class = { parameters: 0, pos, roomNo: this.tevStr.roomNo, rot: this.rot, scale: Vec3One, 
-                subtype: 0xFF, parentPcId: this.processId, enemyNo: -1, gbaName: 0, layer: this.roomLayer };
+            const prm: fopAcM_prm_class = {
+                parameters: 0, pos, roomNo: this.tevStr.roomNo, rot: this.rot, scale: Vec3One,
+                subtype: 0xFF, parentPcId: this.processId, enemyNo: -1, gbaName: 0, layer: this.roomLayer
+            };
             fpcSCtRq_Request(globals.frameworkGlobals, null, dProcName_e.d_a_obj_tousekiki, prm);
         }
     }
 
     private CreateWave(): void {
         // TODO
+    }
+
+    private piratesCreate(globals: dGlobals, pirateIdxs: number[]): void {
+        const pirateData: [string, number, vec3, number][] = [
+            ["P2a", 0xFFFFFF00, vec3.fromValues(135.5, 2200.0, 198.0), 0x2900],
+            ["P2c", 0xFFFFFF02, vec3.fromValues(275.0, 400.0, 216.0), 0x4D00],
+            ["P1b", 0xF0100000, vec3.fromValues(-150.0, 700.0, 950.0), 0x4000],
+            ["P1a", 0xF0000000, vec3.fromValues(150.0, 700.0, 950.0), 0xC000],
+            ["Zl1", 0xFFFFFF04, vec3.fromValues(-200.0, 680.0, -875.0), 0],
+            ["P1b", 0xF0100002, vec3.fromValues(163.0, 700.0, 822.0), 0xC000],
+            ["P1a", 0xF0000002, vec3.fromValues(0.0, 750.0, -860.0), 0],
+            ["Zl1", 0xFFFFFF03, vec3.fromValues(125.0, 2200.0, 100.0), 0],
+            ["P2a", 0xFFFFFF00, vec3.fromValues(-200.0, 680.0, -875.0), 0x0000],
+            ["P1b", 0xF0100003, vec3.fromValues(215.0, 700.0, 765.0), 0x3C00],
+            ["P1a", 0xF0000003, vec3.fromValues(275.0, 740.0, -1145.0), 0x1800],
+        ];
+        for (let i = 0; i < pirateIdxs.length; i++) {
+            const p = pirateIdxs[i];
+            this.pirateCreate(globals, ...pirateData[p]);
+        }
     }
 
     private pirateCreate(globals: dGlobals, name: string, parameters: number, posOffset: vec3, rotYOffset: number) {
@@ -7355,7 +7354,7 @@ class d_a_obj_tousekiki extends fopAc_ac_c {
 
         const channelMask = EDemoActorFlags.HasAnimFrame | EDemoActorFlags.HasAnim | EDemoActorFlags.HasRot;
         const isDemo = dDemo_setDemoData(globals, 1.0, this, channelMask, this.morf, d_a_obj_tousekiki.arcName);
-        
+
         if (!isDemo) {
             this.rot[1] = this.pirateShip.rot[1];
         }
