@@ -7215,11 +7215,17 @@ class d_a_obj_pirateship extends fopAc_ac_c {
     public static PROCESS_NAME = dProcName_e.d_a_obj_pirateship;
 
     public model: J3DModelInstance;
+    public modelWheel: mDoExt_McaMorf;
 
     private static arcName = `Kaizokusen`;
+    private static arcNameWheel = `Kaji`;
 
     public override subload(globals: dGlobals): cPhs__Status {
-        const status = dComIfG_resLoad(globals, d_a_obj_pirateship.arcName);
+        let status = dComIfG_resLoad(globals, d_a_obj_pirateship.arcName);
+        if (status !== cPhs__Status.Complete)
+            return status;
+
+        status = dComIfG_resLoad(globals, d_a_obj_pirateship.arcNameWheel);
         if (status !== cPhs__Status.Complete)
             return status;
 
@@ -7241,13 +7247,31 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         return cPhs__Status.Next;
     }
 
+    public override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        if (this.modelWheel) {
+            this.modelWheel.play(deltaTimeFrames);
+        }
+        
+        this.set_mtx();
+    }
+
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
         settingTevStruct(globals, LightType.Actor, this.pos, this.tevStr);
         setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
         mDoExt_modelUpdateDL(globals, this.model, renderInstManager, globals.dlst.bg);
+
+        if (this.modelWheel) {
+            const wheelPos = mat4.getTranslation(scratchVec3a, this.modelWheel.model.modelMatrix);
+            settingTevStruct(globals, LightType.Actor, wheelPos, this.tevStr);
+            setLightTevColorType(globals, this.modelWheel.model, this.tevStr, globals.camera);
+            this.modelWheel.entryDL(globals, renderInstManager);
+        }
     }
 
     private partsCreate(globals: dGlobals): void {
+        // TODO: Sail
+        // TODO: Pirate flag
+
         const shipCfgIdx = (this.parameters >> 0x18) & 0xFF;
         if (shipCfgIdx !== 3) {
             const pos = vec3.add(vec3.create(), this.pos, vec3.set(scratchVec3a, Math.sin(cM_s2rad(this.rot[1])) * 850.0, 700, Math.cos(cM_s2rad(this.rot[1])) * 850.0));
@@ -7256,6 +7280,12 @@ class d_a_obj_pirateship extends fopAc_ac_c {
                 subtype: 0xFF, parentPcId: this.processId, enemyNo: -1, gbaName: 0, layer: this.roomLayer
             };
             fpcSCtRq_Request(globals.frameworkGlobals, null, dProcName_e.d_a_obj_tousekiki, prm);
+        }
+
+        if (shipCfgIdx !== 3 ) {
+            const modelData = globals.resCtrl.getObjectRes(ResType.Model, d_a_obj_pirateship.arcNameWheel, 0x11);
+            const anim = globals.resCtrl.getObjectRes(ResType.Bck, d_a_obj_pirateship.arcNameWheel, 0xE);
+            this.modelWheel = new mDoExt_McaMorf(modelData, null, null, anim, LoopMode.Repeat, 1.0, 0, -1);
         }
     }
 
@@ -7301,6 +7331,14 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         vec3.copy(this.model.baseScale, this.scale);
         MtxTrans(this.pos, false, this.model.modelMatrix);
         mDoMtx_ZXYrotM(this.model.modelMatrix, this.rot);
+        
+        if (this.modelWheel) {
+            const offset = vec3.fromValues(0.0, 740.0, -858.0);
+            const wheelPos = vec3.transformMat4(offset, offset, this.model.modelMatrix);
+            MtxTrans(wheelPos, false, this.modelWheel.model.modelMatrix);
+            mDoMtx_ZXYrotM(this.modelWheel.model.modelMatrix, this.rot);
+            this.modelWheel.calc();
+        }
     }
 }
 
