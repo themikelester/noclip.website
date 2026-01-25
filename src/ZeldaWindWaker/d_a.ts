@@ -7275,7 +7275,7 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         if (shipCfgIdx !== 3) {
             const pos = vec3.add(vec3.create(), this.pos, vec3.set(scratchVec3a, Math.sin(cM_s2rad(this.rot[1])) * 850.0, 700, Math.cos(cM_s2rad(this.rot[1])) * 850.0));
             const prm: fopAcM_prm_class = { parameters: 0, pos, roomNo: this.tevStr.roomNo, rot: this.rot, scale: Vec3One, 
-                subtype: 0, parentPcId: this.processId, enemyNo: -1, gbaName: 0, layer: this.roomLayer };
+                subtype: 0xFF, parentPcId: this.processId, enemyNo: -1, gbaName: 0, layer: this.roomLayer };
             fpcSCtRq_Request(globals.frameworkGlobals, null, dProcName_e.d_a_obj_tousekiki, prm);
         }
     }
