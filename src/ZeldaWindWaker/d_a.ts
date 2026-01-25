@@ -7248,11 +7248,20 @@ class d_a_obj_pirateship extends fopAc_ac_c {
     }
 
     public override execute(globals: dGlobals, deltaTimeFrames: number): void {
+        // GndChk
+        
+        if(!this.demo_move(globals, deltaTimeFrames)) {
+            // TODO: PathMove
+        }
+
+        // Event handling
+
         if (this.modelWheel) {
             this.modelWheel.play(deltaTimeFrames);
         }
         
         this.set_mtx();
+        // SetWave
     }
 
     public override draw(globals: dGlobals, renderInstManager: GfxRenderInstManager, viewerInput: ViewerRenderInput): void {
@@ -7339,6 +7348,15 @@ class d_a_obj_pirateship extends fopAc_ac_c {
             mDoMtx_ZXYrotM(this.modelWheel.model.modelMatrix, this.rot);
             this.modelWheel.calc();
         }
+    }
+
+    private demo_move(globals: dGlobals, deltaTimeFrames: number): boolean {
+        const demoActor = globals.scnPlay.demo.getSystem().getActor(this.demoActorID);
+        if (!demoActor) {
+            return false;
+        }
+        dDemo_setDemoData(globals, deltaTimeFrames, this, EDemoActorFlags.HasPos | EDemoActorFlags.HasRot);
+        return true;
     }
 }
 
