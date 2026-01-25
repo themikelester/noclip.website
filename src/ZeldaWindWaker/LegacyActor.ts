@@ -11,7 +11,7 @@ import { JPABaseEmitter } from '../Common/JSYSTEM/JPA.js';
 import { AABB } from '../Geometry.js';
 import { GfxDevice } from '../gfx/platform/GfxPlatform.js';
 import { GfxRenderInstManager, GfxRendererLayer } from '../gfx/render/GfxRenderInstManager.js';
-import { computeModelMatrixSRT, scaleMatrix, Vec3One, Vec3UnitY, Vec3Zero } from '../MathHelpers.js';
+import { computeModelMatrixSRT, scaleMatrix, Vec3UnitY } from '../MathHelpers.js';
 import { assertExists, hexzero, leftPad } from '../util.js';
 import { dBgS_GndChk } from './d_bg.js';
 import { dDemo_setDemoData } from './d_demo.js';
@@ -19,13 +19,12 @@ import { LightType, dKy_tevstr_c, dKy_tevstr_init, setLightTevColorType, setting
 import { dProcName_e } from './d_procname.js';
 import { ResAssetType, ResEntry, ResType } from './d_resorce.js';
 import { fopAcM_prm_class, fopAc_ac_c } from './f_op_actor.js';
-import { cPhs__Status, fGlobals, fpcPf__RegisterFallback, fpcSCtRq_Request } from './framework.js';
+import { cPhs__Status, fGlobals, fpcPf__RegisterFallback } from './framework.js';
 import { mDoExt_McaMorf, mDoExt_modelUpdateDL } from './m_do_ext.js';
 import { MtxTrans, calc_mtx, mDoMtx_ZXYrotM } from './m_do_mtx.js';
 import { WindWakerRenderer, dGlobals } from "./Main.js";
 import { dComIfGd_addRealShadow, dComIfGd_setShadow, dComIfGd_setSimpleShadow2 } from './d_drawlist.js';
 import { BTIData } from '../Common/JSYSTEM/JUTTexture.js';
-import { cM_s2rad } from './SComponent.js';
 
 const scratchMat4a = mat4.create();
 const scratchVec3a = vec3.create();
