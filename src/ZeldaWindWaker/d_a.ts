@@ -7239,7 +7239,7 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         const shipCfgIdx = (this.parameters >> 0x18) & 0xFF;
         switch (shipCfgIdx) {
             case 0: this.piratesCreate(globals, [0, 1, 2, 3]); break;
-            case 1: this.piratesCreate(globals, [0, 1, 4, 5, 6]); this.CreateWave(); break;
+            case 1: this.piratesCreate(globals, [0, 1, 4, 5, 6]); /* TODO: this.CreateWave() */; break;
             case 2: this.piratesCreate(globals, [1, 7, 8, 9, 10]); break;
             case 4: this.piratesCreate(globals, [0, 1, 5]); break;
         };
@@ -7255,7 +7255,7 @@ class d_a_obj_pirateship extends fopAc_ac_c {
         // GndChk
         
         if(!this.demo_move(globals, deltaTimeFrames)) {
-            // TODO: PathMove
+            // PathMove
         }
 
         // Event handling
@@ -7316,10 +7316,6 @@ class d_a_obj_pirateship extends fopAc_ac_c {
             subtype: 0xFF, parentPcId: this.processId, enemyNo: -1, gbaName: 0, layer: this.roomLayer
         };
         this.idDoor = assertExists(fpcSCtRq_Request(globals.frameworkGlobals, null, 0x0133, prm));
-    }
-
-    private CreateWave(): void {
-        // TODO
     }
 
     private piratesCreate(globals: dGlobals, pirateIdxs: number[]): void {
