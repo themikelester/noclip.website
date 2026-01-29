@@ -2,7 +2,7 @@
 import { ReadonlyMat4, ReadonlyVec3, mat4, quat, vec2, vec3 } from "gl-matrix";
 import { OpaqueBlack, TransparentBlack, White, colorCopy, colorFromRGBA8, colorNewCopy, colorNewFromRGBA, colorNewFromRGBA8 } from "../Color.js";
 import { calcANK1JointAnimationTransform } from "../Common/JSYSTEM/J3D/J3DGraphAnimator.js";
-import { J3DModelData, J3DModelInstance, buildEnvMtx } from "../Common/JSYSTEM/J3D/J3DGraphBase.js";
+import { J3DModelData, J3DModelInstance, ShapeInstance, buildEnvMtx } from "../Common/JSYSTEM/J3D/J3DGraphBase.js";
 import { JointTransformInfo, LoopMode, TRK1, TTK1 } from "../Common/JSYSTEM/J3D/J3DLoader.js";
 import { JPABaseEmitter, JPASetRMtxSTVecFromMtx } from "../Common/JSYSTEM/JPA.js";
 import { BTIData } from "../Common/JSYSTEM/JUTTexture.js";
@@ -41,6 +41,7 @@ import { J2DAnchorPos, J2DPane, J2DScreen } from "../Common/JSYSTEM/J2Dv1.js";
 import { parseTParagraphData, TParseData_fixed } from "../Common/JSYSTEM/JStudio.js";
 import { AABB } from "../Geometry.js";
 import { d_a_noclip_legacy } from "./LegacyActor.js";
+import { ShapeInst } from "../SuperMonkeyBall/Shape.js";
 
 // Framework'd actors
 
@@ -5181,16 +5182,9 @@ enum LkEquipItem {
     Sword = 0x103,
 }
 
-enum LkHandStyle {
-    Idle = 0,
-    HoldSword = 3,
-    HoldWindWaker = 5,
-    HoldShield = 8,
-}
-
 enum LkJoint {
     HandL = 0x08,
-    HandR = 0x0D,
+    HandR = 0x0C,
     Head = 0x0F,
     Waist = 0x1E,
     FootL = 0x22,
@@ -5229,6 +5223,7 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     public static PROCESS_NAME = dProcName_e.d_a_py_lk;
     private static ARC_NAME = "Link";
     private static LINK_BDL_CL = 0x18;
+    private static LINK_BDL_HANDS = 0x1D;
     private static LINK_BTI_LINKTEXBCI4 = 0x71;
     private static LINK_CLOTHES_TEX_IDX = 0x22;
     private static LINK_BDL_KATSURA = 0x20;
@@ -5240,6 +5235,7 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     public curMode = d_a_py_lk_mode.wait;
 
     private model: J3DModelInstance;
+    private modelHands: J3DModelInstance;
     private modelSwordHilt: J3DModelInstance;
     private modelKatsura: J3DModelInstance; // Wig. To replace the hat when wearing casual clothes.
 
@@ -5269,8 +5265,10 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     private footData: LkFootData[] = nArray(2, i => ({ toePos: vec3.create(), heelPos: vec3.create() }));
     private anmTranslation = vec3.create();
 
-    private handStyleLeft: LkHandStyle; // @TODO: Handle non-standard hand rendering. See setDrawHandModel().
-    private handStyleRight: LkHandStyle;
+    private handStyleLeft: number;
+    private handStyleRight: number;
+    private handShapeLeft: ShapeInstance;
+    private handShapeRight: ShapeInstance;
     private equippedItem: LkEquipItem;
     private equippedItemModel: J3DModelInstance | null = null;
 
@@ -5380,6 +5378,13 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
             this.model.setShapeVisible(LkModelShape.Buckle, true);
         }
 
+        if (this.anmBtp.anm) this.anmBtp.entry(this.model);
+        if (this.anmBtk.anm) this.anmBtk.entry(this.model);
+
+        this.setDrawHandModel();
+        setLightTevColorType(globals, this.modelHands, this.tevStr, globals.camera);
+        mDoExt_modelEntryDL(globals, this.modelHands, renderInstManager);
+
         if (this.equippedItem === LkEquipItem.Sword) {
             setLightTevColorType(globals, this.equippedItemModel!, this.tevStr, globals.camera);
             mDoExt_modelEntryDL(globals, this.equippedItemModel!, renderInstManager);
@@ -5396,14 +5401,32 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
         //     mpCLModelData->getJointNodePointer(0x0D)->getMesh()->getShape()->show(); // cl_podA joint
         // }
 
-        if (this.anmBtp.anm) this.anmBtp.entry(this.model);
-        if (this.anmBtk.anm) this.anmBtk.entry(this.model);
-
         setLightTevColorType(globals, this.model, this.tevStr, globals.camera);
         mDoExt_modelEntryDL(globals, this.model, renderInstManager);
 
         // if (mCurProc !== daPyProc_DEMO_CAUGHT_e && !dComIfGp_checkPlayerStatus0(0, daPyStts0_SHIP_RIDE_e)) {
         this.drawShadow(globals);
+    }
+
+    private setDrawHandModel() {
+        this.handShapeLeft.visible = false;
+        this.handShapeRight.visible = false;
+
+        if (this.handStyleLeft === 0 || this.handStyleLeft === undefined) {
+            this.handShapeLeft = this.model.shapeInstances[LkModelShape.HandL];
+        } else {
+            this.handShapeLeft = this.modelHands.shapeInstances[this.handStyleLeft];
+            mat4.copy(this.modelHands.shapeInstanceState.jointToWorldMatrixArray[this.handStyleLeft], this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.HandL]);
+        }
+        this.handShapeLeft.visible = true;
+
+        if (this.handStyleRight === 0 || this.handStyleRight === undefined) {
+            this.handShapeRight = this.model.shapeInstances[LkModelShape.HandR];
+        } else {
+            this.handShapeRight = this.modelHands.shapeInstances[this.handStyleRight];
+            mat4.copy(this.modelHands.shapeInstanceState.jointToWorldMatrixArray[this.handStyleRight], this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.HandR]);
+        }
+        this.handShapeRight.visible = true;
     }
 
     private drawShadow(globals: dGlobals) {
@@ -5449,8 +5472,13 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     private playerInit(globals: dGlobals) {
         // createHeap()
         this.model = this.initModel(globals, d_a_py_lk.LINK_BDL_CL);
+        this.modelHands = this.initModel(globals, d_a_py_lk.LINK_BDL_HANDS);
         this.modelKatsura = this.initModel(globals, d_a_py_lk.LINK_BDL_KATSURA);
         this.modelSwordHilt = this.initModel(globals, d_a_py_lk.LINK_BDL_SWGRIPA);
+
+        // Save the basic hand shapes. These will be reselected each frame by setDrawHandModel()
+        this.handShapeRight = this.model.shapeInstances[LkModelShape.HandR];
+        this.handShapeLeft = this.model.shapeInstances[LkModelShape.HandL];
 
         // Fetch the casual clothes and the hero texture. They'll be be selected by the ShapeID set by a demo.
         const casualTexData = globals.resCtrl.getObjectRes(ResType.Bti, d_a_py_lk.ARC_NAME, d_a_py_lk.LINK_BTI_LINKTEXBCI4);
@@ -5759,8 +5787,6 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
 
         if (demoActor.flags & EDemoActorFlags.HasData) {
             const status = demoActor.stbData.getUint8(0);
-            let handIdxRight;
-            let handIdxLeft;
 
             switch (demoActor.stbDataId) {
                 case 3:
@@ -5775,8 +5801,8 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
                     anmBtkId = demoActor.stbData.getUint16(data.entryOffset + 4);
 
                     const handData = parseTParagraphData(scratchDemoParagraphData, 49, demoActor.stbData, assertExists(data.entryNext))!;
-                    handIdxLeft = demoActor.stbData.getUint8(handData.entryOffset + 0);
-                    handIdxRight = demoActor.stbData.getUint8(handData.entryOffset + 1);
+                    this.handStyleLeft = demoActor.stbData.getUint8(handData.entryOffset + 0);
+                    this.handStyleRight = demoActor.stbData.getUint8(handData.entryOffset + 1);
                     if (handData.entryCount === 3) {
                         // TODO: const newOldFrameMorfCounter = demoActor.stbData.getUint8(handData.entryOffset + 2);
                     }
@@ -5797,8 +5823,8 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
                     anmBckId = demoActor.stbData.getUint16(bckData.entryOffset);
 
                     const extraData = parseTParagraphData(scratchDemoParagraphData, 49, demoActor.stbData, assertExists(bckData.entryNext))!;
-                    handIdxLeft = demoActor.stbData.getUint8(extraData.entryOffset + 0);
-                    handIdxRight = demoActor.stbData.getUint8(extraData.entryOffset + 1);
+                    this.handStyleLeft = demoActor.stbData.getUint8(extraData.entryOffset + 0);
+                    this.handStyleRight = demoActor.stbData.getUint8(extraData.entryOffset + 1);
                     if (extraData.entryCount === 3) {
                         // TODO: const newOldFrameMorfCounter = demoActor.stbData.getUint8(extraData.entryOffset + 2);
                     }
@@ -5816,21 +5842,21 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
 
             // Set the hand model and/or equipped item based on the demo data
             let item = ItemNo.InvalidItem;
-            if (handIdxLeft === 0xC8) { item = ItemNo.HerosSword; }
-            else if (handIdxLeft === 0xC9) { item = ItemNo.MasterSwordPowerless; }
-            else if (handIdxLeft === 0xCA) { item = ItemNo.MasterSwordHalfPower; }
-            else if (handIdxLeft === 0xCB) { item = ItemNo.MasterSwordFullPower; }
+            if (this.handStyleLeft === 0xC8) { item = ItemNo.HerosSword; }
+            else if (this.handStyleLeft === 0xC9) { item = ItemNo.MasterSwordPowerless; }
+            else if (this.handStyleLeft === 0xCA) { item = ItemNo.MasterSwordHalfPower; }
+            else if (this.handStyleLeft === 0xCB) { item = ItemNo.MasterSwordFullPower; }
 
             if (item === ItemNo.InvalidItem) {
-                if (handIdxLeft === 0xCC) {
-                    this.handStyleLeft = LkHandStyle.HoldWindWaker;
+                if (this.handStyleLeft === 0xCC) {
+                    this.handStyleLeft = 5;
                     // Set the Wind Waker as the equipped item
                 } else if (this.equippedItem !== LkEquipItem.None) {
                     this.deleteEquipItem();
-                    this.handStyleLeft = handIdxLeft as LkHandStyle;
+                    this.handStyleLeft = this.handStyleLeft;
                 }
             } else {
-                this.handStyleLeft = LkHandStyle.HoldSword;
+                this.handStyleLeft = 3;
                 if (this.equippedItem !== LkEquipItem.Sword) {
                     // d_com_inf_game::dComIfGs_setSelectEquip(0, item);
                     this.deleteEquipItem();
@@ -5838,15 +5864,15 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
                 }
             }
 
-            if (handIdxRight === 0xC8 || handIdxRight === 0xC9) {
-                this.handStyleRight = LkHandStyle.HoldShield;
-                if (handIdxRight === 0xC8) { /* equip HerosShield */ }
+            if (this.handStyleRight === 0xC8 || this.handStyleRight === 0xC9) {
+                this.handStyleRight = 8;
+                if (this.handStyleRight === 0xC8) { /* equip HerosShield */ }
                 else { /* equip MirrorShield */ }
             } else {
-                if (handIdxRight !== 0) {
-                    this.handStyleRight = (handIdxRight as LkHandStyle) + 6;
+                if (this.handStyleRight !== 0) {
+                    this.handStyleRight = (this.handStyleRight) + 6;
                 } else {
-                    this.handStyleRight = LkHandStyle.Idle;
+                    this.handStyleRight = 0;
                 }
             }
         }
