@@ -5775,8 +5775,8 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
                     anmBtkId = demoActor.stbData.getUint16(data.entryOffset + 4);
 
                     const handData = parseTParagraphData(scratchDemoParagraphData, 49, demoActor.stbData, assertExists(data.entryNext))!;
-                    handIdxRight = demoActor.stbData.getUint8(handData.entryOffset + 0);
-                    handIdxLeft = demoActor.stbData.getUint8(handData.entryOffset + 1);
+                    handIdxLeft = demoActor.stbData.getUint8(handData.entryOffset + 0);
+                    handIdxRight = demoActor.stbData.getUint8(handData.entryOffset + 1);
                     if (handData.entryCount === 3) {
                         // TODO: const newOldFrameMorfCounter = demoActor.stbData.getUint8(handData.entryOffset + 2);
                     }
