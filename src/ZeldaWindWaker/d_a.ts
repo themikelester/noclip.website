@@ -5430,23 +5430,10 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     }
 
     private drawShadow(globals: dGlobals) {
-        let shadowmapSize = 0;
-        if (globals.stageName === "M_DaiB" || globals.stageName === "Xboss2") {
-            shadowmapSize = 1400.0;
-        } else {
-            shadowmapSize = 800; // TODO: m_HIO->mBasic.m.field_0x10;
-        }
-
-        // TODO:
-        // if (checkNoResetFlg1(daPyFlg1_CASUAL_CLOTHES)) {
-        //     J3DMaterial* mtl = link_root_joint->getMesh();
-        //     // Hide material:
-        //     // * "ear(3)" (hat)
-        //     for (int i = 0; i < 4; i++) {
-        //         mtl = mtl->getNext();
-        //     }
-        //     mtl->getShape()->hide();
-        // }
+        this.model.shapeInstances[LkModelShape.HandR].visible = true;
+        this.model.shapeInstances[LkModelShape.HandL].visible = true;
+        
+        let shadowmapSize = (globals.stageName === "M_DaiB" || globals.stageName === "Xboss2") ? 1400 : 700;
 
         const casterPos = scratchVec3a;
         getMatrixTranslation(casterPos, this.model.shapeInstanceState.jointToWorldMatrixArray[0]);
