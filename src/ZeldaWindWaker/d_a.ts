@@ -5467,6 +5467,9 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
                 dComIfGd_addRealShadow(globals, this.shadowId, this.heldItemModel);
             }
         }
+
+        this.model.shapeInstances[LkModelShape.HandR].visible = false;
+        this.model.shapeInstances[LkModelShape.HandL].visible = false;
     }
 
     private playerInit(globals: dGlobals) {
