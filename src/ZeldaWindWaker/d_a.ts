@@ -5278,7 +5278,6 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     // The item that Link is currently holding in his right hand
     private heldItem = LkEquipItem.None;
     private heldItemModel: J3DModelInstance | null = null;
-    private equipSwordModel: J3DModelInstance | null = null;
     private equipShieldModel: J3DModelInstance | null = null;
 
     private mode_tbl = [
@@ -5458,9 +5457,9 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
             if (this.isWearingCasualClothes && this.modelKatsura && /* !checkCaughtShapeHide() */ true) {
                 dComIfGd_addRealShadow(globals, this.shadowId, this.modelKatsura);
             }
-            // Add shadow for sword if equipped and not hidden by demo
-            if (this.equippedItems[0] !== ItemNo.InvalidItem && this.equipSwordModel && /* !checkDemoSwordNoDraw(1) */ true) {
-                dComIfGd_addRealShadow(globals, this.shadowId, this.equipSwordModel);
+            // Add shadow for sword hilt if equipped and not hidden by demo
+            if (this.equippedItems[0] !== ItemNo.InvalidItem && /* !checkDemoSwordNoDraw(1) */ true) {
+                dComIfGd_addRealShadow(globals, this.shadowId, this.modelSwordHilt);
             }
             // Add shadow for equipped item if not hidden by demo and not bow/guard
             if (this.heldItemModel && /* !checkDemoSwordNoDraw(0) */ true /* && (!checkBowItem(mEquipItem) || !checkPlayerGuard()) */) {
