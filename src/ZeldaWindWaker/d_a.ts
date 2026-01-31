@@ -5229,6 +5229,8 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     private static LINK_BDL_KATSURA = 0x20;
     private static LINK_BDL_SWA = 0x25; // Hero's sword blade
     private static LINK_BDL_SWGRIPA = 0x26 // Hero's sword hilt
+    private static LINK_BDL_SWMS = 0x46 // Master sword blade
+    private static LINK_BDL_SWGRIPMS = 0x45 // Master sword hilt
     private static TOE_POS = vec3.fromValues(6.0, 3.25, 0.0);
     private static HEEL_POS = vec3.fromValues(-6.0, 3.25, 0.0);
 
@@ -5269,8 +5271,15 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     private handStyleRight: number;
     private handShapeLeft: ShapeInstance;
     private handShapeRight: ShapeInstance;
-    private equippedItem: LkEquipItem;
-    private equippedItemModel: J3DModelInstance | null = null;
+
+    // Sword, Shield, X, Y, Z
+    private equippedItems: ItemNo[] = nArray(5, () => ItemNo.InvalidItem);
+
+    // The item that Link is currently holding in his right hand
+    private heldItem = LkEquipItem.None;
+    private heldItemModel: J3DModelInstance | null = null;
+    private equipSwordModel: J3DModelInstance | null = null;
+    private equipShieldModel: J3DModelInstance | null = null;
 
     private mode_tbl = [
         this.procUnkInit, this.procUnk,
@@ -5385,12 +5394,16 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
         setLightTevColorType(globals, this.modelHands, this.tevStr, globals.camera);
         mDoExt_modelEntryDL(globals, this.modelHands, renderInstManager);
 
-        if (this.equippedItem === LkEquipItem.Sword) {
-            setLightTevColorType(globals, this.equippedItemModel!, this.tevStr, globals.camera);
-            mDoExt_modelEntryDL(globals, this.equippedItemModel!, renderInstManager);
-
+        if (this.equippedItems[0] !== ItemNo.InvalidItem /* && checkDemoSwordNoDraw(1) */) {
             setLightTevColorType(globals, this.modelSwordHilt, this.tevStr, globals.camera);
             mDoExt_modelEntryDL(globals, this.modelSwordHilt, renderInstManager);
+        }
+
+        if (this.heldItem !== LkEquipItem.None && this.heldItemModel) {
+            setLightTevColorType(globals, this.heldItemModel, this.tevStr, globals.camera);
+            mDoExt_modelEntryDL(globals, this.heldItemModel, renderInstManager);
+
+            // TODO: Sword glow
         }
 
         // TODO:
@@ -5432,7 +5445,7 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     private drawShadow(globals: dGlobals) {
         this.model.shapeInstances[LkModelShape.HandR].visible = true;
         this.model.shapeInstances[LkModelShape.HandL].visible = true;
-        
+
         let shadowmapSize = (globals.stageName === "M_DaiB" || globals.stageName === "Xboss2") ? 1400 : 700;
 
         const casterPos = scratchVec3a;
@@ -5446,12 +5459,12 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
                 dComIfGd_addRealShadow(globals, this.shadowId, this.modelKatsura);
             }
             // Add shadow for sword if equipped and not hidden by demo
-            if (this.equippedItem === LkEquipItem.Sword && this.equippedItemModel && /* !checkDemoSwordNoDraw(1) */ true) {
-                dComIfGd_addRealShadow(globals, this.shadowId, this.equippedItemModel);
+            if (this.equippedItems[0] !== ItemNo.InvalidItem && this.equipSwordModel && /* !checkDemoSwordNoDraw(1) */ true) {
+                dComIfGd_addRealShadow(globals, this.shadowId, this.equipSwordModel);
             }
             // Add shadow for equipped item if not hidden by demo and not bow/guard
-            if (this.equippedItemModel && /* !checkDemoSwordNoDraw(0) */ true /* && (!checkBowItem(mEquipItem) || !checkPlayerGuard()) */) {
-                dComIfGd_addRealShadow(globals, this.shadowId, this.equippedItemModel);
+            if (this.heldItemModel && /* !checkDemoSwordNoDraw(0) */ true /* && (!checkBowItem(mEquipItem) || !checkPlayerGuard()) */) {
+                dComIfGd_addRealShadow(globals, this.shadowId, this.heldItemModel);
             }
         }
     }
@@ -5461,7 +5474,6 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
         this.model = this.initModel(globals, d_a_py_lk.LINK_BDL_CL);
         this.modelHands = this.initModel(globals, d_a_py_lk.LINK_BDL_HANDS);
         this.modelKatsura = this.initModel(globals, d_a_py_lk.LINK_BDL_KATSURA);
-        this.modelSwordHilt = this.initModel(globals, d_a_py_lk.LINK_BDL_SWGRIPA);
 
         // Save the basic hand shapes. These will be reselected each frame by setDrawHandModel()
         this.handShapeRight = this.model.shapeInstances[LkModelShape.HandR];
@@ -5828,24 +5840,23 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
             }
 
             // Set the hand model and/or equipped item based on the demo data
-            let item = ItemNo.InvalidItem;
-            if (this.handStyleLeft === 0xC8) { item = ItemNo.HerosSword; }
-            else if (this.handStyleLeft === 0xC9) { item = ItemNo.MasterSwordPowerless; }
-            else if (this.handStyleLeft === 0xCA) { item = ItemNo.MasterSwordHalfPower; }
-            else if (this.handStyleLeft === 0xCB) { item = ItemNo.MasterSwordFullPower; }
+            let sword = ItemNo.InvalidItem;
+            if (this.handStyleLeft === 0xC8) { sword = ItemNo.HerosSword; }
+            else if (this.handStyleLeft === 0xC9) { sword = ItemNo.MasterSwordPowerless; }
+            else if (this.handStyleLeft === 0xCA) { sword = ItemNo.MasterSwordHalfPower; }
+            else if (this.handStyleLeft === 0xCB) { sword = ItemNo.MasterSwordFullPower; }
 
-            if (item === ItemNo.InvalidItem) {
+            if (sword === ItemNo.InvalidItem) {
                 if (this.handStyleLeft === 0xCC) {
                     this.handStyleLeft = 5;
                     // Set the Wind Waker as the equipped item
-                } else if (this.equippedItem !== LkEquipItem.None) {
+                } else if (this.heldItem !== LkEquipItem.None) {
                     this.deleteEquipItem();
-                    this.handStyleLeft = this.handStyleLeft;
                 }
             } else {
                 this.handStyleLeft = 3;
-                if (this.equippedItem !== LkEquipItem.Sword) {
-                    // d_com_inf_game::dComIfGs_setSelectEquip(0, item);
+                if (this.equippedItems[0] !== sword) {
+                    this.equippedItems[0] = sword;
                     this.deleteEquipItem();
                     this.setSwordModel(globals);
                 }
@@ -5936,27 +5947,37 @@ class d_a_py_lk extends fopAc_ac_c implements ModeFuncExec<d_a_py_lk_mode> {
     }
 
     private setSwordModel(globals: dGlobals) {
-        this.equippedItem = LkEquipItem.Sword;
-        this.equippedItemModel = this.initModel(globals, d_a_py_lk.LINK_BDL_SWA);
+        this.heldItem = LkEquipItem.Sword;
+
+        const isMasterSword = (this.equippedItems[0] !== ItemNo.HerosSword);
+        if (isMasterSword) {
+            this.heldItemModel = this.initModel(globals, d_a_py_lk.LINK_BDL_SWMS);
+            this.modelSwordHilt = this.initModel(globals, d_a_py_lk.LINK_BDL_SWGRIPMS);
+        } else {
+            this.heldItemModel = this.initModel(globals, d_a_py_lk.LINK_BDL_SWA);
+            this.modelSwordHilt = this.initModel(globals, d_a_py_lk.LINK_BDL_SWGRIPA);
+        }
+
+        // TODO: Glow
     }
 
     private deleteEquipItem() {
-        this.equippedItem = LkEquipItem.None;
-        this.equippedItemModel = null;
+        this.heldItem = LkEquipItem.None;
+        this.heldItemModel = null;
     }
 
     private setItemModel() {
-        if (!this.equippedItemModel) {
+        if (!this.heldItemModel) {
             return;
         }
 
         const handLJointMtx = this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.HandL];
         const handRJointMtx = this.model.shapeInstanceState.jointToWorldMatrixArray[LkJoint.HandR];
 
-        mat4.copy(this.equippedItemModel.modelMatrix, handLJointMtx);
-        this.equippedItemModel?.calcAnim();
+        mat4.copy(this.heldItemModel.modelMatrix, handLJointMtx);
+        this.heldItemModel?.calcAnim();
 
-        if (this.equippedItem === LkEquipItem.Sword) {
+        if (this.heldItem === LkEquipItem.Sword) {
             mat4.copy(this.modelSwordHilt.modelMatrix, handLJointMtx);
             this.modelSwordHilt.calcAnim();
         }
